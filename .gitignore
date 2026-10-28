@@ -1,0 +1,16 @@
+﻿.venv/
+__pycache__/
+out/
+cache/
+dist/
+build/
+*.mp4
+*.pyc
+
+tests/local_data/
+assets/logo/proposals/
+/data/
+/lab/
+.env
+*.zip
+

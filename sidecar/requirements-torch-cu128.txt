@@ -1,0 +1,2 @@
+# torch CUDA 12.8: la última build cu128 de Windows (PyTorch 2.12 la quitó); soporta sm_120 y CTranslate2 aún no soporta CUDA 13. Se instala con --index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0
