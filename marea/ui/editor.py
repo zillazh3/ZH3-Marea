@@ -1,14 +1,15 @@
-"""Editor: preview 9:16 en vivo, lista de versos con rango, pestañas de estilo/fondo/audio y envío a la cola de export."""
+"""Editor: preview 9:16 en vivo, lista de versos con rango, pestañas de estilo/fondo/cinemático/audio y envío a la cola de export."""
+import copy
 import ctypes
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QActionGroup, QFontDatabase, QPainter
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QSlider, QStackedWidget, QStyle,
-                               QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QSlider,
+                               QStackedWidget, QStyle, QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget)
 
 from marea.audio import align, local
 from marea.audio.loopback import AudioError
@@ -18,18 +19,27 @@ from marea.engine.motion import MODES as MOTION_MODES
 from marea.export import ffmpeg
 from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range, unique_path
 from marea.export.queue import AudioSpec, ExportQueue, QueueItem
+from marea.model.cinematic import (
+    DEFAULT_INTERVAL_MS,
+    MIN_INTERVAL_MS,
+    CinematicInterval,
+    CinematicTreatment,
+    compute_opening_trim_ms,
+    suggest_intervals,
+)
 from marea.paths import default_output_dir, reveal_in_folder  # noqa: F401  (se reexportan)
-from marea.project import ClipProject, load_cover, project_from_ttml
+from marea.project import ClipProject, ProjectError, load_cover, load_project_file, project_from_ttml, save_project
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import Track
+from marea.render.cinematic import VideoError, probe_video
 from marea.render.scene import Style
 from marea.ui import theme
 from marea.ui.net import run_async
 from marea.ui.preview import PreviewWidget
-from marea.ui.screens import EmptyState
+from marea.ui.screens import EmptyState, scrollable
 from marea.ui.waveform import WaveformWidget
 
-PANEL_W = 360
+PANEL_W = 404
 DEFAULT_VERSES = 6
 MARKERS = {"none": "Ninguno", "flash": "Flash de 1 frame", "beep": "Pitido de 120 ms (solo sin audio)"}
 MODES = {"lyrics": "Solo letra", "song": "Con canción", "full": "Canción completa"}
@@ -37,6 +47,8 @@ OUTROS = {"500": "0.5 s (corte seco)", "2000": "2 s", "4000": "4 s", "8000": "8 
 LOOPBACK_OFFSET_RANGE, LOCAL_OFFSET_RANGE = (-500, 500), (-3000, 3000)  # ms
 AUTO_RECORD_MS = 25_000  # cuánto de la canción se graba de Spotify para medir el desfase (más voz = estimación más segura)
 AUDIO_FILTER = "Audio (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus);;Todos los archivos (*.*)"
+VIDEO_FILTER = "Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v);;Todos los archivos (*.*)"
+PROJECT_FILTER = "Proyecto ZH3 Marea (*.marea.json);;Todos los archivos (*.*)"
 
 
 MOTION_LABELS = {"auto": "Auto (según la letra)", "onda": "Onda", "rebote": "Rebote", "respira": "Respira", "suave": "Suave",
@@ -204,12 +216,13 @@ class EditorPage(QWidget):
         tabs_card.setObjectName("Card")
         tl = QVBoxLayout(tabs_card)
         tl.setContentsMargins(theme.SPACE[3], theme.SPACE[2], theme.SPACE[3], theme.SPACE[3])
-        tabs = QTabWidget()
-        tabs.addTab(self._style_tab(), "Estilo")
-        tabs.addTab(self._background_tab(), "Fondo")
-        tabs.addTab(self._audio_tab(), "Audio")
-        tabs.addTab(self._watermark_tab(), "Marca de agua")
-        tl.addWidget(tabs)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._style_tab(), "Estilo")
+        self.tabs.addTab(self._background_tab(), "Fondo")
+        self.tabs.addTab(self._cinematic_tab(), "Cinemático")
+        self.tabs.addTab(self._audio_tab(), "Audio")
+        self.tabs.addTab(self._watermark_tab(), "Marca de agua")
+        tl.addWidget(self.tabs)
         right.addWidget(tabs_card, 2)
         container = QWidget()
         container.setFixedWidth(PANEL_W)
@@ -293,6 +306,130 @@ class EditorPage(QWidget):
         form.addRow("Artista", self.ed_artist)
         form.addRow("Portada", btn)
         return w
+
+    @staticmethod
+    def _dspin(lo: float, hi: float, val: float, step: float = 0.2) -> QDoubleSpinBox:
+        sp = QDoubleSpinBox()
+        sp.setRange(lo, hi)
+        sp.setDecimals(2)
+        sp.setSingleStep(step)
+        sp.setSuffix(" s")
+        sp.setValue(val)
+        return sp
+
+    def _cinematic_tab(self) -> QWidget:
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(0, theme.SPACE[3], theme.SPACE[1], 0)
+        lay.setSpacing(theme.SPACE[2])
+
+        top = QHBoxLayout()
+        self.cb_cinematic = QCheckBox("Activar fondo cinemático")
+        self.cb_cinematic.toggled.connect(self._cinematic_toggled)
+        self.btn_video = QPushButton("Importar video…")
+        self.btn_video.setObjectName("Ghost")
+        self.btn_video.setCursor(Qt.PointingHandCursor)
+        self.btn_video.clicked.connect(self._choose_video)
+        top.addWidget(self.cb_cinematic, 1)
+        top.addWidget(self.btn_video)
+        lay.addLayout(top)
+
+        self.lb_video_info = QLabel("Ningún video cargado. El audio del video se excluye siempre.")
+        self.lb_video_info.setObjectName("Caption")
+        self.lb_video_info.setWordWrap(True)
+        lay.addWidget(self.lb_video_info)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(theme.SPACE[2])
+        self.btn_suggest = QPushButton("Sugerir")
+        self.btn_suggest.setToolTip("Sugiere momentos usando interludios, pausas, acentos y cambios de energía")
+        self.btn_add_iv = QPushButton("+ Momento")
+        self.btn_add_iv.setToolTip("Crea un momento manual en la posición actual del preview")
+        self.btn_del_iv = QPushButton("Quitar")
+        self.btn_del_iv.setToolTip("Elimina el momento seleccionado")
+        for b, fn in ((self.btn_suggest, self._suggest_cinematic),
+                      (self.btn_add_iv, self._add_cinematic_interval),
+                      (self.btn_del_iv, self._remove_cinematic_interval)):
+            b.setObjectName("Ghost")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(fn)
+            actions.addWidget(b)
+        lay.addLayout(actions)
+
+        self.iv_list = QListWidget()
+        self.iv_list.setObjectName("Intervals")
+        self.iv_list.setMinimumHeight(88)
+        self.iv_list.setMaximumHeight(112)
+        self.iv_list.currentRowChanged.connect(self._on_interval_selected)
+        self.iv_list.itemDoubleClicked.connect(self._on_interval_double_clicked)
+        lay.addWidget(self.iv_list)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setVerticalSpacing(theme.SPACE[1])
+
+        self.sp_open_trim = self._dspin(0, 36000, 0)
+        self.sp_open_trim.setToolTip("Recorte inicial del video para igualar su duración con la pista musical")
+        self.sp_open_trim.valueChanged.connect(self._opening_trim_edited)
+        self.btn_open_auto = QPushButton("Auto")
+        self.btn_open_auto.setObjectName("Ghost")
+        self.btn_open_auto.setCursor(Qt.PointingHandCursor)
+        self.btn_open_auto.setToolTip("Calcula el recorte inicial usando las duraciones reales del video y del audio")
+        self.btn_open_auto.clicked.connect(self._auto_opening_trim)
+        open_row = QHBoxLayout()
+        open_row.setSpacing(theme.SPACE[1])
+        open_row.addWidget(self.sp_open_trim, 1)
+        open_row.addWidget(self.btn_open_auto)
+        form.addRow("Recorte inicial", open_row)
+
+        self.sp_iv_start, self.sp_iv_end = self._dspin(0, 36000, 0), self._dspin(0.2, 36000, 4.5)
+        self.sp_vid_start, self.sp_vid_end = self._dspin(0, 36000, 0), self._dspin(0, 36000, 4.5)
+        self.sp_fade_in, self.sp_fade_out = self._dspin(0, 15, 0.9, 0.1), self._dspin(0, 15, 1.1, 0.1)
+        for sp in (self.sp_iv_start, self.sp_iv_end, self.sp_vid_start, self.sp_vid_end, self.sp_fade_in, self.sp_fade_out):
+            sp.valueChanged.connect(self._interval_edited)
+
+        for label, a, b in (("Canción", self.sp_iv_start, self.sp_iv_end),
+                            ("Video", self.sp_vid_start, self.sp_vid_end),
+                            ("Fundidos", self.sp_fade_in, self.sp_fade_out)):
+            r = QHBoxLayout()
+            r.setSpacing(theme.SPACE[1])
+            sep = QLabel("→")
+            sep.setObjectName("Caption")
+            r.addWidget(a, 1)
+            r.addWidget(sep)
+            r.addWidget(b, 1)
+            form.addRow(label, r)
+
+        self.sl_cine_op, self.lb_cine_op = self._slider(20, 100, 100), QLabel("100 %")
+        self.sl_cine_blur, self.lb_cine_blur = self._slider(0, 100, 35), QLabel("35 %")
+        self.sl_cine_dim, self.lb_cine_dim = self._slider(0, 75, 32), QLabel("32 %")
+        self.sl_cine_vig, self.lb_cine_vig = self._slider(0, 100, 45), QLabel("45 %")
+        self.sl_cine_grain, self.lb_cine_grain = self._slider(0, 35, 8), QLabel("8 %")
+        self.sl_cine_sat, self.lb_cine_sat = self._slider(0, 140, 82), QLabel("82 %")
+        self.sl_cine_con, self.lb_cine_con = self._slider(60, 130, 92), QLabel("92 %")
+        self._cine_sliders = (
+            ("Opacidad", self.sl_cine_op, self.lb_cine_op),
+            ("Desenfoque", self.sl_cine_blur, self.lb_cine_blur),
+            ("Velo", self.sl_cine_dim, self.lb_cine_dim),
+            ("Viñeta", self.sl_cine_vig, self.lb_cine_vig),
+            ("Grano", self.sl_cine_grain, self.lb_cine_grain),
+            ("Saturación", self.sl_cine_sat, self.lb_cine_sat),
+            ("Contraste", self.sl_cine_con, self.lb_cine_con),
+        )
+        for name, sl, lb in self._cine_sliders:
+            r = QHBoxLayout()
+            lb.setObjectName("Caption")
+            lb.setMinimumWidth(42)
+            r.addWidget(sl, 1)
+            r.addWidget(lb)
+            form.addRow(name, r)
+            sl.valueChanged.connect(self._treatment_changed)
+
+        lay.addLayout(form)
+        lay.addStretch()
+        self._video_busy = False
+        self._suggest_gen = 0
+        return scrollable(inner)
 
     def _audio_tab(self) -> QWidget:
         w = QWidget()
@@ -413,6 +550,8 @@ class EditorPage(QWidget):
         self.encoder_actions = self._radio_submenu(m, "Codificador", {"cpu": "CPU (libx264, mejor compresión)",
                                                                       "nvenc": "NVIDIA NVENC (más rápido)"}, "export/encoder", "cpu")
         m.addSeparator()
+        m.addAction("Guardar proyecto…", self.save_project_dialog)
+        m.addAction("Abrir proyecto…", self.open_project_dialog)
         m.addAction("Reemplazar letra con .ttml…", self._replace_ttml)
         m.addAction("Carpeta de salida…", self._choose_folder)
         self.act_sync_sep = m.addSeparator()
@@ -468,8 +607,9 @@ class EditorPage(QWidget):
         self.btn_menu.setIcon(theme.icon("chevron-down", t.text_muted, 16))
 
     # ---------------- proyecto ----------------
-    def set_project(self, project: ClipProject):
+    def set_project(self, project: ClipProject, editor_state: dict | None = None):
         self.project = project
+        self._suggest_gen = 0
         self.style = Style(bloom=self.cb_bloom.isChecked(), title=project.title, artist=project.artist,
                            font_family=self.cmb_font.currentData() or "", credit=self.cb_credit.isChecked())
         self._apply_wm()
@@ -488,6 +628,8 @@ class EditorPage(QWidget):
         self.credit.setVisible(bool(credit))
         n = len(project.lyrics.lines)
         self.first, self.last, self._anchor = 0, min(n - 1, DEFAULT_VERSES - 1), 0
+        if editor_state:
+            self._restore_editor_controls(editor_state, n)
         self.subtitle.setText(self._title_text())
         self.stack.setCurrentIndex(1)
         self.btn_export.setEnabled(True)
@@ -495,7 +637,107 @@ class EditorPage(QWidget):
         self.preview.set_project(project, self.style, self.params, self._clip_range())
         self._range_changed(seek=False)
         self._pick_default_source()
+        if editor_state and editor_state.get("audio_source") in ("spotify", "local"):
+            idx = self.cmb_source.findData(editor_state["audio_source"])
+            if idx >= 0:
+                self.cmb_source.setCurrentIndex(idx)
+        self._refresh_cinematic_tab()
+        if project.audio_file and project.audio_samples is None and project.audio_file.is_file():
+            self._load_saved_audio(project, project.audio_file)
         self.project_changed.emit(self._title_text())
+
+    def editor_state(self) -> dict:
+        return {
+            "first": self.first,
+            "last": self.last,
+            "style": asdict(self.style),
+            "params": asdict(self.params),
+            "audio_source": self.cmb_source.currentData(),
+        }
+
+    def _restore_editor_controls(self, state: dict, n_lines: int):
+        if "first" in state and "last" in state and n_lines > 0:
+            f = max(0, min(n_lines - 1, int(state["first"])))
+            l = max(f, min(n_lines - 1, int(state["last"])))
+            self.first, self.last, self._anchor = f, l, f
+        st = state.get("style") or {}
+        pa = state.get("params") or {}
+        for w, val in ((self.cb_bloom, st.get("bloom")), (self.cb_credit, st.get("credit")),
+                       (self.cb_vib, pa.get("vib")), (self.cb_emph, pa.get("emph")), (self.cb_reduce, pa.get("reduce"))):
+            if isinstance(val, bool):
+                w.blockSignals(True)
+                w.setChecked(val)
+                w.blockSignals(False)
+        if "font_family" in st:
+            fi = self.cmb_font.findData(st["font_family"])
+            if fi >= 0:
+                self.cmb_font.blockSignals(True)
+                self.cmb_font.setCurrentIndex(fi)
+                self.cmb_font.blockSignals(False)
+        if "motion" in pa:
+            mi = self.cmb_motion.findData(pa["motion"])
+            if mi >= 0:
+                self.cmb_motion.blockSignals(True)
+                self.cmb_motion.setCurrentIndex(mi)
+                self.cmb_motion.blockSignals(False)
+        for sl, key, mul in ((self.sl_blur, "blurm", 10), (self.sl_wob, "wob", 100), (self.sl_amt, "motion_amt", 100)):
+            if key in pa:
+                sl.blockSignals(True)
+                sl.setValue(round(float(pa[key]) * mul))
+                sl.blockSignals(False)
+        blur, wob = self.sl_blur.value() / 10, self.sl_wob.value() / 100
+        self.lb_blur.setText(f"{blur:.1f}×")
+        self.lb_wob.setText(f"ζ {wob:.2f}")
+        self.lb_amt.setText(f"{self.sl_amt.value()} %")
+        self.params.vib, self.params.emph = self.cb_vib.isChecked(), self.cb_emph.isChecked()
+        self.params.blurm, self.params.wob = blur, wob
+        self.params.motion, self.params.motion_amt = self.cmb_motion.currentData(), self.sl_amt.value() / 100
+        self.params.reduce = self.cb_reduce.isChecked()
+        self.style.bloom = self.cb_bloom.isChecked()
+        self.style.credit = self.cb_credit.isChecked()
+        self.style.font_family = self.cmb_font.currentData() or ""
+
+    def _load_saved_audio(self, project: ClipProject, audio_path: Path):
+        def done(samples):
+            if self.project is project:
+                project.audio_samples = samples
+                self._sync_auto_opening_trim()
+                self._refresh_audio_tab()
+                self._refresh_cinematic_tab()
+
+        run_async(lambda: local.decode(audio_path), done, lambda _e: None)
+
+    def save_project_dialog(self):
+        if not self.project:
+            return
+        default_name = (self.project.project_path.name if self.project.project_path
+                        else f"{self.project.title or 'proyecto'}.marea.json")
+        start_dir = str((self.project.project_path.parent if self.project.project_path else self._output_dir()) / default_name)
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar proyecto", start_dir, PROJECT_FILTER)
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".marea.json"
+        try:
+            saved = save_project(self.project, path, editor_state=self.editor_state())
+        except OSError as e:
+            self.notify(f"No pude guardar el proyecto: {e}", "error")
+            return
+        self.notify(f"Proyecto guardado: {saved.name}", "ok")
+
+    def open_project_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir proyecto", "", PROJECT_FILTER)
+        if path:
+            self.open_project_path(path)
+
+    def open_project_path(self, path: str | Path) -> bool:
+        try:
+            project, state = load_project_file(path)
+        except (ProjectError, OSError) as e:
+            self.notify(str(e), "error")
+            return False
+        self.set_project(project, editor_state=state)
+        return True
 
     def _title_text(self) -> str:
         p = self.project
@@ -600,6 +842,299 @@ class EditorPage(QWidget):
             return
         self.set_project(replace(self.project, lyrics=lyrics, source=Path(path)))
 
+    # ---------------- fondo cinemático ----------------
+    def _selected_interval(self) -> CinematicInterval | None:
+        if not self.project:
+            return None
+        row = self.iv_list.currentRow()
+        ivs = self.project.cinematic.intervals
+        return ivs[row] if 0 <= row < len(ivs) else None
+
+    @staticmethod
+    def _fmt_interval_row(idx: int, iv: CinematicInterval) -> str:
+        return f"{idx + 1} · {fmt_ms(iv.start_ms)}–{fmt_ms(iv.end_ms)}  ←  video {fmt_ms(iv.video_start_ms)}–{fmt_ms(iv.video_end_ms)}"
+
+    def _sync_auto_opening_trim(self):
+        p = self.project
+        if not p or not p.cinematic.primary_video or not p.cinematic.auto_opening_trim:
+            return
+        res = p.cinematic.primary_video
+        p.cinematic.opening_trim_ms = compute_opening_trim_ms(res.duration_ms, self._song_duration_ms(), resource=res)
+
+    def _opening_trim_edited(self, *_):
+        p = self.project
+        if not p or not p.cinematic.primary_video:
+            return
+        res = p.cinematic.primary_video
+        max_open = max(0.0, float(res.duration_ms) - MIN_INTERVAL_MS) if res.duration_ms > 0 else 36_000_000.0
+        p.cinematic.auto_opening_trim = False
+        p.cinematic.opening_trim_ms = min(max_open, max(0.0, round(self.sp_open_trim.value() * 1000.0, 1)))
+        self._refresh_cinematic_tab()
+
+    def _auto_opening_trim(self):
+        p = self.project
+        if not p or not p.cinematic.primary_video:
+            return
+        p.cinematic.auto_opening_trim = True
+        self._sync_auto_opening_trim()
+        self._refresh_cinematic_tab()
+        self.notify(f"Recorte inicial ajustado a {fmt_ms(p.cinematic.opening_trim_ms)}.", "ok")
+
+    def _refresh_cinematic_tab(self, keep_id: str | None = None):
+        p = self.project
+        if not p:
+            return
+        cfg = p.cinematic
+        self.cb_cinematic.blockSignals(True)
+        self.cb_cinematic.setChecked(cfg.enabled)
+        self.cb_cinematic.blockSignals(False)
+
+        res = cfg.primary_video
+        self.btn_video.setText("Reemplazar video…" if res else "Importar video…")
+        if res:
+            fps_txt = f"{int(round(res.fps))} fps" if abs(res.fps - round(res.fps)) < 0.01 else f"{res.fps:.2f} fps"
+            trim_txt = f" · inicio +{fmt_ms(cfg.opening_trim_ms)}" if cfg.opening_trim_ms >= 50.0 else ""
+            missing = " · no encontrado" if not Path(res.path).is_file() else ""
+            self.lb_video_info.setText(
+                f"{Path(res.path).name} · {fmt_ms(res.duration_ms)} · {res.width}×{res.height} · {fps_txt}{trim_txt}{missing}"
+            )
+        else:
+            self.lb_video_info.setText("Ningún video cargado. El audio del video se excluye siempre.")
+
+        prev_id = keep_id or (self._selected_interval().id if self._selected_interval() else "")
+        self.iv_list.blockSignals(True)
+        self.iv_list.clear()
+        sel_row = -1
+        for i, iv in enumerate(cfg.intervals):
+            self.iv_list.addItem(self._fmt_interval_row(i, iv))
+            if iv.id == prev_id:
+                sel_row = i
+        if sel_row < 0 and cfg.intervals:
+            sel_row = 0
+        if sel_row >= 0:
+            self.iv_list.setCurrentRow(sel_row)
+        self.iv_list.blockSignals(False)
+
+        has_video = res is not None
+        self.btn_suggest.setEnabled(has_video)
+        self.btn_add_iv.setEnabled(has_video)
+        self.sp_open_trim.setEnabled(has_video)
+        self.btn_open_auto.setEnabled(has_video)
+        max_open_s = max(0.0, (res.duration_ms - MIN_INTERVAL_MS) / 1000.0) if (res and res.duration_ms > 0) else 36000.0
+        self.sp_open_trim.blockSignals(True)
+        self.sp_open_trim.setMaximum(max(0.2, max_open_s))
+        self.sp_open_trim.setValue(cfg.opening_trim_ms / 1000.0 if has_video else 0.0)
+        self.sp_open_trim.blockSignals(False)
+        self._sync_interval_controls()
+
+    def _sync_interval_controls(self):
+        p = self.project
+        iv = self._selected_interval()
+        has_iv = iv is not None
+        self.btn_del_iv.setEnabled(has_iv)
+        for sp in (self.sp_iv_start, self.sp_iv_end, self.sp_vid_start, self.sp_vid_end, self.sp_fade_in, self.sp_fade_out):
+            sp.setEnabled(has_iv)
+        res = p.cinematic.video_for(iv) if (p and iv) else (p.cinematic.primary_video if p else None)
+        max_v = res.duration_ms / 1000.0 if (res and res.duration_ms > 0) else 36000.0
+        if iv is not None:
+            for sp, val, hi in (
+                (self.sp_iv_start, iv.start_ms / 1000.0, 36000.0),
+                (self.sp_iv_end, iv.end_ms / 1000.0, 36000.0),
+                (self.sp_vid_start, iv.video_start_ms / 1000.0, max_v),
+                (self.sp_vid_end, iv.video_end_ms / 1000.0, max_v),
+                (self.sp_fade_in, iv.fade_in_ms / 1000.0, 15.0),
+                (self.sp_fade_out, iv.fade_out_ms / 1000.0, 15.0),
+            ):
+                sp.blockSignals(True)
+                sp.setMaximum(max(0.2, hi))
+                sp.setValue(val)
+                sp.blockSignals(False)
+        tr = (iv.treatment if iv is not None else (p.cinematic.default_treatment if p else CinematicTreatment())).clamped()
+        vals = (
+            round(tr.opacity * 100),
+            round(tr.blur * 100),
+            round(tr.dim * 100),
+            round(tr.vignette * 100),
+            round(tr.grain * 100),
+            round(tr.saturation * 100),
+            round(tr.contrast * 100),
+        )
+        for (_, sl, lb), v in zip(self._cine_sliders, vals):
+            sl.blockSignals(True)
+            sl.setValue(v)
+            sl.blockSignals(False)
+            lb.setText(f"{v} %")
+
+    def _cinematic_toggled(self, on: bool):
+        if not self.project:
+            return
+        self.project.cinematic.enabled = on
+        self.preview.update_cinematic()
+
+    def _choose_video(self):
+        if not self.project or self._video_busy:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Elegir video musical", "", VIDEO_FILTER)
+        if path:
+            self.import_video(path)
+
+    def import_video(self, path: str | Path):
+        """Inspecciona e importa (o reemplaza) el video en un hilo sin bloquear la interfaz."""
+        if not self.project or self._video_busy:
+            return
+        project = self.project
+        vid_id = project.cinematic.next_video_id()
+        had_video = project.cinematic.primary_video is not None
+        self._video_busy = True
+        self.btn_video.setEnabled(False)
+        self.notify("Inspeccionando el video…")
+
+        def done(resource):
+            self._video_busy = False
+            self.btn_video.setEnabled(True)
+            if self.project is not project:
+                return
+            project.cinematic.set_primary_video(resource)
+            self._sync_auto_opening_trim()
+            if not had_video:
+                project.cinematic.enabled = True
+            self._refresh_cinematic_tab()
+            self.preview.update_cinematic()
+            self.notify(f"Video listo: {Path(resource.path).name} ({resource.width}×{resource.height}).", "ok")
+
+        def failed(err):
+            self._video_busy = False
+            self.btn_video.setEnabled(True)
+            msg = str(err) if isinstance(err, VideoError) else "No pude abrir ese archivo de video."
+            self.notify(msg, "error")
+
+        run_async(lambda: probe_video(path, vid_id), done, failed)
+
+    def _suggest_cinematic(self):
+        p = self.project
+        if not p or not p.cinematic.primary_video:
+            self.notify("Importa primero un video para sugerir momentos.", "error")
+            return
+        self._sync_auto_opening_trim()
+        res = p.cinematic.primary_video
+        samples = p.audio_samples if self.cmb_source.currentData() == "local" else None
+        song_dur = self._song_duration_ms()
+        gen_seed = self._suggest_gen if self._suggest_gen > 0 else None
+        suggested = suggest_intervals(
+            p.lyrics,
+            res.duration_ms,
+            audio_samples=samples,
+            sample_rate=local.RATE,
+            audio_offset_ms=p.audio_offset_ms if samples is not None else 0.0,
+            range_ms=(0.0, song_dur),
+            treatment=p.cinematic.default_treatment,
+            video_id=res.id,
+            resource=res,
+            opening_trim_ms=p.cinematic.opening_trim_ms,
+            song_duration_ms=song_dur,
+            seed=gen_seed,
+        )
+        self._suggest_gen += 1
+        if not suggested:
+            self.notify("No encontré momentos claros en esta canción. Puedes añadir uno manual con «+ Momento».", "info")
+            return
+        p.cinematic.intervals = suggested
+        p.cinematic.enabled = True
+        c_start, c_end = self._clip_range()
+        focus_iv = next((iv for iv in suggested if iv.end_ms > c_start and iv.start_ms < c_end), suggested[0])
+        self._refresh_cinematic_tab(keep_id=focus_iv.id)
+        self.preview.update_cinematic()
+        self.notify(f"Se sugirieron {len(suggested)} momentos sincronizados con la canción.", "ok")
+
+    def _add_cinematic_interval(self):
+        p = self.project
+        if not p or not p.cinematic.primary_video:
+            return
+        c_start, c_end = self._clip_range()
+        cur_ms = self.preview.scene.engine.t * 1000.0 if self.preview.scene else c_start
+        start_ms = max(0.0, cur_ms)
+        end_ms = min(max(c_end, start_ms + MIN_INTERVAL_MS), start_ms + DEFAULT_INTERVAL_MS)
+        if end_ms - start_ms < MIN_INTERVAL_MS:
+            start_ms = max(0.0, end_ms - DEFAULT_INTERVAL_MS)
+        res = p.cinematic.primary_video
+        dur = end_ms - start_ms
+        open_ms = p.cinematic.opening_trim_ms
+        song_dur = max(1.0, self._song_duration_ms())
+        v_max = max(0.0, float(res.duration_ms or DEFAULT_INTERVAL_MS))
+        v_usable = max(0.0, v_max - open_ms - dur)
+        v_offset = open_ms + min(1.0, start_ms / max(1.0, song_dur - dur)) * v_usable if v_max > dur else 0.0
+        iv = p.cinematic.add_interval(start_ms, end_ms, video_start_ms=v_offset, video_end_ms=v_offset + dur)
+        p.cinematic.enabled = True
+        self._refresh_cinematic_tab(keep_id=iv.id)
+        self.preview.update_cinematic()
+
+    def _remove_cinematic_interval(self):
+        p, iv = self.project, self._selected_interval()
+        if not p or not iv:
+            return
+        p.cinematic.remove_interval(iv.id)
+        self._refresh_cinematic_tab()
+        self.preview.update_cinematic()
+
+    def _on_interval_selected(self, _row: int):
+        self._sync_interval_controls()
+
+    def _on_interval_double_clicked(self, _item):
+        iv = self._selected_interval()
+        if not iv or not self.project:
+            return
+        c_start, c_end = self._clip_range()
+        if c_start <= iv.start_ms <= c_end:
+            self.preview.seek(iv.start_ms - c_start)
+
+    def _interval_edited(self, *_):
+        p, iv = self.project, self._selected_interval()
+        if not p or not iv:
+            return
+        start_ms = round(self.sp_iv_start.value() * 1000.0, 1)
+        end_ms = round(self.sp_iv_end.value() * 1000.0, 1)
+        if end_ms < start_ms + 200.0:
+            end_ms = start_ms + 200.0
+            self.sp_iv_end.blockSignals(True)
+            self.sp_iv_end.setValue(end_ms / 1000.0)
+            self.sp_iv_end.blockSignals(False)
+        res = p.cinematic.video_for(iv)
+        max_v = float(res.duration_ms) if (res and res.duration_ms > 0) else 36_000_000.0
+        v_start = min(max_v, round(self.sp_vid_start.value() * 1000.0, 1))
+        v_end = min(max_v, max(v_start, round(self.sp_vid_end.value() * 1000.0, 1)))
+        if abs(v_end - self.sp_vid_end.value() * 1000.0) > 50:
+            self.sp_vid_end.blockSignals(True)
+            self.sp_vid_end.setValue(v_end / 1000.0)
+            self.sp_vid_end.blockSignals(False)
+        iv.start_ms, iv.end_ms = start_ms, end_ms
+        iv.video_start_ms, iv.video_end_ms = v_start, v_end
+        iv.fade_in_ms = round(self.sp_fade_in.value() * 1000.0, 1)
+        iv.fade_out_ms = round(self.sp_fade_out.value() * 1000.0, 1)
+        keep_id = iv.id
+        p.cinematic.sort_intervals()
+        self._refresh_cinematic_tab(keep_id=keep_id)
+        self.preview.update_cinematic()
+
+    def _treatment_changed(self, *_):
+        if not self.project:
+            return
+        tr = CinematicTreatment(
+            opacity=self.sl_cine_op.value() / 100.0,
+            blur=self.sl_cine_blur.value() / 100.0,
+            dim=self.sl_cine_dim.value() / 100.0,
+            vignette=self.sl_cine_vig.value() / 100.0,
+            grain=self.sl_cine_grain.value() / 100.0,
+            saturation=self.sl_cine_sat.value() / 100.0,
+            contrast=self.sl_cine_con.value() / 100.0,
+        ).clamped()
+        for _, sl, lb in self._cine_sliders:
+            lb.setText(f"{sl.value()} %")
+        self.project.cinematic.default_treatment = copy.copy(tr)
+        iv = self._selected_interval()
+        if iv is not None:
+            iv.treatment = tr
+        self.preview.update_cinematic()
+
     # ---------------- audio ----------------
     def _spotify_track(self) -> Track | None:
         """Pista que se grabaría: la del proyecto si vino de Spotify, o la que se vinculó de «ahora suena»."""
@@ -626,7 +1161,9 @@ class EditorPage(QWidget):
             self._link_playing()
             if not self._spotify_ready() and self.services and self.services.connected:
                 self.services.poll()  # puede que lo que suena aún no se haya consultado
+        self._sync_auto_opening_trim()
         self._refresh_audio_tab()
+        self._refresh_cinematic_tab()
 
     def _on_playback(self, _pb):
         if self.project and self.cmb_source.currentData() == "spotify":
@@ -674,7 +1211,9 @@ class EditorPage(QWidget):
         self.lb_offset.setText(f"{v:+d} ms")
         if self.cmb_source.currentData() == "local":
             self.project.audio_offset_ms = float(v)
+            self._sync_auto_opening_trim()
             self._refresh_wave()
+            self._refresh_cinematic_tab()
         else:
             self.settings.setValue("audio/loopback_offset_ms", v)
 
@@ -752,7 +1291,10 @@ class EditorPage(QWidget):
 
         def done(samples):
             project.audio_file, project.audio_samples = Path(path), samples
-            self._refresh_audio_tab()
+            if self.project is project:
+                self._sync_auto_opening_trim()
+                self._refresh_audio_tab()
+                self._refresh_cinematic_tab()
 
         run_async(lambda: local.decode(path), done,
                   lambda e: self.notify(str(e) if isinstance(e, AudioError) else "No pude leer ese archivo de audio.", "error"))
@@ -771,14 +1313,29 @@ class EditorPage(QWidget):
         preset = PRESETS.get(self.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])[0]
         self.summary.setText(f"{MODES[self.mode]} · {preset}")
 
-    def _full_end_ms(self) -> float:
+    def _song_duration_ms(self) -> float:
+        """Duración real de la pista musical activa (prioriza las muestras decodificadas del audio local)."""
         p = self.project
-        t = p.track or (self._spotify_track() if self.cmb_source.currentData() == "spotify" else None)
-        if t and t.duration_ms:
-            return float(t.duration_ms)
-        if p.audio_samples is not None and self.cmb_source.currentData() == "local":
-            return len(p.audio_samples) / local.RATE * 1000
-        return max(l.end for l in p.lyrics.lines) + TAIL_MS
+        if not p:
+            return float(TAIL_MS)
+        source = self.cmb_source.currentData()
+        if source == "local" and p.audio_samples is not None:
+            audio_ms = len(p.audio_samples) / local.RATE * 1000.0
+            return max(1000.0, audio_ms - p.audio_offset_ms)
+        if source == "spotify":
+            t = p.track or self._spotify_track()
+            if t and t.duration_ms:
+                return float(t.duration_ms)
+        if p.track and p.track.duration_ms:
+            return float(p.track.duration_ms)
+        if p.audio_samples is not None:
+            return max(1000.0, len(p.audio_samples) / local.RATE * 1000.0 - p.audio_offset_ms)
+        if p.lyrics.lines:
+            return float(max(l.end for l in p.lyrics.lines) + TAIL_MS)
+        return float(TAIL_MS)
+
+    def _full_end_ms(self) -> float:
+        return self._song_duration_ms()
 
     def build_job(self, start_ms: float | None = None, end_ms: float | None = None, full: bool = False) -> ExportJob:
         preset = PRESETS.get(self.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])
@@ -788,7 +1345,7 @@ class EditorPage(QWidget):
         return ExportJob(self.project.lyrics, self.project.cover_png(), unique_path(self._output_dir(), name), start_ms, end_ms,
                          size=(preset[1], preset[2]), fps=60, encoder=self.settings.value("export/encoder", "cpu"),
                          marker=self.settings.value("export/marker", "none"), params=replace(self.params),
-                         style=replace(self.style))
+                         style=replace(self.style), cinematic=copy.deepcopy(self.project.cinematic))
 
     def _audio_spec(self, start_ms: float, end_ms: float) -> AudioSpec | None:
         """Qué audio lleva el clip, o None (tras avisar qué falta) si no se puede."""

@@ -191,7 +191,9 @@ QScrollBar::handle:vertical {{ background: {t.border}; border-radius: 3px; min-h
 QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ height: 0; background: none; }}
 QSpinBox {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
     padding: {SPACE[2]}px {SPACE[3]}px; min-width: 80px; }}
-QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: none; }}
+QDoubleSpinBox {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
+    padding: {SPACE[1]}px {SPACE[2]}px; min-width: 64px; }}
+QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0; border: none; }}
 QLineEdit, QPlainTextEdit {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
     padding: {SPACE[2]}px {SPACE[3]}px; selection-background-color: {t.accent}; }}
 QLineEdit:focus, QPlainTextEdit:focus {{ border: {BORDER_PX}px solid {t.accent}; }}
@@ -218,6 +220,10 @@ QMenu::item:selected {{ background: {t.pill}; }}
 QMenu::item:disabled {{ color: {t.text_faint}; }}
 QMenu::separator {{ height: 1px; background: {t.border}; margin: {SPACE[1]}px {SPACE[2]}px; }}
 QListWidget {{ background: transparent; border: none; }}
+QListWidget#Intervals {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px; padding: {SPACE[1]}px; }}
+QListWidget#Intervals::item {{ padding: {SPACE[1]}px {SPACE[2]}px; border-radius: 6px; color: {t.text_muted}; }}
+QListWidget#Intervals::item:hover {{ background: {t.hover}; color: {t.text}; }}
+QListWidget#Intervals::item:selected {{ background: {t.pill}; color: {t.text}; }}
 QDialog, QMessageBox {{ background: {t.bg}; }}
 QFrame#Toast {{ background: {t.bg}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['card']}px; }}
 QFrame#Toast[kind="error"] {{ border: {BORDER_PX}px solid {t.danger}; }}

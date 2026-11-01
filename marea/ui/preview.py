@@ -16,11 +16,13 @@ SETTLE_MS = 1500  # tras un cambio estando en pausa se sigue dibujando hasta que
 class PreviewWidget(QWidget):
     position = Signal(float, float)  # ms dentro del rango, duración del rango (ms)
     playing_changed = Signal(bool)
+    _video_frame_ready = Signal()
 
-    def __init__(self, parent=None, prefer_gpu: bool = True):
+    def __init__(self, parent=None, prefer_gpu: bool = True, async_video: bool = True):
         super().__init__(parent)
         self.setMinimumSize(180, 320)
-        self._prefer_gpu, self.ctx, self.scene, self._surface = prefer_gpu, None, None, None
+        self._prefer_gpu, self._async_video = prefer_gpu, async_video
+        self.ctx, self.scene, self._surface = None, None, None
         self._project, self._style, self._params = None, Style(), Params()
         self._range = (0.0, 1.0)
         self.playing, self._frame, self._image = False, None, None
@@ -28,6 +30,7 @@ class PreviewWidget(QWidget):
         self._clock = QElapsedTimer()
         self._timer = QTimer(self, interval=8, timerType=Qt.PreciseTimer)  # el tick real lo marca el reloj, no el timer
         self._timer.timeout.connect(self._tick)
+        self._video_frame_ready.connect(self._on_video_frame_ready, Qt.QueuedConnection)
 
     # ---- configuración ----
     def set_project(self, project, style: Style, params: Params, range_ms: tuple[float, float]):
@@ -40,10 +43,22 @@ class PreviewWidget(QWidget):
         if not self._project:
             return
         offset = self.scene.engine.t * 1000 - self._range[0] if self.scene else 0.0
+        if self.scene is not None:
+            self.scene.close()
         if self.ctx is None:
             self.ctx = make_context(self._prefer_gpu)
         size = (540, 960) if self.ctx.gpu else (270, 480)  # en CPU, menos resolución para que siga fluida
-        self.scene = Scene(self._project.lyrics, self._project.cover, size, self._params, self._style, gpu=self.ctx.gpu)
+        self.scene = Scene(
+            self._project.lyrics,
+            self._project.cover,
+            size,
+            self._params,
+            self._style,
+            gpu=self.ctx.gpu,
+            cinematic=getattr(self._project, "cinematic", None),
+            async_video=self._async_video,
+            on_video_frame=self._video_frame_ready.emit,
+        )
         self._surface = self.ctx.make_surface(*size)
         self.seek(offset)
 
@@ -52,9 +67,29 @@ class PreviewWidget(QWidget):
         self.seek(0)
 
     def refresh(self):
-        """Cambió algo solo visual (título, bloom): volver a dibujar aunque esté en pausa."""
+        """Cambió algo solo visual (título, bloom, fondo cinemático): volver a dibujar aunque esté en pausa."""
         if self.scene:
+            if not self.playing:
+                self._render()
             self._wake()
+
+    def update_cinematic(self):
+        """Cambió la configuración cinemática (intervalos, tratamiento o video): actualiza sin reiniciar springs."""
+        if self.scene and self._project is not None:
+            self.scene.set_cinematic(getattr(self._project, "cinematic", None))
+            if not self.playing:
+                self._render()
+            self._wake()
+
+    def wait_video(self, timeout: float = 5.0):
+        """Espera a que la pre-carga asíncrona complete los bloques pedidos y redibuja el instante actual."""
+        if self.scene and self.scene.cinematic_bg is not None:
+            self.scene.cinematic_bg.wait_idle(timeout)
+            self._render()
+
+    def _on_video_frame_ready(self):
+        if self.scene and not self.playing:
+            self._render()
 
     def restyle(self):
         """Cambiaron parámetros del motor o del estilo: re-layout sin cortar la animación."""
@@ -127,6 +162,9 @@ class PreviewWidget(QWidget):
 
     def shutdown(self):
         self._timer.stop()
+        if self.scene is not None:
+            self.scene.close()
+            self.scene = None
         if self.ctx:
             self.ctx.close()
             self.ctx = None

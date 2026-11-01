@@ -2,6 +2,7 @@
 import ctypes
 import sys
 from ctypes import wintypes
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QSettings, Qt
 from PySide6.QtGui import QCursor, QGuiApplication, QImage, QKeySequence, QPainter, QShortcut
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QP
 
 from marea.export.queue import ExportQueue
 from marea.paths import make_settings, reveal_in_folder
-from marea.project import ClipProject, demo_project, project_from_ttml
+from marea.project import ClipProject, ProjectError, demo_project, load_project_file, project_from_ttml
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import Track
 from marea.ui import theme
@@ -157,7 +158,7 @@ class MainWindow(QWidget):
         self.services = services or Services(self.settings)
         self.queue = ExportQueue(self.services, self)
         self.editor = EditorPage(self.settings, self.toast, self.queue, self.services, prefer_gpu=gpu)
-        self.editor.project_changed.connect(self.set_song)
+        self.editor.project_changed.connect(self._on_editor_project_changed)
         goto = lambda i: (self.sidebar.select(i), self.pages.set_page(i))
         self.editor.enqueued.connect(lambda _: self.toast("Añadido a la cola de exportaciones.", "info", ("Ver cola", lambda: goto(4))))
         self.queue.item_done.connect(lambda it: self.toast(f"Listo: {it.out_path.name}", "ok",
@@ -198,6 +199,11 @@ class MainWindow(QWidget):
         self.sidebar.set_collapsed(self._pref_collapsed or self._narrow, animate=False)
 
     # ---- API ----
+    def _on_editor_project_changed(self, title: str | None):
+        self.set_song(title)
+        if self.editor.project is not None:
+            self.set_cover(qimage_from_skia(self.editor.project.cover))
+
     def set_song(self, title: str | None):
         self.titlebar.title.set_full_text(title or APP_NAME)
 
@@ -205,13 +211,27 @@ class MainWindow(QWidget):
         return self.toasts.show_toast(text, kind, action)
 
     def open_ttml(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir letra", "", "Letras TTML (*.ttml *.xml)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Abrir letra o proyecto", "", "Letras TTML o proyectos (*.ttml *.xml *.marea.json)"
+        )
         if not path:
+            return
+        if path.lower().endswith(".json"):
+            self.open_project_file(path)
             return
         try:
             self.load_project(project_from_ttml(path))
         except (ValueError, OSError) as e:
             self.toast(f"No pude abrir esa letra: {e} Usa un .ttml de Apple Music con tiempos por sílaba.", "error")
+
+    def open_project_file(self, path: str | Path) -> bool:
+        try:
+            project, state = load_project_file(path)
+        except (ProjectError, OSError) as e:
+            self.toast(str(e), "error")
+            return False
+        self.load_project(project, editor_state=state)
+        return True
 
     def open_track(self, track: Track):
         """Una canción de Spotify: busca su letra y portada y abre el Editor."""
@@ -226,9 +246,9 @@ class MainWindow(QWidget):
     def load_demo(self):
         self.load_project(demo_project())
 
-    def load_project(self, project: ClipProject):
+    def load_project(self, project: ClipProject, editor_state: dict | None = None):
         self.set_cover(qimage_from_skia(project.cover))
-        self.editor.set_project(project)
+        self.editor.set_project(project, editor_state=editor_state)
         self.sidebar.select(3)
         self.pages.set_page(3)
 
