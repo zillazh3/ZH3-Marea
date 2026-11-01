@@ -4,7 +4,7 @@ import sys
 from ctypes import wintypes
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSettings, Qt
+from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QImage, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -164,12 +164,14 @@ class MainWindow(QWidget):
         self.queue.item_done.connect(lambda it: self.toast(f"Listo: {it.out_path.name}", "ok",
                                                            ("Abrir carpeta", lambda: reveal_in_folder(str(it.out_path)))))
         self.queue.item_failed.connect(lambda it: self.toast(f"No pude exportar «{it.title}»: {it.error}", "error"))
+        self.settings_body = SettingsBody(self.settings, self.set_theme, self.services, self.toast)
+        self.settings_scroll = scrollable(self.settings_body)
         for p in (HomePage(self.services, self.open_track, self.open_ttml, self.load_demo, lambda: goto(5), self.queue),
                   SearchPage(self.services, self.open_track, lambda: goto(5), self.toast),
                   Page("Biblioteca", EmptyState("library", "Tu biblioteca está vacía", "Aquí aparecerán las letras y los clips que guardes.")),
                   self.editor,
                   ExportsPage(self.queue),
-                  Page("Ajustes", scrollable(SettingsBody(self.settings, self.set_theme, self.services, self.toast)))):
+                  Page("Ajustes", self.settings_scroll)):
             self.pages.addWidget(p)
         body.addWidget(self.sidebar)
         body.addWidget(self.pages, 1)
@@ -199,6 +201,18 @@ class MainWindow(QWidget):
         self.sidebar.set_collapsed(self._pref_collapsed or self._narrow, animate=False)
 
     # ---- API ----
+    def open_lab_model_settings(self, model_id: str):
+        self.sidebar.select(5)
+        self.pages.set_page(5)
+        panel = self.settings_body._lab_panel
+        target = self.settings_body.cb_align
+        if panel is not None:
+            panel.refresh()
+            target = panel.rows[model_id][1]
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(0, lambda: (self.settings_scroll.ensureWidgetVisible(target), target.setFocus()))
+
     def _on_editor_project_changed(self, title: str | None):
         self.set_song(title)
         if self.editor.project is not None:
@@ -294,6 +308,10 @@ class MainWindow(QWidget):
     def changeEvent(self, e):
         if e.type() == QEvent.WindowStateChange:
             self.titlebar.btn_max.set_icon_name("copy" if self.isMaximized() else "square")
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and hasattr(self, "settings_body"):
+            panel = self.settings_body._lab_panel
+            if panel is not None:
+                panel.refresh()
         super().changeEvent(e)
 
     def closeEvent(self, e):

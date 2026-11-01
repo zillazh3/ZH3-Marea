@@ -161,7 +161,12 @@ exactamente igual y no carga nada de esto.
 - **Qué esperar:** funciona muy bien con voz clara (~92–97 % de inicios de palabra a ±100 ms) y mucho mejor con **separar la voz** en música densa,
   pero **no es mágico**: en rock saturado o voces muy arrastradas queda por debajo y la app te lo dice marcando más unidades para revisar. Solo
   español e inglés por ahora.
-- **Licencias:** los pesos de separación de voz vienen de un repositorio comunitario **sin licencia declarada**: solo para tus pruebas.
+- **Model download:** under **Settings → Experimental features**, install the optional environment, then click **Download** for
+  **Lead/backing vocals · Karaoke (0.9 GB)** and **BS-Roformer** if needed. The synchronization window's **Download model in Settings**
+  button opens the row without losing your draft. Assets live in the configured lab's `separator-models` folder (by default
+  `data/lab/separator-models` beside the EXE). Cancellation and retry preserve installed models; no download starts automatically.
+- **Licenses:** audio-separator code is MIT licensed; model weight permissions remain unresolved. Review the
+  [karaoke licensing question](https://github.com/Anjok07/ultimatevocalremovergui/issues/2295) before downloading. Weights are not bundled.
 
 ## 🔐 Seguridad y datos
 

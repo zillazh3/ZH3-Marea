@@ -39,6 +39,7 @@ COMPONENTS = [
     ("Alineación · inglés", "hf", "facebook/wav2vec2-base-960h", "fetch_model", {"lang": "en"}, "0.4 GB"),
     ("Transcripción · Whisper large-v3-turbo", "hf", "mobiuslabsgmbh/faster-whisper-large-v3-turbo", "fetch_asr", {}, "1.6 GB"),
     ("Separación de voz · BS-Roformer", "sep", env.SEPARATION_MODEL, "fetch_separator", {}, "0.6 GB"),
+    ("Lead/backing vocals · Karaoke", "sep", env.KARAOKE_MODEL, "fetch_separator", {"model": env.KARAOKE_MODEL}, "0.9 GB"),
 ]
 
 
@@ -134,6 +135,9 @@ class Runner(QObject):
         self._queue.clear()
         if self._cmd is not None:
             self.client.cancel()
+        else:
+            self.client.stop()
+            self.cancelled.emit()
 
     def close(self):
         self._queue.clear()
@@ -449,6 +453,12 @@ class LabSettingsPanel(QWidget):
         self.btn_cancel.clicked.connect(self.cancel)
         lay.addWidget(self.status)
         lay.addLayout(row)
+        note = QLabel(f"Model folder: {self.root / 'separator-models'}\n"
+                      "audio-separator code is MIT licensed. Model weight permissions remain unresolved, including the karaoke model. "
+                      "Review the model terms before clicking Download. Weights are stored separately; downloads start only on request.")
+        note.setObjectName("Caption")
+        note.setWordWrap(True)
+        lay.addWidget(note)
         self.rows = {}
         for name, kind, ident, cmd, params, size in COMPONENTS:
             r = QHBoxLayout()
@@ -465,12 +475,7 @@ class LabSettingsPanel(QWidget):
             r.addWidget(btn)
             lay.addLayout(r)
             self.rows[ident] = (state, btn)
-        note = QLabel("Todo se instala dentro de la carpeta «lab» de la app: borrarla lo desinstala. Los pesos de separación de voz vienen de un "
-                      "repositorio comunitario sin licencia declarada: úsalos solo para tus propias pruebas. Nada se descarga sin que lo pidas.")
-        note.setObjectName("Caption")
-        note.setWordWrap(True)
         lay.addWidget(self.progress)
-        lay.addWidget(note)
         self.refresh()
 
     @property
@@ -531,6 +536,7 @@ class LabSettingsPanel(QWidget):
         self._runner.stage.connect(self.progress.setText)
         self._runner.done.connect(lambda c, d: (self._finished(f"{name}: listo.", "ok"), self._runner.close()))
         self._runner.failed.connect(lambda c, msg: (self._failed(RuntimeError(msg)), self._runner.close()))
+        self._runner.cancelled.connect(lambda: (self._failed(env.InstallCancelled()), self._runner.close()))
         self.progress.setText(f"Descargando {name}… (puede tardar varios minutos)")
         self._runner.ask(cmd, **params)
         self.refresh()
@@ -686,10 +692,16 @@ class LabReviewWindow(QWidget):
         self.cb_sep = QCheckBox("Separar la voz antes de alinear (más preciso en música con mucho acompañamiento; ~1.5 min por canción)")
         self.cb_sep.setChecked(env.separator_model_ready(self.root) and env.separation_installed(self.root))
         cl.addWidget(self.cb_sep)
-        self.cb_layers = QCheckBox("Separate lead/backing vocals (local opt-in models; role suggestions require review)")
+        self.cb_layers = QCheckBox("Separate lead/backing vocals (local models; review required)")
         self.cb_layers.setChecked(False)
         self.cb_layers.setToolTip("Supply both weights and their configs in lab/separator-models. No weights are bundled or downloaded by this option.")
-        cl.addWidget(self.cb_layers)
+        layer_row = QHBoxLayout()
+        layer_row.addWidget(self.cb_layers, 1)
+        self.btn_layer_models = QPushButton("Download model in Settings")
+        self.btn_layer_models.setObjectName("Ghost")
+        self.btn_layer_models.clicked.connect(lambda: self.editor.window().open_lab_model_settings(env.KARAOKE_MODEL))
+        layer_row.addWidget(self.btn_layer_models)
+        cl.addLayout(layer_row)
         self.lb_layers_status = QLabel()
         self.lb_layers_status.setObjectName("Muted")
         self.lb_layers_status.setWordWrap(True)
@@ -888,6 +900,7 @@ class LabReviewWindow(QWidget):
                                      + f"Model folder: {self.root / 'separator-models'}" if problem else "")
         self.lb_layers_status.setToolTip(problem or "")
         self.lb_layers_status.setVisible(problem is not None)
+        self.btn_layer_models.setVisible(problem is not None)
 
     def changeEvent(self, event):
         super().changeEvent(event)

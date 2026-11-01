@@ -11,7 +11,25 @@ performance or to its TTML parent.
 Enable **Separate lead/backing vocals** explicitly in the experimental review
 window. It is off by default. Supply the following assets separately in the
 configured laboratory's `separator-models` directory, with their matching model
-configuration/catalog assets required by audio-separator.
+configuration/catalog assets required by audio-separator, or install them using
+**Settings → Experimental features**. Enable the experimental interface, install
+the base environment, then use the existing **Download** control for
+**Lead/backing vocals · Karaoke (0.9 GB)**. Download **BS-Roformer** separately if
+it is missing. The optional separator package is installed only after confirmation.
+
+The unavailable synchronization option has a **Download model in Settings**
+button. It opens and scrolls to the model row without closing the review or
+discarding its draft. Navigation does not start a download. The configured model
+folder is shown in Settings and synchronization; by default it is
+`data/lab/separator-models` beside the portable executable.
+
+Download workers require an explicit click and internet access. They stage the
+weights, matching YAML, and offline catalog in a private temporary directory,
+validate them, and publish weights last. Cancelled or failed downloads remain
+unavailable and can be retried without replacing a complete installed model.
+Both nonempty weights and matching YAML are required for readiness. Returning
+to synchronization refreshes availability without selecting separation or
+starting transcription. No model weights are included in the EXE, ZIP, or Git.
 
 When required components are missing, the option is unavailable and the review
 window shows the actual model folder. Hover over the option or setup message for
@@ -111,7 +129,7 @@ TTML preservation. Reference/golden fixtures were not edited.
 [audio-separator code is MIT licensed](https://github.com/nomadkaraoke/python-audio-separator/blob/v0.47.1/LICENSE).
 That license does not establish permission for every model's weights. The
 [karaoke-weight licensing question remains open](https://github.com/Anjok07/ultimatevocalremovergui/issues/2295).
-Neither BS-Roformer nor karaoke weights are bundled or redistributed. Supplying
+Neither BS-Roformer nor karaoke weights are bundled or redistributed. Downloading or supplying
 weights locally does not resolve their license; verify permissions before use
 or distribution.
 
