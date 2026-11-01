@@ -10,7 +10,9 @@ from dataclasses import dataclass
 import skia
 
 from marea.engine.engine import Engine, Params
+from marea.model.cinematic import CinematicConfig
 from marea.render.background import Background
+from marea.render.cinematic import CinematicBackground
 from marea.render.text import (BG_PAD_TOP, CREDIT_GAP_TOP, LINE_H, PAD_L, PAD_R, PAD_V, Fonts, ItemLayout, layout_credit)
 
 DESIGN_PX = 42.0
@@ -55,13 +57,19 @@ def _paint(**kw) -> skia.Paint:
 
 class Scene:
     def __init__(self, lyrics, cover: skia.Image, size=(1080, 1920), params: Params | None = None,
-                 style: Style | None = None, gpu: bool = False):
+                 style: Style | None = None, gpu: bool = False, cinematic: CinematicConfig | None = None,
+                 async_video: bool = False, on_video_frame=None):
         """gpu=True si el canvas es de una superficie GPU (`marea.render.gpu`); la portada debe estar en ese contexto."""
         self.w, self.h = size
         self.style = style or Style()
         self.cover = cover
         self.fonts = Fonts(self.style.font_family)
         self.bg = Background(cover, self.w, self.h, lowres=1 if gpu else 4)
+        self._async_video = async_video
+        self._on_video_frame = on_video_frame
+        self.cinematic_bg: CinematicBackground | None = None
+        if cinematic is not None:
+            self.set_cinematic(cinematic)
         # medidas relativas a `ref` (el ancho en 9:16): sirven igual para 1080x1080 y 1920x1080
         self.ref = min(self.w, 0.8 * self.h)
         self.size = self.style.font_frac * self.ref
@@ -76,6 +84,22 @@ class Scene:
         self._layouts = {}
         self.clip_start_ms: float | None = None  # inicio del clip: la marca de agua entra con fundido desde ahí
 
+    def set_cinematic(self, cinematic: CinematicConfig | None):
+        if cinematic is None:
+            if self.cinematic_bg is not None:
+                self.cinematic_bg.close()
+                self.cinematic_bg = None
+            return
+        if self.cinematic_bg is None:
+            self.cinematic_bg = CinematicBackground(cinematic, self.w, self.h, async_video=self._async_video,
+                                                    on_frame_ready=self._on_video_frame)
+        else:
+            self.cinematic_bg.set_config(cinematic)
+
+    def close(self):
+        if self.cinematic_bg is not None:
+            self.cinematic_bg.close()
+
     # ---- layout ----
     def _layout(self, item) -> ItemLayout:
         lay = self._layouts.get(id(item))
@@ -83,14 +107,18 @@ class Scene:
             lay = self._layouts[id(item)] = ItemLayout(item, self.fonts, self.size, self.stage.width())
         return lay
 
+    # ---- dibujo ----
     def _measure(self, line, active):
         lay = self._layout(self._by_line[id(line)])
         return lay.h_active if active else lay.h_inactive
 
-    # ---- dibujo ----
     def render(self, canvas: skia.Canvas):
         e, st = self.engine, self.stage
-        self.bg.draw(canvas, e.t)
+        if self.cinematic_bg is not None and self.cinematic_bg.active_at(e.t * 1000.0):
+            lyric_act = max((L.act for L in e.items if not (L.is_gap or L.is_credit)), default=0.0)
+            self.cinematic_bg.draw(canvas, self.bg, e.t, lyric_act)
+        else:
+            self.bg.draw(canvas, e.t)
         self._header(canvas)
         canvas.save()
         canvas.clipRect(st)
@@ -126,7 +154,7 @@ class Scene:
             lay = self._layout(L)
             top = self.stage.top() + L.y.p
             v = (min(top + L.h, box.bottom() + m) - max(top, box.top() - m)) / (box.height() + 2 * m)
-            tw = max(lay.main_w)
+            tw = max(lay.main_w or lay.bg_w, default=0.0)
             x1 = self.stage.left() + (lay.width - lay.pad_r if L.duet else lay.pad_l + tw)
             hx = (min(x1, box.right() + m) - max(x1 - tw, box.left() - m)) / (0.5 * box.width())
             worst = max(worst, L.act * min(1.0, max(0.0, v)) * min(1.0, max(0.0, hx)))

@@ -51,6 +51,8 @@ class Fonts:
 
 def layout_block(words, fonts: Fonts, size: float, avail: float):
     """Salto de línea voraz entre palabras -> (filas [(palabra, x, ancho)], ancho de cada fila)."""
+    if not words:
+        return [], []
     space = fonts.text(" ", size)[1]
     rows, widths = [[]], [0.0]
     for w in words:

@@ -257,7 +257,7 @@ class Engine:
     def _find_live(self, a):
         """El scroll sigue a `a`, pero una línea anterior cuya voz de fondo aún canta (Line.end la incluye) sigue viva."""
         # ponytail: solo mira 3 líneas atrás; subir si hay x-bg que se extienda más allá
-        return frozenset([a] + [i for i in range(max(0, a - 3), a) if self.items[i].kind == "line" and self.t < self.items[i].end and self.items[i].end > self.items[a].start])
+        return frozenset([a] + [i for i in range(0, a) if self.items[i].kind == "line" and self.t < self.items[i].end and self.items[i].end > self.items[a].start])
 
     def _relayout(self, reason, now):
         P, items, active = self.p, self.items, self.active

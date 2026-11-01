@@ -137,6 +137,7 @@ class ExportQueue(QObject):
         n = min(round(a.fade_out_ms / 1000 * rate), len(samples))
         if n > 0:
             samples[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)[:, None]
+        item._audio_duration_ms = len(samples) / max(1, rate) * 1000.0
         fd, name = tempfile.mkstemp(suffix=".wav", prefix="marea_audio_")
         os.close(fd)
         local.write_wav(name, samples, rate)  # sobrescribe el archivo temporal vacío
@@ -145,6 +146,9 @@ class ExportQueue(QObject):
     def _audio_ready(self, item: QueueItem, wav: Path):
         item.wav = wav
         item.job.audio_path = wav
+        dur_ms = getattr(item, "_audio_duration_ms", 0.0)
+        if dur_ms > 0.0:
+            item.job.end_ms = item.job.start_ms + dur_ms
         if item.cancel_event.is_set():
             return self._finish(item, CANCELLED, "Cancelado")
         self._render(item)

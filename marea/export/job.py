@@ -10,6 +10,7 @@ import skia
 
 from marea.engine.engine import Params
 from marea.export.ffmpeg import FfmpegWriter
+from marea.model.cinematic import CinematicConfig
 from marea.model.lyrics import Lyrics
 from marea.render.gpu import make_context
 from marea.render.scene import Scene, Style
@@ -39,6 +40,7 @@ class ExportJob:
     style: Style = field(default_factory=Style)
     prefer_gpu: bool = True
     audio_path: Path | None = None  # WAV ya recortado al tramo (con fundidos); el pitido solo aplica sin audio
+    cinematic: CinematicConfig = field(default_factory=CinematicConfig)
 
     @property
     def frames(self) -> int:
@@ -74,9 +76,11 @@ def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
     """Frames RGBA (alto, ancho, 4) del clip. Paso fijo de 1/fps: mismo trabajo => mismos píxeles."""
     own = ctx is None
     ctx = ctx or make_context(job.prefer_gpu)
+    scene = None
     try:
         cover = skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(job.cover_png))
-        scene = Scene(job.lyrics, cover, job.size, job.params, Style(**vars(job.style)), gpu=ctx.gpu)
+        scene = Scene(job.lyrics, cover, job.size, job.params, Style(**vars(job.style)), gpu=ctx.gpu,
+                      cinematic=job.cinematic)
         scene.clip_start_ms = job.start_ms
         surface = ctx.make_surface(*job.size)
         canvas = surface.getCanvas()
@@ -91,6 +95,8 @@ def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
                 frame = np.full_like(frame, 255)
             yield frame
     finally:
+        if scene is not None:
+            scene.close()
         if own:
             ctx.close()
 
