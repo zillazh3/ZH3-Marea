@@ -45,7 +45,12 @@ def main():
     ap.add_argument("--zip", action="store_true", help="create a versioned portable ZIP in dist/")
     ap.add_argument("--no-verify", action="store_true", help="omite la verificación del ícono (abre la app un momento)")
     args = ap.parse_args()
-    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "marea.spec"], cwd=ROOT, check=True)
+    build_env = dict(os.environ)
+    windows_dir = Path(os.environ["SYSTEMROOT"])
+    # Foreign tools can shadow Windows ICU with an incompatible DLL during collection.
+    build_env["PATH"] = os.pathsep.join((str(Path(sys.executable).parent), str(windows_dir / "System32"), str(windows_dir)))
+    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "marea.spec"],
+                   cwd=ROOT, env=build_env, check=True)
     ffmpeg = os.environ.get("MAREA_FFMPEG") or shutil.which("ffmpeg")
     if not ffmpeg:
         sys.exit("No encontré ffmpeg para empaquetar: ponlo en el PATH o define MAREA_FFMPEG.")
