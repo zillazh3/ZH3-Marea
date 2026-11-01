@@ -11,6 +11,8 @@ INTRO_MS = 1200  # la intro muestra los puntos desde aquí (como Apple Music); l
 
 TT = "{http://www.w3.org/ns/ttml}"
 TTM = "{http://www.w3.org/ns/ttml#metadata}"
+MAREA_URI = "https://zh3.marea/ns/ttml"
+MAREA = f"{{{MAREA_URI}}}"
 
 
 @dataclass
@@ -26,6 +28,8 @@ class BgVocal:
     start: int
     end: int
     syllables: list[Syllable] = field(default_factory=list)
+    role: str = "backing"
+    agent: str = ""
 
 
 @dataclass
@@ -36,6 +40,8 @@ class Line:
     syllables: list[Syllable] = field(default_factory=list)
     bg: list[BgVocal] = field(default_factory=list)
     approx: bool = False  # tiempos por sílaba repartidos a partir de una línea
+    role: str = ""
+    raw_agent: str = ""
 
     @property
     def text(self) -> str:
@@ -145,11 +151,14 @@ def _bg_vocal(span) -> BgVocal | None:
     syls = _timed_spans(span, bg=True)
     if not syls and span.get("begin") and span.get("end"):  # voz de fondo con tiempo solo por línea
         text = " ".join("".join(span.itertext()).strip("() \n").split())
-        syls = spread(text, parse_time(span.get("begin")), parse_time(span.get("end")))
+        if text:
+            syls = spread(text, parse_time(span.get("begin")), parse_time(span.get("end")))
     if not syls:
         return None
+    role = span.get(f"{MAREA}role") or "backing"
+    agent = span.get(f"{TTM}agent") or ""
     return BgVocal(parse_time(span.get("begin")) if span.get("begin") else syls[0].begin,
-                   parse_time(span.get("end")) if span.get("end") else syls[-1].end, syls)
+                   parse_time(span.get("end")) if span.get("end") else syls[-1].end, syls, role=role, agent=agent)
 
 
 def _agent(raw: str | None, agents: dict) -> str:
@@ -168,12 +177,18 @@ def _parse_p(p, agents: dict) -> Line | None:
         text = _plain_text(p)
         if text and start is not None and end is not None:
             syls, approx = spread(text, start, end), True
-    if not syls:
-        return None
     bg = [b for s in p if s.tag == f"{TT}span" and _role(s) == "x-bg" and (b := _bg_vocal(s))]
-    start = syls[0].begin if start is None else start
-    end = max([syls[-1].end if end is None else end] + [b.end for b in bg])
-    return Line(start, end, _agent(p.get(f"{TTM}agent"), agents), syls, bg, approx)
+    if not syls and not bg:
+        return None
+    raw_ag = p.get(f"{TTM}agent") or (bg[0].agent if not syls and bg else "") or ""
+    mrole = p.get(f"{MAREA}role") or (bg[0].role if not syls and bg else "")
+    if syls:
+        start = min([syls[0].begin if start is None else start] + [b.start for b in bg])
+        end = max([syls[-1].end if end is None else end] + [b.end for b in bg])
+    else:
+        start = min([b.start for b in bg] + ([start] if start is not None else []))
+        end = max([b.end for b in bg] + ([end] if end is not None else []))
+    return Line(start, end, _agent(raw_ag or None, agents), syls, bg, approx, role=mrole, raw_agent=raw_ag)
 
 
 def parse_ttml(source: str | bytes) -> Lyrics:
