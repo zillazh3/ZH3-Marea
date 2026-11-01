@@ -99,11 +99,12 @@ def _vowel(rec: dict, spans: list[TokenSpan], end_ms: int, frame_ms: float) -> d
 
 
 def align_lines(logp: np.ndarray, lines: list[list[list[str]]], vocab: dict[str, int], *, blank: int = 0, frame_ms: float = FRAME_MS,
-                energy: np.ndarray | None = None, lang: str = "", syllables: bool = True) -> list[dict]:
-    """Alinea TODA la letra de una vez (`lines` = líneas → palabras → sílabas) con las emisiones de la canción: un solo Viterbi no
+                energy: np.ndarray | None = None, lang: str = "", syllables: bool = True,
+                overlap_mask: np.ndarray | None = None) -> list[dict]:
+    """Alinea las líneas (`lines` = líneas → palabras → sílabas) con las emisiones dadas: un solo Viterbi por flujo no
     depende de que los tiempos de partida sean buenos ni se confunde con estribillos repetidos. `energy` = energía vocal por frame
-    (misma rejilla que `logp`); sin ella no se alarga ninguna nota ni se detectan pausas. Vocales solo para español (`lang="es"`).
-    Devuelve un dict por línea (start, end, words, pauses). Las pausas entre líneas no se calculan aquí."""
+    (misma rejilla que `logp`); sin ella no se alarga ninguna nota ni se detectan pausas.
+    Overlaps flag uncertainty without constraining another performance's boundaries."""
     recs, tokens, by_word, flat = [], [], [], []  # by_word[g] = recs de la palabra global g
     for li, line in enumerate(lines):
         for w in line:
@@ -131,11 +132,12 @@ def align_lines(logp: np.ndarray, lines: list[list[list[str]]], vocab: dict[str,
         limit = tokened[k + 1]["f0"] if k + 1 < len(tokened) else len(logp)
         r["approx"] = True
         ref = float(np.max(energy[r["f0"]:r["f1"]])) if energy is not None and r["f1"] > r["f0"] else 0.0
-        if ref > 0:  # la nota sigue mientras haya voz con energía comparable; se corta al llegar a la siguiente sílaba
+        if ref > 0:
             f = r["f1"]
             while f < min(limit, len(energy)) and energy[f] >= SUSTAIN_RATIO * ref:
                 f += 1
-            r["f1"], r["approx"], r["ref"] = f, False, ref
+            hit_overlap = overlap_mask is not None and bool(np.any(overlap_mask[r["f0"]:f]))
+            r["f1"], r["approx"], r["ref"] = f, hit_overlap, ref
         r["start"], r["end"] = round(r["f0"] * frame_ms), round(r["f1"] * frame_ms)
 
     # texto sin ninguna letra del modelo (puntuación suelta, cifras): sin evidencia acústica. Si es una sola unidad entre dos

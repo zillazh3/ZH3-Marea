@@ -19,6 +19,15 @@ import traceback
 # un modelo AJENO (un PR en su repo), incluso con local_files_only. Solo el proceso de descarga se inicia con HF_HUB_OFFLINE=0.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+if os.environ["HF_HUB_OFFLINE"] == "1":
+    import socket
+
+    def _offline_connect(*args, **kwargs):
+        raise OSError("Network access is disabled during local inference; supply model assets before processing.")
+
+    socket.socket.connect = _offline_connect
+    socket.socket.connect_ex = _offline_connect
+
 from sidecar import stages  # noqa: E402
 from sidecar.stages import Cancelled, Ctx, StageError  # noqa: E402
 from sidecar.stdin_reader import stdin_lines  # noqa: E402
