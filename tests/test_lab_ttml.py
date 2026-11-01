@@ -112,7 +112,7 @@ def test_json_round_trip_and_unknown_version(tmp_path, demo_al):
     back = A.load(tmp_path / "a.json")
     assert back == demo_al
     d = A.to_dict(demo_al)
-    d["version"] = 2
+    d["version"] = A.VERSION + 1
     with pytest.raises(AlignmentError, match="no soportado"):
         A.from_dict(d)
 
@@ -209,9 +209,11 @@ def test_line_timed_p_gets_real_word_spans_and_keeps_its_translation():
     assert b"Hello" in out and b'ttm:role="x-translation"' in out
 
 
-def test_line_only_p_is_not_imported_nor_touched():
+def test_line_only_p_is_preserved_without_inventing_syllables():
     al = from_ttml(LINE_ONLY, 10000)
-    assert al.lines == []  # repartir su tiempo en palabras sería inventarlo
+    assert len(al.lines) == 1 and al.lines[0].text == "Hola"
+    assert not al.lines[0].words[0].syllables and al.lines[0].approximate
+    assert b"Hello" in export_ttml(al, LINE_ONLY)
 
 
 # ---------------- export sin original ----------------

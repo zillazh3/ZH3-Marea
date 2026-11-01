@@ -1,4 +1,4 @@
-"""alignment.v1.json: la fuente de verdad de la sincronía (tiempos en ms sobre el audio de referencia) y su validador.
+"""Alignment v2 persistence and validation; version 1 remains readable.
 
 Convenciones:
 - `global_offset.ms` > 0 = el audio va retrasado respecto a la letra (igual que `audio_offset_ms` del proyecto). Los tiempos
@@ -13,7 +13,9 @@ import statistics
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-SCHEMA, VERSION = "marea.alignment", 1
+SCHEMA, VERSION = "marea.alignment", 2
+ROLES = ("lead", "backing", "harmony", "adlib", "duet", "uncertain")
+BG_ROLES = ("backing", "harmony", "adlib")
 
 
 class AlignmentError(ValueError):
@@ -65,12 +67,24 @@ class Line:
     pauses: list[Pause] = field(default_factory=list)
     agent: str = "v1"
     bg: bool = False
+    role: str = ""  # "lead" | "backing" | "harmony" | "adlib" | "duet" | "uncertain"
+    role_confidence: float = 1.0
+    layer: int = 0  # subpista cuando un mismo (agent, role) tiene tomas simultáneas
     confidence: float = 1.0
     approximate: bool = False
     manual_override: bool = False
     source: str = ""
     id: str = ""
     ref: dict = field(default_factory=dict)
+    source_stem: str = ""
+    review_state: str = "accepted"
+    role_reviewed: bool = False
+
+    def __post_init__(self):
+        if not self.role:
+            self.role = "backing" if self.bg else ("duet" if self.agent and self.agent != "v1" else "lead")
+        elif self.role in BG_ROLES:
+            self.bg = True
 
     @property
     def text(self) -> str:
@@ -80,6 +94,22 @@ class Line:
     def leaves(self) -> list[Unit]:
         """Lo que realmente se anima: sílabas, o la palabra si solo hay tiempo por palabra."""
         return [s for w in self.words for s in (w.syllables or [w])]
+
+
+def assign_layers(lines: list[Line]) -> list[Line]:
+    """Asigna `layer` mínimo (0, 1, …) por `(agent, role)` cuando dos tomas de la misma capa se solapan o se cruzan."""
+    tracks: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    for line in sorted(lines, key=lambda l: (l.start, l.end, l.id)):
+        key = (line.agent, line.role)
+        lanes = tracks.setdefault(key, [])
+        chosen = next((k for k, (ls, le) in enumerate(lanes) if line.start >= ls and line.start >= le), None)
+        if chosen is None:
+            chosen = len(lanes)
+            lanes.append((line.start, line.end))
+        else:
+            lanes[chosen] = (line.start, max(lanes[chosen][1], line.end))
+        line.layer = chosen
+    return lines
 
 
 @dataclass
@@ -123,7 +153,7 @@ def line_from_dict(l: dict) -> Line:
 
 
 def from_dict(d: dict) -> Alignment:
-    if d.get("schema") != SCHEMA or d.get("version") != VERSION:
+    if d.get("schema") != SCHEMA or d.get("version") not in (1, VERSION):
         raise AlignmentError([f"Formato no soportado: {d.get('schema')!r} v{d.get('version')!r} (esta app lee {SCHEMA} v{VERSION})."])
     lines = [line_from_dict(l) for l in d.get("lines", [])]
     return Alignment(d["audio"]["duration_ms"], lines, d.get("language", ""), d["audio"].get("sha256", ""),
@@ -174,7 +204,15 @@ def validate(al: Alignment) -> list[str]:
     for line in al.lines:
         L = f"línea {line.id or line.text[:20]!r}"
         span(L, line)
-        voice = (line.agent, line.bg)
+        if line.source_stem not in ("", "mix", "vocals", "lead", "backing"):
+            errs.append(f"{L}: unknown source stem {line.source_stem!r}")
+        if line.review_state not in ("accepted", "pending"):
+            errs.append(f"{L}: unknown review state {line.review_state!r}")
+        if line.role not in ROLES:
+            errs.append(f"{L}: rol de capa desconocido {line.role!r}")
+        if not 0.0 <= line.role_confidence <= 1.0:
+            errs.append(f"{L}: confianza de capa fuera de [0, 1] ({line.role_confidence})")
+        voice = (line.agent, line.role, line.layer)
         if line.start < last_start.get(voice, line.start):
             errs.append(f"{L}: empieza antes que la línea anterior de su voz (orden no monótono)")
         last_start[voice] = line.start
@@ -276,11 +314,13 @@ def estimate_offset(pairs: list[tuple[int, int]]) -> dict:
 # ---------------- pausas entre líneas ----------------
 
 def add_line_pauses(al: Alignment, min_ms: int = 150) -> Alignment:
-    """Marca como pausa (`between_lines`, colgada de la línea que termina) el hueco hasta la siguiente línea de la misma voz.
+    """Marca como pausa (`between_lines`, colgada de la línea que termina) el hueco hasta la siguiente línea de la misma capa.
     Si el fin de esa línea no está medido (`approximate`), el hueco tampoco: no se marca."""
     out = copy.deepcopy(al)
-    for voice in {(l.agent, l.bg) for l in out.lines}:
-        lines = [l for l in out.lines if (l.agent, l.bg) == voice]
+    for voice in {(l.agent, l.role, l.layer) for l in out.lines}:
+        lines = sorted((l for l in out.lines if (l.agent, l.role, l.layer) == voice), key=lambda l: l.start)
+        for line in lines:
+            line.pauses = [p for p in line.pauses if p.kind != "between_lines"]
         for a, b in zip(lines, lines[1:]):
             a.pauses = [p for p in a.pauses if p.kind != "between_lines"]
             last = a.leaves[-1] if a.leaves else None

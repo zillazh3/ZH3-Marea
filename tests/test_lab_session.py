@@ -72,7 +72,7 @@ def test_realign_request_uses_a_window_around_the_line_and_only_mode_b_may_chang
     line = sess.find("L3")[1]
     assert req["window"] == [max(0, line.start - REALIGN_MARGIN_MS), min(DUR, line.end + REALIGN_MARGIN_MS)]
     assert req["lines"][0]["id"] == "L3" and all(isinstance(w, list) for w in req["lines"][0]["words"])
-    with pytest.raises(ValueError, match="TTML de origen"):
+    with pytest.raises(ValueError, match="Apply the text correction"):
         sess.realign_request("L3", text="otra cosa")
     with pytest.raises(ValueError):
         sess.realign_request("L99")
@@ -109,7 +109,8 @@ def test_text_mode_can_edit_text_and_gets_fresh_ids(tmp_path):
     s = Session(from_text_result(data), None)
     assert s.text_editable and s.find("L0.W1")[1].text == "mundo"
     req = s.realign_request("L0", text="hola a todos")
-    assert req["lines"][0] == {"id": "L0", "text": "hola a todos"}
+    assert req["lines"][0]["id"] == "L0" and req["lines"][0]["text"] == "hola a todos"
+    assert req["lines"][0]["role"] == "lead" and req["lines"][0]["agent"] == "v1"
     new = {"lines": [{"id": "L0", "start": 1000, "end": 2600, "pauses": [], "words": [
         {"text": t, "start": a, "end": b, "confidence": 0.8, "approximate": False, "syllables": []}
         for t, a, b in (("hola", 1000, 1300), ("a", 1400, 1500), ("todos", 1600, 2600))]}]}

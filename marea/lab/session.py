@@ -6,12 +6,14 @@
 - Recalcular una sección usa un tramo acotado de las emisiones ya cacheadas (sin reprocesar la canción) y `merge` conserva lo fijado a mano.
 """
 import copy
+import re
+from dataclasses import asdict
 from pathlib import Path
 
 from marea.export.job import unique_path
 from marea.lab import alignment as A
-from marea.lab.align_job import needs_review, remap_line
-from marea.lab.alignment import Alignment, AlignmentError, Line, Unit, line_from_dict
+from marea.lab.align_job import link_secondary_lines, needs_review, remap_line, request_layers
+from marea.lab.alignment import BG_ROLES, ROLES, Alignment, AlignmentError, Line, Unit, Word, line_from_dict
 from marea.lab.ttml_out import export_ttml, write_new
 from marea.model.lyrics import Lyrics, parse_ttml
 
@@ -43,8 +45,131 @@ class Session:
 
     @property
     def text_editable(self) -> bool:
-        """Con TTML de origen el texto es el del archivo (y sus referencias); sin él (Modo B) se puede reescribir."""
-        return self.original is None
+        """Explicit corrections are allowed; the source file is never modified."""
+        return True
+
+    def pending_ids(self) -> list[str]:
+        return [l.id for l in self.alignment.lines if l.review_state == "pending"]
+
+    def accept(self, line_id: str) -> list[str]:
+        found = self.find(line_id)
+        if found is None or found[0] != "line":
+            return ["Select a performance to accept."]
+        self._push()
+        found[1].review_state, found[1].role_reviewed = "accepted", True
+        return []
+
+    def reject(self, line_id: str) -> list[str]:
+        found = self.find(line_id)
+        if found is None or found[0] != "line":
+            return ["Select a performance to reject."]
+        self._push()
+        line = found[1]
+        self.alignment.source_lyrics.setdefault("rejected", []).append({**line.ref, "line": {**asdict(line), "text": line.text}})
+        self.alignment.lines.remove(line)
+        for child in self.alignment.lines:
+            if child.ref.get("parent") == line_id:
+                child.ref.pop("parent")
+                child.ref["standalone"] = True
+                if "ttml_p_index" in child.ref:
+                    child.ref.pop("ttml_p_index")
+                    child.ref.pop("bg_index", None)
+        self.alignment = A.add_line_pauses(self.alignment)
+        return []
+
+    def set_identity(self, line_id: str, role: str, agent: str) -> list[str]:
+        found = self.find(line_id)
+        if found is None or found[0] != "line" or role not in ROLES:
+            return ["Select a performance and a valid vocal role."]
+        if agent and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", agent):
+            return ["Agent must be an XML identifier, or empty for unknown."]
+        self._push()
+        line = found[1]
+        line.role, line.agent, line.role_reviewed = role, agent, True
+        # Imported x-bg containers retain their structure when their role is corrected.
+        line.bg = "bg_index" in line.ref or role in BG_ROLES or (role == "uncertain" and line.bg)
+        if not line.bg:
+            line.ref.pop("parent", None)
+            line.ref.pop("standalone", None)
+        link_secondary_lines(self.alignment.lines)
+        self.alignment = A.add_line_pauses(self.alignment)
+        return []
+
+    def set_text(self, uid: str, text: str) -> list[str]:
+        found = self.find(uid)
+        text = text.strip()
+        if found is None or not text:
+            return ["Select a unit and enter nonempty text."]
+        kind, unit, line = found
+        if kind != "line" and any(c.isspace() for c in text):
+            return ["Edit the complete line to change word or syllable segmentation."]
+        if text == unit.text:
+            return []
+        if self.original is not None:
+            from marea.lab.ttml_out import ensure_editable
+            try:
+                ensure_editable(self.original, line)
+            except AlignmentError as e:
+                return e.errors
+        self._push()
+        if kind == "line":
+            # No guessed subdivisions: retain a single approximate interval until explicitly realigned.
+            line.words = [Word(text, line.start, line.end, confidence=0.0, approximate=True,
+                               source="manual", id=line.id + ".W0")]
+        else:
+            unit.text, unit.approximate, unit.confidence = text, True, 0.0
+            if kind == "word":
+                unit.syllables = []
+            else:
+                word = next(w for w in line.words if unit in w.syllables)
+                word.text = "".join(s.text for s in word.syllables)
+                unit.vowels = []
+        line.ref["text_edited"] = True
+        line.approximate, line.confidence = True, 0.0
+        return []
+
+    def add_performance(self, text: str, start: int, end: int, role: str = "uncertain", agent: str = "") -> list[str]:
+        if not text.strip() or not 0 <= start < end <= self.alignment.duration_ms or role not in ROLES:
+            return ["Enter text and a valid interval inside the audio."]
+        if agent and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", agent):
+            return ["Agent must be an XML identifier."]
+        uid, n = "manual0", 0
+        while self.find(uid):
+            n += 1
+            uid = f"manual{n}"
+        self._push()
+        line = Line(start, end, [Word(text.strip(), start, end, confidence=0.0, approximate=True, id=uid + ".W0")],
+                    id=uid, role=role, agent=agent, bg=role in (*BG_ROLES, "uncertain"), approximate=True, source="manual")
+        self.alignment.lines.append(line)
+        link_secondary_lines(self.alignment.lines)
+        return []
+
+    def split_performance(self, line_id: str, word_index: int) -> list[str]:
+        found = self.find(line_id)
+        if found is None or found[0] != "line" or not 0 < word_index < len(found[1].words):
+            return ["Select a word after the first word to split the performance."]
+        line = found[1]
+        original_ref = dict(line.ref)
+        if self.original is not None:
+            from marea.lab.ttml_out import ensure_editable
+            try:
+                ensure_editable(self.original, line)
+            except AlignmentError as e:
+                return e.errors
+        self._push()
+        right = copy.deepcopy(line)
+        right.id = line.id + ".split"
+        while self.find(right.id):
+            right.id += ".split"
+        right.words, line.words = right.words[word_index:], line.words[:word_index]
+        for target in (line, right):
+            target.start, target.end = target.words[0].start, target.words[-1].end
+        line.ref = {**original_ref, "text_edited": True}
+        right.ref = ({"parent": original_ref["parent"]} if right.bg and original_ref.get("parent")
+                     else {"standalone": True} if right.bg else {})
+        self.alignment.lines.append(right)
+        link_secondary_lines(self.alignment.lines)
+        return []
 
     # ---- edición ----
     def _push(self):
@@ -74,12 +199,14 @@ class Session:
             word.start, word.end = min(s.start for s in word.syllables), max(s.end for s in word.syllables)
         if kind in ("syllable", "word"):
             line.start, line.end = min(w.start for w in line.words), max(w.end for w in line.words)
+        A.assign_layers(cand.lines)
+        cand.lines.sort(key=lambda l: (l.start, l.end, l.id))
         before = set(A.validate(self.alignment))
         errors = [e for e in A.validate(cand) if e not in before]
         if errors:
             return errors
         self._push()
-        self.alignment = cand
+        self.alignment = A.add_line_pauses(cand)
         return []
 
     def set_offset(self, ms: int):
@@ -94,10 +221,16 @@ class Session:
         if found is None or found[0] != "line":
             raise ValueError(f"No existe la línea {line_id!r}.")
         line = found[1]
-        if text is not None and not self.text_editable:
-            raise ValueError("Con un TTML de origen el texto no se edita aquí (cámbialo en el archivo).")
+        if text is not None and self.original is not None and text != line.text:
+            raise ValueError("Apply the text correction before recalculating imported TTML.")
         entry = ({"id": line.id, "text": text} if text is not None and text != line.text
                  else {"id": line.id, "words": [[s.text for s in w.syllables] or [w.text] for w in line.words]})
+        entry.update({k: v for k, v in request_layers(Alignment(self.alignment.duration_ms, [line]))[0].items()
+                      if k not in ("words", "id")})
+        if "text" in entry:
+            entry.pop("words", None)
+        if text is not None and text != line.text:
+            entry.pop("fallback", None)
         a, b = max(0, line.start - REALIGN_MARGIN_MS), min(self.alignment.duration_ms, line.end + REALIGN_MARGIN_MS)
         return {"lines": [entry], "window": [a, b]}
 
@@ -110,7 +243,7 @@ class Session:
         if self.original is not None:
             new = remap_line(old, res)
         else:
-            new = line_from_dict({**res, "id": old.id, "agent": old.agent, "ref": old.ref, "source": "ctc"})
+            new = remap_line(old, res)
             for n, w in enumerate(new.words):
                 w.id = f"{old.id}.W{n}"
                 for k, s in enumerate(w.syllables):
@@ -128,10 +261,10 @@ class Session:
     # ---- salida ----
     def preview_lyrics(self) -> Lyrics:
         """Lo que cargaría el reproductor: se exporta y se vuelve a leer con el parser de la app (valida de paso)."""
-        return parse_ttml(export_ttml(self.alignment, self.original))
+        return parse_ttml(export_ttml(self.alignment, self.original, allow_pending=True))
 
     def export(self, folder: str | Path, name: str) -> tuple[Path, Path]:
-        """TTML nuevo (nunca sobrescribe) y, al lado, el alignment.v1.json con todo el detalle (vocales, pausas, confianza)."""
+        """Write a new TTML and adjacent alignment v2 JSON after candidate review."""
         ttml = write_new(self.alignment, folder, name, self.original)
         js = unique_path(ttml.parent, ttml.stem + ".alignment.json")
         A.save(self.alignment, js)
