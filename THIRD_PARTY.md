@@ -32,6 +32,14 @@ Modelos que se descargan bajo demanda, cada uno con **su propia licencia**: `fac
 `jonatasgrosman/wav2vec2-large-xlsr-53-spanish`, Whisper (OpenAI) y los pesos de separación de voz (BS-Roformer), que vienen de un repositorio
 comunitario **sin licencia declarada**: úsalos solo para pruebas personales.
 
+## Optional lead/backing detection
+
+The existing audio-separator code dependency is MIT licensed; model weights have
+separate terms. BS-Roformer and aufr33/viperx karaoke weight permissions remain
+unresolved. No weights are bundled or redistributed. Local inference accepts
+separately supplied model assets and does not imply a license grant. See
+[vocal-layer documentation](docs/vocal-layers.md) for provenance and limitations.
+
 ## Datos de evaluación
 
 [JamendoLyrics](https://huggingface.co/datasets/jamendolyrics/jamendolyrics) (CC con NC/ND) se usó solo para medir, en local; no se redistribuye.

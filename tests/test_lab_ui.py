@@ -285,7 +285,9 @@ def test_text_mode_transcribes_a_draft_then_aligns_the_edited_text(make_window, 
     rw.ed_text.setPlainText("hola mundo\nadiós")
     rw.btn_align.click()
     cmd, params = runner.calls[-1]
-    assert cmd == "align" and params["lines"] == [{"id": "L0", "text": "hola mundo"}, {"id": "L1", "text": "adiós"}]
+    assert cmd == "align" and [{k: v for k, v in line.items() if k != "hint"} for line in params["lines"]] == [
+        {"id": "L0", "text": "hola mundo"}, {"id": "L1", "text": "adiós"}]
+    assert [line["hint"] for line in params["lines"]] == [[1000, 2000], [3000, 4000]]
     runner.deliver("align", {"lines": [
         {"id": "L0", "start": 1000, "end": 2000, "pauses": [], "words": [{"text": "hola", "start": 1000, "end": 1400, "confidence": 0.9, "approximate": False, "syllables": []},
                                                                       {"text": "mundo", "start": 1500, "end": 2000, "confidence": 0.9, "approximate": False, "syllables": []}]},
@@ -296,7 +298,9 @@ def test_text_mode_transcribes_a_draft_then_aligns_the_edited_text(make_window, 
     assert rw.ed_line.isEnabled() and rw.ed_line.text() == "adiós"
     rw.ed_line.setText("adiós amigo")
     rw.btn_realign.click()
-    assert runner.calls[-1][1]["lines"] == [{"id": "L1", "text": "adiós amigo"}]
+    entry = runner.calls[-1][1]["lines"][0]
+    assert entry["id"] == "L1" and entry["text"] == "adiós amigo" and "words" not in entry
+    assert entry["hint"] == [2600, 3200] and entry["agent"] == "v1"
     rw.close()
 
 

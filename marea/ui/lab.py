@@ -11,14 +11,14 @@ import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+                               QInputDialog, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from marea.audio import local
 from marea.export.ffmpeg import find_ffmpeg
 from marea.export.job import unique_path
 from marea.lab import alignment as A
 from marea.lab import env
-from marea.lab.align_job import apply_result, from_text_result, needs_review, request_lines, text_request_lines
+from marea.lab.align_job import apply_result, format_draft_line, from_text_result, needs_review, request_layers, text_request_lines
 from marea.lab.player import Player
 from marea.lab.session import Session
 from marea.lab.sidecar import SidecarClient, worker_argv
@@ -32,6 +32,7 @@ LAB_DIR_KEY = "experimental/lab_dir"
 LANGS = [("Español", "es"), ("Inglés", "en")]
 STAGE_NAMES = {"decode": "Leyendo el audio", "separate": "Separando la voz", "emissions": "Analizando el audio con el modelo",
                "energy": "Midiendo la energía de la voz", "align": "Alineando la letra", "asr": "Transcribiendo", "download": "Descargando"}
+STAGE_NAMES["separate_layers"] = "Separating lead and backing vocals"
 # (nombre, dónde se comprueba, id, orden del sidecar, parámetros, tamaño aproximado)
 COMPONENTS = [
     ("Alineación · español", "hf", "jonatasgrosman/wav2vec2-large-xlsr-53-spanish", "fetch_model", {"lang": "es"}, "1.2 GB"),
@@ -56,7 +57,7 @@ def stage_text(name: str, state: str, seconds: float = 0.0) -> str:
             "error": f"{label}: falló"}.get(state, f"{label}: {state}")
 
 
-def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, asr: bool = False) -> str | None:
+def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, asr: bool = False, karaoke: bool = False) -> str | None:
     """Lo que falta para poder alinear/transcribir, en palabras (None = todo listo). Solo mira el disco."""
     if audio is None or not audio.exists():
         return "Elige primero un archivo de audio."
@@ -70,6 +71,9 @@ def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, 
             return "Falta descargar el modelo de " + ("transcripción" if asr else f"alineación ({lang})") + " (Ajustes → Funciones experimentales)."
     if separate and not (env.separation_installed(root) and env.separator_model_ready(root)):
         return "Falta instalar o descargar la separación de voz (Ajustes → Funciones experimentales), o desactiva «Separar la voz»."
+    if karaoke and not (env.separation_installed(root) and env.separator_model_ready(root)
+                        and env.separator_model_ready(root, env.KARAOKE_MODEL)):
+        return "Lead/backing separation requires the optional separator and both locally supplied model weights/configs in lab/separator-models."
     return None
 
 
@@ -109,7 +113,7 @@ class Runner(QObject):
     def _ensure_started(self):
         if not self.client.running:
             self._ready = False
-            extra = {"HF_HOME": str(self.root / "hf")}
+            extra = {"HF_HOME": str(self.root / "hf"), "HF_HUB_OFFLINE": "0" if self.online else "1"}
             if self.online:
                 extra["HF_HUB_OFFLINE"] = "0"
             self.client.start(worker_argv(str(env.env_python(self.root))), extra_env=extra)
@@ -208,7 +212,16 @@ class TimelineWidget(QWidget):
 
     def refresh(self):
         self._review = set(self.session.review_ids()) if self.session else set()
+        groups = self.lane_groups()
+        regions = bool(self.session and self.session.alignment.source_lyrics.get("overlaps"))
+        height = RULER_H + WAVE_H + (max(1, len(groups)) * 4 + int(regions)) * (LANE_H + GAP) + 8
+        self.setMinimumHeight(height)
         self.update()
+
+    def lane_groups(self) -> dict:
+        if not self.session:
+            return {}
+        return {key: i for i, key in enumerate(dict.fromkeys((l.agent, l.role, l.layer) for l in self.session.alignment.lines))}
 
     def set_selected(self, uid: str):
         self._sel = uid
@@ -239,25 +252,31 @@ class TimelineWidget(QWidget):
         out = []
         if not self.session:
             return out
+        groups = self.lane_groups()
         for line in self.session.alignment.lines:
-            out.append(dict(lane=0, id=line.id, start=line.start, end=line.end, text=line.text, conf=line.confidence, approx=line.approximate,
+            base = groups[(line.agent, line.role, line.layer)] * 4
+            out.append(dict(lane=base, id=line.id, start=line.start, end=line.end, text=line.text, conf=line.confidence, approx=line.approximate,
                             manual=line.manual_override, pause=False))
             for p in line.pauses:
-                out.append(dict(lane=1, id="", start=p.start, end=p.end, text="", conf=1.0, approx=False, manual=False, pause=True))
+                out.append(dict(lane=base + 1, id="", start=p.start, end=p.end, text="", conf=1.0, approx=False, manual=False, pause=True))
             for w in line.words:
-                out.append(dict(lane=1, id=w.id, start=w.start, end=w.end, text=w.text, conf=w.confidence, approx=w.approximate,
+                out.append(dict(lane=base + 1, id=w.id, start=w.start, end=w.end, text=w.text, conf=w.confidence, approx=w.approximate,
                                 manual=w.manual_override, pause=False))
                 for s in w.syllables:
-                    out.append(dict(lane=2, id=s.id, start=s.start, end=s.end, text=s.text, conf=s.confidence, approx=s.approximate,
+                    out.append(dict(lane=base + 2, id=s.id, start=s.start, end=s.end, text=s.text, conf=s.confidence, approx=s.approximate,
                                     manual=s.manual_override, pause=False))
                     for v in s.vowels:
-                        out.append(dict(lane=3, id="", start=v.start, end=v.end, text=v.text, conf=v.confidence, approx=True, manual=False, pause=False))
+                        out.append(dict(lane=base + 3, id="", start=v.start, end=v.end, text=v.text, conf=v.confidence, approx=True, manual=False, pause=False))
+        for region in self.session.alignment.source_lyrics.get("overlaps", []):
+            out.append(dict(lane=len(groups) * 4, id="", start=region["start"], end=region["end"],
+                            text="Possible vocal overlap (no inferred text)", conf=region.get("role_confidence", 0.0),
+                            approx=True, manual=False, pause=False))
         return out
 
     def unit_at(self, x: float, y: float) -> tuple[dict, str] | None:
         """(bloque, 'start'|'end'|'') bajo el cursor; los bordes tienen prioridad para poder arrastrarlos."""
         lane = (y - (RULER_H + WAVE_H + GAP)) // (LANE_H + GAP)
-        if not 0 <= lane <= 2:
+        if lane < 0 or lane % 4 == 3:
             return None
         hits = [b for b in self.blocks() if b["lane"] == lane and b["id"] and self._x(b["start"]) - EDGE_PX <= x <= self._x(b["end"]) + EDGE_PX]
         if not hits:
@@ -296,6 +315,9 @@ class TimelineWidget(QWidget):
         for blk in self.blocks():
             if blk["end"] >= a and blk["start"] <= b:
                 self._draw_block(p, blk, w)
+        p.setPen(QPen(theme.qc(t.text_muted)))
+        for (agent, role, take), lane in self.lane_groups().items():
+            p.drawText(QPointF(4, self._lane_top(lane * 4) - 2), f"{role} / {agent or 'unknown agent'} / {take + 1}")
         if self._playhead is not None:
             p.setPen(QPen(theme.qc(t.text), 1.5))
             x = self._x(self._playhead)
@@ -555,6 +577,8 @@ class LabReviewWindow(QWidget):
         self._selected = ""
         self._realign_id = ""
         self._from_asr = False
+        self._draft = []
+        self._draft_overlaps = []
         self._detect_source()
 
         root = QVBoxLayout(self)
@@ -606,7 +630,7 @@ class LabReviewWindow(QWidget):
         if src and Path(src).suffix.lower() in (".ttml", ".xml") and Path(src).exists():
             data = Path(src).read_bytes()
             skeleton = from_ttml(data, 0)
-            if request_lines(skeleton):  # trae sílabas/palabras con tiempo que conservar
+            if request_layers(skeleton):
                 skeleton.source_lyrics = {"kind": "ttml", "path_hint": str(src), "sha256": hashlib.sha256(data).hexdigest()}
                 self.mode, self.skeleton, self._original = "ttml", skeleton, data
 
@@ -650,6 +674,10 @@ class LabReviewWindow(QWidget):
         self.cb_sep = QCheckBox("Separar la voz antes de alinear (más preciso en música con mucho acompañamiento; ~1.5 min por canción)")
         self.cb_sep.setChecked(env.separator_model_ready(self.root) and env.separation_installed(self.root))
         cl.addWidget(self.cb_sep)
+        self.cb_layers = QCheckBox("Separate lead/backing vocals (local opt-in models; role suggestions require review)")
+        self.cb_layers.setChecked(False)
+        self.cb_layers.setToolTip("Supply both weights and their configs in lab/separator-models. No weights are bundled or downloaded by this option.")
+        cl.addWidget(self.cb_layers)
         self.ed_text = QPlainTextEdit()
         self.ed_text.setPlaceholderText("Una línea por verso…")
         self.ed_text.setMinimumHeight(220)
@@ -702,7 +730,11 @@ class LabReviewWindow(QWidget):
                       "Verde = confianza alta, azul = media, rojo = baja; borde punteado = tiempo aproximado; borde de acento = fijado por ti.")
         hint.setObjectName("Caption")
         hint.setWordWrap(True)
-        left.addWidget(self.timeline, 1)
+        self.timeline_scroll = QScrollArea()
+        self.timeline_scroll.setWidgetResizable(True)
+        self.timeline_scroll.setWidget(self.timeline)
+        self.timeline_scroll.setFrameShape(QFrame.NoFrame)
+        left.addWidget(self.timeline_scroll, 1)
         left.addWidget(hint)
         bottom = QHBoxLayout()
         lb = QLabel("Desfase global")
@@ -737,7 +769,7 @@ class LabReviewWindow(QWidget):
 
         right = QFrame()
         right.setObjectName("Card")
-        right.setFixedWidth(340)
+        right.setMinimumWidth(320)
         rl = QVBoxLayout(right)
         rl.setContentsMargins(theme.SPACE[3], theme.SPACE[3], theme.SPACE[3], theme.SPACE[3])
         self.lb_review = QLabel()
@@ -772,12 +804,58 @@ class LabReviewWindow(QWidget):
         self.btn_realign = QPushButton("Recalcular esta sección")
         self.btn_realign.setObjectName("Ghost")
         rl.addWidget(self.ed_line)
+        self.btn_text = QPushButton("Replace line text (reset segmentation)")
+        self.btn_text.clicked.connect(self._apply_text)
+        rl.addWidget(self.btn_text)
+        self.ed_unit = QLineEdit()
+        self.ed_unit.setPlaceholderText("Selected word / syllable text")
+        self.ed_unit.setAccessibleName("Selected unit text")
+        self.btn_unit_text = QPushButton("Correct selected word / syllable")
+        self.btn_unit_text.clicked.connect(self._apply_unit_text)
+        rl.addWidget(self.ed_unit)
+        rl.addWidget(self.btn_unit_text)
+        self.cb_role = QComboBox()
+        for role in A.ROLES:
+            self.cb_role.addItem(role, role)
+        self.cb_role.setAccessibleName("Vocal role")
+        self.ed_agent = QLineEdit()
+        self.ed_agent.setPlaceholderText("Agent ID (empty = unknown)")
+        self.ed_agent.setAccessibleName("Agent identifier")
+        rl.addWidget(self.cb_role)
+        rl.addWidget(self.ed_agent)
+        self.btn_identity = QPushButton("Apply role / agent")
+        self.btn_identity.clicked.connect(self._apply_identity)
+        rl.addWidget(self.btn_identity)
+        row = QHBoxLayout()
+        self.btn_accept, self.btn_reject = QPushButton("Accept candidate"), QPushButton("Reject performance")
+        self.btn_accept.clicked.connect(lambda: self._decision(True))
+        self.btn_reject.clicked.connect(lambda: self._decision(False))
+        row.addWidget(self.btn_accept)
+        row.addWidget(self.btn_reject)
+        rl.addLayout(row)
+        self.btn_add, self.btn_split = QPushButton("Add performance"), QPushButton("Split before selected word")
+        self.btn_add.clicked.connect(self._add_performance)
+        self.btn_split.clicked.connect(self._split_performance)
+        rl.addWidget(self.btn_add)
+        rl.addWidget(self.btn_split)
+        self.btn_save = QPushButton("Save review JSON")
+        self.btn_save.clicked.connect(self._save_review)
+        rl.addWidget(self.btn_save)
+        for button in (self.btn_text, self.btn_unit_text, self.btn_identity, self.btn_accept, self.btn_reject,
+                       self.btn_add, self.btn_split, self.btn_save):
+            button.setObjectName("Ghost")
+            button.setCursor(Qt.PointingHandCursor)
         rl.addWidget(self.btn_realign)
         self.btn_apply.clicked.connect(self._apply_times)
         self.btn_play.clicked.connect(self._play_selected)
         self.btn_realign.clicked.connect(self._realign)
         self._set_unit_controls(False)
-        lay.addWidget(right)
+        self.review_scroll = QScrollArea()
+        self.review_scroll.setWidgetResizable(True)
+        self.review_scroll.setWidget(right)
+        self.review_scroll.setFixedWidth(365)
+        self.review_scroll.setFrameShape(QFrame.NoFrame)
+        lay.addWidget(self.review_scroll)
         return page
 
     # ---- audio ----
@@ -837,41 +915,52 @@ class LabReviewWindow(QWidget):
         return env.SEPARATION_MODEL if self.cb_sep.isChecked() else ""
 
     def _transcribe(self):
-        problem = prerequisites(self.root, lang=self._lang_code(), separate=False, audio=getattr(self.project, "audio_file", None), asr=True)
+        problem = prerequisites(self.root, lang=self._lang_code(), separate=self.cb_sep.isChecked(),
+                                karaoke=self.cb_layers.isChecked(), audio=getattr(self.project, "audio_file", None), asr=True)
         if problem:
             self._progress(problem)
             return
         self._busy(True)
-        self.runner.ask("asr", audio=str(self.project.audio_file), ffmpeg=find_ffmpeg(), model=env.ASR_MODEL, lang=self._lang_code())
+        self.runner.ask("asr", audio=str(self.project.audio_file), ffmpeg=find_ffmpeg(), model=env.ASR_MODEL, lang=self._lang_code(),
+                        separate=self._sep_model(), karaoke=env.KARAOKE_MODEL if self.cb_layers.isChecked() else "")
 
     def _align(self):
         lang = self._lang_code() or (self.skeleton.language[:2] if self.skeleton else "")
-        problem = prerequisites(self.root, lang=lang, separate=self.cb_sep.isChecked(), audio=getattr(self.project, "audio_file", None))
+        problem = prerequisites(self.root, lang=lang, separate=self.cb_sep.isChecked(), karaoke=self.cb_layers.isChecked(), audio=getattr(self.project, "audio_file", None))
         if problem:
             self._progress(problem)
             return
         if self.mode == "ttml":
-            lines = request_lines(self.skeleton)
+            lines = request_layers(self.skeleton)
         else:
-            lines = text_request_lines(self.ed_text.toPlainText().splitlines())
+            try:
+                lines = text_request_lines(self.ed_text.toPlainText().splitlines(), self._draft)
+            except ValueError as e:
+                self._progress(str(e))
+                return
             if not lines:
                 self._progress("Escribe o transcribe primero la letra.")
                 return
         self._busy(True)
         self._realign_id = ""
-        self.runner.ask("align", audio=str(self.project.audio_file), ffmpeg=find_ffmpeg(), lang=lang, lines=lines, separate=self._sep_model())
+        self.runner.ask("align", audio=str(self.project.audio_file), ffmpeg=find_ffmpeg(), lang=lang, lines=lines, separate=self._sep_model(),
+                        karaoke=env.KARAOKE_MODEL if self.cb_layers.isChecked() else "")
 
     def _on_done(self, cmd: str, data: dict):
         self._busy(False)
         if cmd == "asr":
             self._from_asr = True
-            self.ed_text.setPlainText("\n".join(l["text"] for l in data["lines"]))
+            self._draft = data["lines"]
+            self._draft_overlaps = data.get("overlaps", [])
+            self.ed_text.setPlainText("\n".join(format_draft_line(l) for l in self._draft))
             i = self.cb_lang.findData(data["language"])
             if not self._lang_code() and i >= 0:
                 self.cb_lang.setCurrentIndex(i)
-            sus = sum(l["suspect"] for l in data["lines"])
+            sus = sum(l.get("suspect", False) for l in data["lines"])
             self._progress(f"Borrador de Whisper ({data['language']}): {len(data['lines'])} líneas"
                            + (f", {sus} sospechosas (poca voz o poca confianza)" if sus else "") + ". Revísalo y corrígelo antes de alinear.")
+            if self._draft_overlaps:
+                self._progress(f"{len(self._draft_overlaps)} possible overlap regions; no secondary text was inferred. Align, then add or split performances for review.")
         elif cmd == "align" and self._realign_id:
             errors = self.session.apply_realign(self._realign_id, data)
             self._progress("Sección recalculada." if not errors else "No pude integrar el recálculo: " + errors[0])
@@ -881,6 +970,8 @@ class LabReviewWindow(QWidget):
                 al, original = apply_result(self.skeleton, data), self._original
             else:
                 al, original = from_text_result(data, "asr" if self._from_asr else "text"), None
+                if self._draft_overlaps:
+                    al.source_lyrics["overlaps"] = self._draft_overlaps
             self.session = Session(al, original)
             self._progress(f"Alineado ({data['device']['device']}). {len(self.session.review_ids())} unidades requieren revisión.")
             self._populate()
@@ -918,11 +1009,16 @@ class LabReviewWindow(QWidget):
             it.setData(Qt.UserRole, uid)
             self.review_list.addItem(it)
         self.timeline.refresh()
+        pending = self.session.pending_ids()
+        self.btn_approve.setEnabled(not pending)
+        self.btn_approve.setToolTip("Accept, correct, or reject pending candidates before export." if pending else "")
 
     def _set_unit_controls(self, on: bool):
         for w in (self.sp_start, self.sp_end, self.btn_apply, self.btn_play, self.btn_realign):
             w.setEnabled(on)
         self.ed_line.setEnabled(on and bool(self.session and self.session.text_editable))
+        for widget in (self.btn_text, self.ed_unit, self.btn_unit_text, self.cb_role, self.ed_agent, self.btn_identity, self.btn_accept, self.btn_reject, self.btn_split):
+            widget.setEnabled(on)
 
     def _select(self, uid: str, center: bool = False):
         self._selected = uid
@@ -939,6 +1035,15 @@ class LabReviewWindow(QWidget):
         self.sp_start.setValue(int(unit.start))
         self.sp_end.setValue(int(unit.end))
         self.ed_line.setText(line.text)
+        self.ed_unit.setText(unit.text if kind != "line" else "")
+        self.ed_unit.setEnabled(kind != "line")
+        self.btn_unit_text.setEnabled(kind != "line")
+        self.cb_role.setCurrentIndex(self.cb_role.findData(line.role))
+        self.ed_agent.setText(line.agent)
+        self.btn_accept.setEnabled(line.review_state == "pending" or not line.role_reviewed)
+        self.btn_split.setEnabled(kind == "word" and line.words.index(unit) > 0)
+        self.lb_sel.setText(self.lb_sel.text() + f" / {line.role} / {line.agent or 'unknown agent'} / {line.review_state}"
+                            + (" / uncalibrated role suggestion" if not line.role_reviewed and "ttml_p_index" not in line.ref else ""))
         if center:
             self.timeline.center_on((unit.start + unit.end) / 2)
 
@@ -947,6 +1052,60 @@ class LabReviewWindow(QWidget):
         self._fill_review()
         if self._selected and self.session.find(self._selected):
             self._select(self._selected)
+        else:
+            self._select("")
+
+    def _apply_text(self):
+        line = self.session.find(self._selected)[2]
+        errors = self.session.set_text(line.id, self.ed_line.text())
+        self._progress(errors[0] if errors else "Text corrected; uncertain timing still requires review.")
+        self._after_edit()
+
+    def _apply_unit_text(self):
+        errors = self.session.set_text(self._selected, self.ed_unit.text())
+        self._progress(errors[0] if errors else "Unit text corrected; other performances retain their timing.")
+        self._after_edit()
+
+    def _apply_identity(self):
+        line = self.session.find(self._selected)[2]
+        errors = self.session.set_identity(line.id, self.cb_role.currentData(), self.ed_agent.text().strip())
+        self._progress(errors[0] if errors else "Role and agent updated without moving timing.")
+        self._after_edit()
+
+    def _decision(self, accept: bool):
+        line = self.session.find(self._selected)[2]
+        errors = self.session.accept(line.id) if accept else self.session.reject(line.id)
+        self._progress(errors[0] if errors else "Candidate accepted." if accept else "Performance rejected; undo restores it.")
+        self._after_edit()
+
+    def _add_performance(self):
+        text, ok = QInputDialog.getText(self, "Add vocal performance", "Text:")
+        if not ok or not text.strip():
+            return
+        duration = self.session.alignment.duration_ms
+        start, ok = QInputDialog.getInt(self, "Performance start", "Start (ms):", min(self.sp_start.value(), duration - 1), 0, duration - 1)
+        if not ok:
+            return
+        end, ok = QInputDialog.getInt(self, "Performance end", "End (ms):", min(duration, max(start + 1, self.sp_end.value())), start + 1, duration)
+        if ok:
+            errors = self.session.add_performance(text, start, end)
+            self._progress(errors[0] if errors else "Performance added with approximate timing.")
+            self._after_edit()
+
+    def _split_performance(self):
+        kind, unit, line = self.session.find(self._selected)
+        if kind == "word":
+            errors = self.session.split_performance(line.id, line.words.index(unit))
+            self._progress(errors[0] if errors else "Performance split; timings retained.")
+            self._after_edit()
+
+    def _save_review(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save review", "review.alignment.json", "Alignment JSON (*.json)")
+        if path:
+            try:
+                A.save(self.session.alignment, path)
+            except OSError as e:
+                self._progress(f"Could not save review: {e}")
 
     def _apply_times(self):
         errors = self.session.set_times(self._selected, self.sp_start.value(), self.sp_end.value())
@@ -989,10 +1148,16 @@ class LabReviewWindow(QWidget):
 
     # ---- recalcular ----
     def _realign(self):
-        line = self.session.find(self._selected)[2]
+        _, unit, line = self.session.find(self._selected)
         text = self.ed_line.text().strip()
+        if text and text != line.text:
+            errors = self.session.set_text(line.id, text)
+            if errors:
+                self._progress(errors[0])
+                return
+            line = self.session.find(line.id)[1]
         try:
-            req = self.session.realign_request(line.id, text=text if self.session.text_editable and text and text != line.text else None)
+            req = self.session.realign_request(line.id)
         except ValueError as e:
             self._progress(str(e))
             return
@@ -1000,7 +1165,8 @@ class LabReviewWindow(QWidget):
         self._realign_id = line.id
         self._busy(True)
         self.runner.ask("align", audio=str(self.project.audio_file), ffmpeg=find_ffmpeg(), lang=self.session.alignment.language,
-                        separate=src.split(":", 1)[1] if src.startswith("vocals:") else "", **req)
+                        separate=self.session.alignment.pipeline.get("separate", src.split(":", 1)[1] if src.startswith("vocals:") else ""),
+                        karaoke=self.session.alignment.pipeline.get("karaoke", ""), **req)
 
     # ---- salida ----
     def _preview(self):
