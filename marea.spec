@@ -1,5 +1,20 @@
 # PyInstaller, carpeta portable: dist/ZH3 Marea/ZH3 Marea.exe. Se construye con `python tools/build_exe.py`.
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.win32.versioninfo import FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo
+from marea.version import VERSION
+
+release_version = tuple(int(part) for part in VERSION.split(".")) + (0,)
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=release_version, prodvers=release_version),
+    kids=[StringFileInfo([StringTable("040904B0", [
+        StringStruct("CompanyName", "ZH3"),
+        StringStruct("FileDescription", "ZH3 Marea"),
+        StringStruct("FileVersion", VERSION),
+        StringStruct("ProductName", "ZH3 Marea"),
+        StringStruct("ProductVersion", VERSION),
+        StringStruct("OriginalFilename", "ZH3 Marea.exe"),
+    ])]), VarFileInfo([VarStruct("Translation", [1033, 1200])])],
+)
 
 skia = collect_all("skia")
 audio = collect_all("pyaudiowpatch")
@@ -19,5 +34,5 @@ a = Analysis(
     excludes=EXCLUDE,
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="ZH3 Marea", console=False, icon="assets/logo/marea.ico")
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="ZH3 Marea", console=False, icon="assets/logo/marea.ico", version=version_info)
 coll = COLLECT(exe, a.binaries, a.datas, name="ZH3 Marea")

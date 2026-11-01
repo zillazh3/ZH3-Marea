@@ -11,6 +11,7 @@ from marea.demo_cover import demo_cover
 from marea.paths import app_data, make_settings
 from marea.ui import theme
 from marea.ui.window import MainWindow, qimage_from_skia
+from marea.version import VERSION
 
 log = logging.getLogger("marea")
 APP_ID = "ZH3.Marea"
@@ -38,6 +39,7 @@ def main() -> int:
     set_app_id()  # antes de crear cualquier ventana
     app = QApplication(sys.argv)
     app.setApplicationName("ZH3 Marea")
+    app.setApplicationVersion(VERSION)
     app.setOrganizationName("ZH3")
     app.setWindowIcon(theme.app_icon())
     theme.load_fonts()

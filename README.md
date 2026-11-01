@@ -78,7 +78,7 @@ py -3.12 -m venv .venv
 ### 🏗️ Construir tu propio portable
 
 ```powershell
-.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ y dist\ZH3-Marea-portable.zip
+.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ and dist\ZH3-Marea-v0.1.1-portable.zip
 ```
 
 > ⚖️ El ffmpeg que se empaqueta es una build GPL (Gyan): respeta su licencia si redistribuyes la carpeta.

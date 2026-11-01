@@ -10,13 +10,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "dist" / "ZH3 Marea"
+sys.path.insert(0, str(ROOT))
+from marea.version import VERSION
 
 
 def clean_data():
     """Borra data/ del build. Con reintentos porque el .exe recién cerrado puede tardar en soltar marea.log; si no se logra, se avisa (nunca en silencio)."""
+    data = (OUT / "data").resolve()
+    if data.parent != OUT.resolve() or not OUT.resolve().is_relative_to((ROOT / "dist").resolve()):
+        sys.exit("Refusing to clean data outside the portable build directory.")
     for _ in range(20):
         try:
-            shutil.rmtree(OUT / "data")
+            shutil.rmtree(data)
             return
         except FileNotFoundError:
             return
@@ -26,7 +31,7 @@ def clean_data():
 
 
 def write_zip() -> Path:
-    zip_path = ROOT / "dist" / "ZH3-Marea-portable.zip"
+    zip_path = ROOT / "dist" / f"ZH3-Marea-v{VERSION}-portable.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for f in OUT.rglob("*"):
             if f.is_file():
@@ -37,7 +42,7 @@ def write_zip() -> Path:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--zip", action="store_true", help="además crea dist/ZH3-Marea-portable.zip")
+    ap.add_argument("--zip", action="store_true", help="create a versioned portable ZIP in dist/")
     ap.add_argument("--no-verify", action="store_true", help="omite la verificación del ícono (abre la app un momento)")
     args = ap.parse_args()
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "marea.spec"], cwd=ROOT, check=True)
@@ -49,6 +54,8 @@ def main():
     shutil.copy2(ROOT / "README.md", OUT / "LEEME.md")
     for doc in ("LICENSE", "THIRD_PARTY.md"):
         shutil.copy2(ROOT / doc, OUT / doc)
+    (OUT / "docs").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "docs" / "vocal-layers.md", OUT / "docs" / "vocal-layers.md")
     print(f"Listo: {OUT}")
     if not args.no_verify:  # el ícono del taskbar solo se puede comprobar con el .exe ya hecho
         if subprocess.run([sys.executable, str(ROOT / "tools" / "check_exe_icon.py"), str(OUT / "ZH3 Marea.exe")]).returncode:
