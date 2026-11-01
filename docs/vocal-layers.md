@@ -11,7 +11,15 @@ performance or to its TTML parent.
 Enable **Separate lead/backing vocals** explicitly in the experimental review
 window. It is off by default. Supply the following assets separately in the
 configured laboratory's `separator-models` directory, with their matching model
-configuration/catalog assets required by audio-separator:
+configuration/catalog assets required by audio-separator.
+
+When required components are missing, the option is unavailable and the review
+window shows the actual model folder. Hover over the option or setup message for
+the missing filenames. Leave it off to use ordinary transcription/alignment.
+Returning to the window refreshes availability after models are supplied; a
+selected mode is never silently replaced with a different analysis mode.
+
+Required model weights:
 
 - `model_bs_roformer_ep_317_sdr_12.9755.ckpt`: isolate all vocals.
 - `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`: produce karaoke/backing

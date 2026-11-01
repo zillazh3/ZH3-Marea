@@ -3,6 +3,8 @@ import numpy as np
 
 from marea.lab import alignment as A
 from marea.lab.session import Session
+from marea.lab import env
+from marea.ui import lab
 from tests.test_lab_ui import aligned, review
 from tests.test_vocal_layers import performance
 
@@ -60,3 +62,43 @@ def test_overlapping_lanes_render_and_remain_selectable(review, tmp_path):
         hit = rw.timeline.unit_at(rw.timeline._x((block['start'] + block['end']) / 2), rw.timeline._lane_top(block['lane']) + 5)
         assert hit[0]['id'] == key
     assert rw.grab().save(str(tmp_path / 'vocal-review.png'))
+
+
+def test_missing_layer_models_cannot_block_standard_transcription(review, tmp_path):
+    rw, runner, _, _, _ = review
+    assert not rw.cb_layers.isEnabled() and not rw.cb_layers.isChecked()
+    assert 'lead/backing model' in rw.lb_layers_status.text()
+    assert rw.grab().save(str(tmp_path / 'missing-layer-models.png'))
+    rw._transcribe()
+    command, params = runner.calls[-1]
+    assert command == 'asr' and params['karaoke'] == ''
+
+
+def test_layer_availability_updates_without_silently_changing_a_selected_mode(review, monkeypatch):
+    rw, _, _, _, _ = review
+    monkeypatch.setattr(env, 'separation_installed', lambda root: True)
+    monkeypatch.setattr(env, 'separator_model_ready', lambda root, filename=env.SEPARATION_MODEL: True)
+    rw._refresh_layers()
+    assert rw.cb_layers.isEnabled() and not rw.cb_layers.isChecked()
+    rw.cb_layers.setChecked(True)
+    monkeypatch.setattr(env, 'separator_model_ready', lambda root, filename=env.SEPARATION_MODEL: filename != env.KARAOKE_MODEL)
+    rw._refresh_layers()
+    assert rw.cb_layers.isChecked() and rw.cb_layers.isEnabled()
+    assert env.KARAOKE_MODEL in rw.cb_layers.toolTip()
+    rw.cb_layers.setChecked(False)
+    assert not rw.cb_layers.isEnabled()
+
+
+def test_missing_layer_validation_names_the_asset_and_actual_lab_path(tmp_path, monkeypatch):
+    root = tmp_path / 'custom-lab'
+    audio = tmp_path / 'audio.wav'
+    audio.write_bytes(b'x')
+    monkeypatch.setattr(env, 'is_installed', lambda root: True)
+    monkeypatch.setattr(env, 'hf_model_ready', lambda *args: True)
+    monkeypatch.setattr(env, 'separation_installed', lambda root: True)
+    monkeypatch.setattr(env, 'separator_model_ready', lambda root, filename=env.SEPARATION_MODEL: filename != env.KARAOKE_MODEL)
+    message = lab.prerequisites(root, lang='es', separate=True, audio=audio, karaoke=True, asr=True)
+    assert env.KARAOKE_MODEL in message
+    assert str(root / 'separator-models') in message
+    assert 'Turn off' in message
+    assert lab.prerequisites(root, lang='es', separate=True, audio=audio, karaoke=False, asr=True) is None

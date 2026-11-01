@@ -8,7 +8,7 @@ import hashlib
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QInputDialog, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
@@ -57,6 +57,19 @@ def stage_text(name: str, state: str, seconds: float = 0.0) -> str:
             "error": f"{label}: falló"}.get(state, f"{label}: {state}")
 
 
+def layer_problem(root: Path) -> str | None:
+    """Describe missing optional layer assets without loading models or using the network."""
+    missing = []
+    if not env.separation_installed(root):
+        missing.append("separation package (Settings > Experimental features)")
+    for label, filename in (("vocal-isolation model", env.SEPARATION_MODEL), ("lead/backing model", env.KARAOKE_MODEL)):
+        if not env.separator_model_ready(root, filename):
+            missing.append(f"{label} ({filename})")
+    if missing:
+        return f"Missing: {', '.join(missing)}. Model folder: {root / 'separator-models'}."
+    return None
+
+
 def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, asr: bool = False, karaoke: bool = False) -> str | None:
     """Lo que falta para poder alinear/transcribir, en palabras (None = todo listo). Solo mira el disco."""
     if audio is None or not audio.exists():
@@ -69,11 +82,10 @@ def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, 
         wanted = (kind == "hf" and params.get("lang") == lang and not asr) or (asr and ident.endswith("large-v3-turbo"))
         if wanted and not env.hf_model_ready(root, ident):
             return "Falta descargar el modelo de " + ("transcripción" if asr else f"alineación ({lang})") + " (Ajustes → Funciones experimentales)."
+    if karaoke and (problem := layer_problem(root)):
+        return problem + " Turn off 'Separate lead/backing vocals' to continue with standard transcription/alignment."
     if separate and not (env.separation_installed(root) and env.separator_model_ready(root)):
         return "Falta instalar o descargar la separación de voz (Ajustes → Funciones experimentales), o desactiva «Separar la voz»."
-    if karaoke and not (env.separation_installed(root) and env.separator_model_ready(root)
-                        and env.separator_model_ready(root, env.KARAOKE_MODEL)):
-        return "Lead/backing separation requires the optional separator and both locally supplied model weights/configs in lab/separator-models."
     return None
 
 
@@ -678,6 +690,14 @@ class LabReviewWindow(QWidget):
         self.cb_layers.setChecked(False)
         self.cb_layers.setToolTip("Supply both weights and their configs in lab/separator-models. No weights are bundled or downloaded by this option.")
         cl.addWidget(self.cb_layers)
+        self.lb_layers_status = QLabel()
+        self.lb_layers_status.setObjectName("Muted")
+        self.lb_layers_status.setWordWrap(True)
+        self.lb_layers_status.setTextFormat(Qt.PlainText)
+        self.lb_layers_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        cl.addWidget(self.lb_layers_status)
+        self.cb_layers.toggled.connect(lambda _: self._refresh_layers())
+        self._refresh_layers()
         self.ed_text = QPlainTextEdit()
         self.ed_text.setPlaceholderText("Una línea por verso…")
         self.ed_text.setMinimumHeight(220)
@@ -859,6 +879,21 @@ class LabReviewWindow(QWidget):
         return page
 
     # ---- audio ----
+    def _refresh_layers(self):
+        problem = layer_problem(self.root)
+        # Keep an unavailable selected mode editable so it can be explicitly turned off.
+        self.cb_layers.setEnabled(problem is None or self.cb_layers.isChecked())
+        self.cb_layers.setToolTip(problem or "Local models are available. Role suggestions still require review.")
+        self.lb_layers_status.setText("Optional lead/backing model setup is incomplete. Leave this option off to transcribe or align without it.\n"
+                                     + f"Model folder: {self.root / 'separator-models'}" if problem else "")
+        self.lb_layers_status.setToolTip(problem or "")
+        self.lb_layers_status.setVisible(problem is not None)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.ActivationChange and self.isActiveWindow() and hasattr(self, "lb_layers_status"):
+            self._refresh_layers()
+
     def _refresh_audio(self):
         f = getattr(self.project, "audio_file", None)
         self.lb_audio.setText(f"Audio: {Path(f).name}" if f else "Audio: ninguno (elige el archivo de la canción)")
