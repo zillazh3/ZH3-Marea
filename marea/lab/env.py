@@ -198,4 +198,7 @@ def hf_model_ready(root: Path, repo: str) -> bool:
 
 
 def separator_model_ready(root: Path, filename: str = SEPARATION_MODEL) -> bool:
-    return (root / "separator-models" / filename).is_file()
+    directory = root / "separator-models"
+    config = Path(filename).stem + ("_config.yaml" if filename == KARAOKE_MODEL else ".yaml")
+    return (not (directory / f".{filename}.downloading").exists()
+            and all(p.is_file() and p.stat().st_size > 0 for p in (directory / filename, directory / config)))

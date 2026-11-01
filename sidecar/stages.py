@@ -314,17 +314,53 @@ def fetch_separator(ctx: Ctx, model: str = SEPARATOR_DEFAULT) -> dict:
     """Descarga explícita del modelo de separación (necesita red: solo en un proceso iniciado en modo descarga)."""
     if os.environ.get("HF_HUB_OFFLINE") == "1":
         raise StageError("Este proceso trabaja sin red. La descarga de modelos va en un proceso aparte iniciado en modo descarga.")
-    from audio_separator.separator import Separator
+    if Path(model).name != model or "/" in model or "\\" in model or not model.endswith(".ckpt"):
+        raise StageError("Invalid separator model filename.")
     d = models_dir(ctx)
     d.mkdir(parents=True, exist_ok=True)
+    config = Path(model).stem + ("_config.yaml" if model == KARAOKE_DEFAULT else ".yaml")
+    pending = d / f".{model}.downloading"
+    if not pending.exists() and all(p.is_file() and p.stat().st_size > 0 for p in (d / model, d / config)):
+        return {"model": model, "files": sorted(p.name for p in d.iterdir() if p.is_file())}
     ctx.send(event="stage", id=ctx.id, name="download", state="start", detail={"model": model})
     t0 = time.perf_counter()
     try:
-        Separator(model_file_dir=str(d), log_level=40).download_model_and_data(model)
+        import tempfile
+        from audio_separator.separator import Separator
+        import yaml
+
+        ctx.check()
+        pending.touch()
+        with tempfile.TemporaryDirectory(prefix=".download-", dir=d) as temporary:
+            staging = Path(temporary)
+            if os.environ.get("AUDIO_SEPARATOR_MODEL_DIR"):
+                raise StageError("Unset AUDIO_SEPARATOR_MODEL_DIR before downloading so the configured laboratory is used.")
+            Separator(model_file_dir=str(staging), log_level=40).download_model_and_data(model)
+            ctx.check()
+            if not all(p.is_file() and p.stat().st_size > 0 for p in (staging / model, staging / config)):
+                raise StageError("The download is incomplete: weights and matching YAML are required. Retry the download.")
+            data = yaml.load((staging / config).read_text(encoding="utf-8"), Loader=yaml.FullLoader)
+            if not isinstance(data, dict) or not isinstance(data.get("model"), dict) or not isinstance(data.get("training"), dict):
+                raise StageError("The downloaded model configuration is invalid. Retry the download.")
+            catalog = staging / "download_checks.json"
+            if not isinstance(json.loads(catalog.read_text(encoding="utf-8")), dict):
+                raise StageError("The downloaded separator catalog is invalid. Retry the download.")
+            ctx.check()
+            if not (d / catalog.name).exists():
+                os.replace(catalog, d / catalog.name)
+            os.replace(staging / config, d / config)
+            os.replace(staging / model, d / model)
+            pending.unlink()
+    except Cancelled:
+        raise
+    except ImportError as e:
+        raise StageError("Install the optional audio-separator package from Settings before downloading this model.") from e
+    except StageError:
+        raise
     except Exception as e:
-        raise StageError(f"No pude descargar el modelo de separación ({type(e).__name__}). Revisa tu conexión.") from e
+        raise StageError(f"Separator download failed ({type(e).__name__}). Check your connection and retry.") from e
     ctx.send(event="stage", id=ctx.id, name="download", state="done", seconds=round(time.perf_counter() - t0, 3), detail={"model": model})
-    return {"model": model, "files": sorted(p.name for p in d.iterdir())}
+    return {"model": model, "files": sorted(p.name for p in d.iterdir() if p.is_file())}
 
 
 def separate_vocals(ctx: Ctx, sha: str, audio: str, ffmpeg: str, model: str, dev: dict) -> Path:

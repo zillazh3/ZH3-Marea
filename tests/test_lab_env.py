@@ -215,6 +215,8 @@ def test_model_presence_is_decided_from_the_disk_only(tmp_path):
     assert env.hf_model_ready(root, "org/modelo") and not env.hf_model_ready(root, "org/otro")
     (root / "separator-models").mkdir()
     (root / "separator-models" / env.SEPARATION_MODEL).write_bytes(b"1")
+    assert not env.separator_model_ready(root)
+    (root / "separator-models" / Path(env.SEPARATION_MODEL).with_suffix(".yaml")).write_text("model: {}")
     (root / "env" / "Lib" / "site-packages" / "audio_separator").mkdir(parents=True)
     assert env.separator_model_ready(root) and env.separation_installed(root)
 
