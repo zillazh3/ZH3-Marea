@@ -1,0 +1,81 @@
+{
+  "_help": "Reglas de contexto. Solo vocabulario, nunca letras. Todo se normaliza (minúsculas, sin acentos). Categorías que no existan en la biblioteca se ignoran. Orden de aplicación: frases > guardas > reversión > negación > contraste.",
+
+  "_phrases": "Patrón sobre formas o lemas consecutivos; «*» = exactamente una palabra. Gana a las palabras sueltas y el efecto cae en la última palabra de la frase. Los lemas de varias palabras de la biblioteca también actúan como frases.",
+  "phrases": [
+    { "pattern": "no te recuerdo", "lang": "es", "categories": ["loss", "numbness"] },
+    { "pattern": "dont remember you", "lang": "en", "categories": ["loss", "numbness"] },
+    { "pattern": "mundo acaba hoy", "lang": "es", "categories": ["broken", "fire"], "at": 1 },
+    { "pattern": "el mundo se acaba", "lang": "es", "categories": ["broken", "fire"], "at": 3 },
+    { "pattern": "se acaba el mundo", "lang": "es", "categories": ["broken", "fire"], "at": 3 },
+    { "pattern": "world ends today", "lang": "en", "categories": ["broken", "fire"], "at": 1 },
+    { "pattern": "el mundo te entrego", "lang": "es", "categories": ["love", "celestial"], "at": 1 },
+    { "pattern": "lo siento", "lang": "es", "categories": ["sadness"] },
+    { "pattern": "perder el tiempo contigo", "lang": "es", "categories": ["longing", "love"] },
+    { "pattern": "para siempre", "lang": "es", "categories": ["time", "tenderness"] },
+    { "pattern": "otra vez", "lang": "es", "categories": ["longing"] },
+    { "pattern": "for ever", "lang": "en", "categories": ["time", "tenderness"] },
+    { "pattern": "forever and ever", "lang": "en", "categories": ["time", "tenderness"] },
+    { "pattern": "let go", "lang": "en", "categories": ["loss"] },
+    { "pattern": "foto mental", "lang": "es", "categories": ["memory", "photo"] },
+    { "pattern": "mental picture", "lang": "en", "categories": ["memory", "photo"] },
+    { "pattern": "mental photo", "lang": "en", "categories": ["memory", "photo"] },
+    { "pattern": "en las nubes", "lang": "es", "categories": ["cloud", "dream"] },
+    { "pattern": "cabeza en las nubes", "lang": "es", "categories": ["cloud", "dream"] },
+    { "pattern": "cloud nine", "lang": "en", "categories": ["cloud", "joy"] },
+    { "pattern": "head in the clouds", "lang": "en", "categories": ["cloud", "dream"] }
+  ],
+
+  "_negators": "Un negador a ≤ 2 palabras ANTES de la palabra con efecto cambia o anula sus categorías (tabla «negation»).",
+  "negators": {
+    "es": ["no", "ni", "nunca", "jamás", "sin", "nadie", "ningún", "ninguno", "ninguna", "tampoco", "nada"],
+    "en": ["no", "not", "never", "without", "nobody", "nothing", "none", "nor", "cannot", "don't", "dont", "can't", "cant", "won't", "wont",
+           "didn't", "doesn't", "couldn't", "wouldn't", "isn't", "aren't", "ain't"]
+  },
+
+  "_negation": "categoría -> categorías que la sustituyen; [] = anula (sin efecto). Cancelar es lo prudente: solo se invierte donde el sentido es claro. Las categorías que no figuran aquí no cambian.",
+  "negation": {
+    "sadness": [], "anguish": [], "numbness": [], "loss": [], "longing": [], "memory": [], "tenderness": [], "love": [],
+    "joy": [], "growth": [], "time": [], "anger": [], "intoxication": [], "dream": [], "shadow": [], "celestial": [],
+    "air": [], "cloud": [], "photo": [], "earth": [], "fire": [], "craft": [], "broken": [],
+    "fear": ["growth"],
+    "calm": ["anguish"],
+    "healing": ["anguish"],
+    "water": ["dryness"],
+    "dryness": ["water"]
+  },
+
+  "_reversals": "Construcciones de recuperación: lemas pegados a la palabra (side before, por defecto) o justo detrás (after). Si la palabra tiene una categoría de `map`, se sustituye y el disparador deja de contar como palabra suelta.",
+  "reversals": [
+    { "trigger": ["volver", "a"], "lang": "es", "map": { "calm": ["healing"], "anguish": ["healing"], "sadness": ["healing"], "numbness": ["healing"] } },
+    { "trigger": ["finally"], "lang": "en", "map": { "calm": ["healing"], "anguish": ["healing"], "sadness": ["healing"], "numbness": ["healing"] } },
+    { "trigger": ["again"], "side": "after", "lang": "en", "map": { "calm": ["healing"] } }
+  ],
+
+  "_pos_guards": "Formas ambiguas sin etiquetador. La palabra (forma o lema) solo cuenta si ALGUNA condición de keep_if se cumple, y se descarta si ALGUNA de drop_if se cumple (drop_if gana). Condiciones: prev/next (forma o lema de la palabra vecina), line_end, line_start.",
+  "pos_guards": [
+    { "_note": "creo que…: muletilla («creo que sí»), no fe.", "word": "creer", "lang": "es", "drop_if": { "next": ["que"] } },
+    { "_note": "solo: adverbio («solo quiero») vs. adjetivo «solitario» («estoy solo»).",
+      "word": "solo", "lang": "es",
+      "keep_if": { "prev": ["estar", "ser", "sentir", "quedar", "dejar", "me", "te", "se", "tan", "muy"], "line_end": true } },
+    { "_note": "vino: bebida («el vino») vs. pasado de venir («vino a verme»).",
+      "word": "vino", "lang": "es",
+      "keep_if": { "prev": ["el", "un", "mi", "tu", "su", "este", "ese", "de", "con", "otro", "buen", "tinto", "tomar", "beber"] },
+      "drop_if": { "next": ["a", "aqui", "hacia", "y"] } },
+    { "_note": "tomar: beber vs. coger («tomar mi mano»). Solo se bebe si sigue una bebida; «tomar un trago» queda fuera.",
+      "word": "tomar", "lang": "es",
+      "keep_if": { "next": ["vino", "trago", "copa", "cerveza", "tequila", "ron", "whisky", "botella", "shot", "alcohol", "hasta", "mucho", "demasiado"] } },
+    { "_note": "cura: el sacerdote («el cura») vs. remedio o verbo curar.",
+      "word": "cura", "lang": "es",
+      "drop_if": { "prev": ["el", "un", "del", "al", "este", "ese"] } },
+    { "_note": "still: adverbio («I still love») vs. «quieto» («I am still», «stand still»).",
+      "word": "still", "lang": "en",
+      "keep_if": { "prev": ["be"], "line_end": true } }
+  ],
+
+  "_contrast": "Dos palabras opuestas en el mismo verso = tensión: ambas se conservan (ocupan los dos huecos) y se emparejan. `words` compara lemas, `categories` compara categorías.",
+  "contrast": {
+    "categories": [["healing", "anger"], ["joy", "sadness"], ["calm", "anguish"], ["love", "anger"], ["growth", "loss"]],
+    "words": [["cura", "veneno"], ["rápido", "lento"], ["sanidad", "devoción"], ["cura", "matar"], ["cure", "poison"], ["sueño", "realidad"], ["suposición", "realidad"], ["dream", "reality"], ["fast", "slow"]]
+  }
+}
