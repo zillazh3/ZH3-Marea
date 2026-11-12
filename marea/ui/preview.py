@@ -25,6 +25,7 @@ class PreviewWidget(QWidget):
         self.ctx, self.scene, self._surface = None, None, None
         self._project, self._style, self._params = None, Style(), Params()
         self._range = (0.0, 1.0)
+        self._wordfx, self._wordfx_debug = None, False  # experimental: plan de efectos por palabra y su depuración (solo preview)
         self.playing, self._frame, self._image = False, None, None
         self._acc, self._settle = 0.0, 0.0
         self._clock = QElapsedTimer()
@@ -37,6 +38,12 @@ class PreviewWidget(QWidget):
         self._project, self._style, self._params = project, style, params
         self._range = range_ms
         self.rebuild()
+
+    def set_wordfx(self, plan, debug: bool = False, rebuild: bool = True):
+        """Plan de Semantic Word FX (None = apagado). Reconstruye la escena porque las palabras se marcan al crearla."""
+        self._wordfx, self._wordfx_debug = plan, debug
+        if rebuild:
+            self.rebuild()
 
     def rebuild(self):
         """Escena nueva (cambió la portada, la fuente o la letra); conserva la posición."""
@@ -58,6 +65,8 @@ class PreviewWidget(QWidget):
             cinematic=getattr(self._project, "cinematic", None),
             async_video=self._async_video,
             on_video_frame=self._video_frame_ready.emit,
+            wordfx=self._wordfx,
+            wordfx_debug=self._wordfx_debug,
         )
         self._surface = self.ctx.make_surface(*size)
         self.seek(offset)

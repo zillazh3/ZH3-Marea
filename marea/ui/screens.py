@@ -310,6 +310,15 @@ class SettingsBody(QWidget):
         self.cb_align.toggled.connect(self._align_toggled)
         if self.cb_align.isChecked():
             self._mount_lab_panel()
+        self.cb_wordfx = QCheckBox("Efectos semánticos por palabra")
+        self.cb_wordfx.setChecked(settings.value("experimental/wordfx", False, type=bool))
+        self.cb_wordfx.toggled.connect(lambda on: self.settings.setValue("experimental/wordfx", on))
+        lay.addWidget(self.cb_wordfx)
+        fx_note = QLabel("Palabras sueltas de la letra reaccionan a su significado y emoción (tiempo, pérdida, amor…), solo dentro de la palabra. "
+                         "Se ve en el preview y en el export. La biblioteca de categorías es editable: docs/wordfx.md.")
+        fx_note.setObjectName("Caption")
+        fx_note.setWordWrap(True)
+        lay.addWidget(fx_note)
 
     def _align_toggled(self, on: bool):
         self.settings.setValue("experimental/align", on)

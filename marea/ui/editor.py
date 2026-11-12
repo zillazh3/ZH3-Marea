@@ -5,7 +5,7 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QFontDatabase, QPainter
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QSlider,
@@ -262,6 +262,40 @@ class EditorPage(QWidget):
         self.cb_reduce.setToolTip("Sin capa por carácter, sin saltos por sílaba ni vibrato: quedan el relleno, el brillo y el desplazamiento")
         self.cb_reduce.toggled.connect(self._style_changed)
         form.addRow(self.cb_reduce)
+        self.cb_fxdebug = QCheckBox("Depurar efectos por palabra")  # experimental/wordfx: solo se ve con la función activada en Ajustes
+        self.cb_fxdebug.setToolTip("Marca cada palabra con efecto semántico y muestra su lema, idioma y categorías (no sale en el export)")
+        self.cb_fxdebug.setVisible(False)
+        self.cb_fxdebug.toggled.connect(lambda _: self._wordfx_sync())
+        form.addRow(self.cb_fxdebug)
+        self.sl_fx, self.lb_fx = self._slider(0, 150, 100), QLabel("100 %")
+        self.sl_fx.setToolTip("Intensidad global de los efectos por palabra (0 % los apaga sin desactivar la función)")
+        self.fx_row = QWidget()
+        row = QHBoxLayout(self.fx_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.lb_fx.setObjectName("Caption")
+        self.lb_fx.setMinimumWidth(40)
+        row.addWidget(self.sl_fx, 1)
+        row.addWidget(self.lb_fx)
+        form.addRow("Intensidad FX", self.fx_row)
+        self.fx_row.setVisible(False)
+        self.fx_label = form.labelForField(self.fx_row)
+        self.fx_label.setVisible(False)
+        self.cb_fxbg = QCheckBox("Adaptar color de efectos al fondo")
+        self.cb_fxbg.setToolTip("Mide el fondo detrás de cada palabra con efecto y ajusta su color para que contraste, conservando el tono")
+        self.cb_fxbg.setChecked(self.settings.value("wordfx/adapt_bg", True, type=bool))
+        self.cb_fxbg.setVisible(False)
+        self.cb_fxbg.toggled.connect(lambda v: (self.settings.setValue("wordfx/adapt_bg", v), self._wordfx_sync()))
+        form.addRow(self.cb_fxbg)
+        self._fx_timer = QTimer(self, singleShot=True, interval=250)  # el slider no reconstruye la escena en cada paso
+        self._fx_timer.timeout.connect(self._wordfx_sync)
+        self.sl_fx.valueChanged.connect(lambda v: (self.lb_fx.setText(f"{v} %"), self._fx_timer.start()))
+        self._fx_watch = QTimer(self, interval=1000)  # hot reload: mira las fechas de los JSON mientras la función está activa
+        self._fx_watch.timeout.connect(self._wordfx_sync)
+        self._fx_state = None  # (función, depuración, intensidad, audio) con los que se armó la escena
+        self._fx_plan = None  # FxPlan vigente: la preview y el export usan el mismo
+        self._fx_palette = (None, ())  # (id de la portada, colores dominantes)
+        self._fx_audio = (None, None)  # (id de las muestras, AudioStats) del audio local: tensión vocal, tempo, brillo, modo
+        self._fx_profile = None  # SongProfile con el que se armó el plan (guardado o calculado)
         self.sl_blur, self.lb_blur = self._slider(0, 20, 10), QLabel("1.0×")
         self.sl_wob, self.lb_wob = self._slider(25, 100, 40), QLabel("ζ 0.40")
         self.sl_amt, self.lb_amt = self._slider(0, 150, 100), QLabel("100 %")
@@ -558,6 +592,10 @@ class EditorPage(QWidget):
         self.act_sync = m.addAction("Sincronizar con audio (experimental)…", self._open_sync)
         self.act_sync.setVisible(False)
         self.act_sync_sep.setVisible(False)
+        self.act_fx_sep = m.addSeparator()
+        self.act_fxprofile = m.addAction("Perfil de la canción (efectos por palabra)…", self._open_fx_profile)
+        self.act_fxprofile.setVisible(False)
+        self.act_fx_sep.setVisible(False)
         m.aboutToShow.connect(self._sync_menu)
         m.aboutToShow.connect(self._probe_nvenc)
         return m
@@ -571,6 +609,9 @@ class EditorPage(QWidget):
         on = self.settings.value("experimental/align", False, type=bool)
         self.act_sync.setVisible(on)
         self.act_sync_sep.setVisible(on)
+        fx = self.settings.value("experimental/wordfx", False, type=bool)
+        self.act_fxprofile.setVisible(fx)
+        self.act_fx_sep.setVisible(fx)
         for key, actions in (("export/preset", self.preset_actions), ("export/encoder", self.encoder_actions)):
             current = self.settings.value(key)
             if current in actions:
@@ -634,6 +675,7 @@ class EditorPage(QWidget):
         self.stack.setCurrentIndex(1)
         self.btn_export.setEnabled(True)
         self.btn_menu.setEnabled(True)
+        self._wordfx_sync(rebuild=False)
         self.preview.set_project(project, self.style, self.params, self._clip_range())
         self._range_changed(seek=False)
         self._pick_default_source()
@@ -704,6 +746,7 @@ class EditorPage(QWidget):
                 self._sync_auto_opening_trim()
                 self._refresh_audio_tab()
                 self._refresh_cinematic_tab()
+                self._wordfx_sync()  # el RMS del audio entra en los efectos
 
         run_async(lambda: local.decode(audio_path), done, lambda _e: None)
 
@@ -789,6 +832,118 @@ class EditorPage(QWidget):
 
     def _on_playing(self, playing: bool):
         self._refresh_icons()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._wordfx_sync()  # Ajustes pudo activar o apagar la función mientras esta página no se veía
+
+    def _wordfx_sync(self, rebuild: bool = True):
+        """Semantic Word FX (experimental): arma el plan de la letra si la función está activa y lo pasa al preview."""
+        on = self.settings.value("experimental/wordfx", False, type=bool)
+        for w in (self.cb_fxdebug, self.cb_fxbg, self.fx_row, self.fx_label):
+            w.setVisible(on)
+        p = self.project
+        if on and not self._fx_watch.isActive():
+            self._fx_watch.start()
+        elif not on:
+            self._fx_watch.stop()
+        stats = self._wordfx_audio_stats() if on and p else None
+        state = (on, on and self.cb_fxdebug.isChecked(), self.sl_fx.value(), self.cb_fxbg.isChecked(), id(p.audio_samples) if p else None, stats is not None,
+                 self._wordfx_files_key() if on and p else None)
+        if p is None or (rebuild and state == self._fx_state):
+            return
+        self._fx_state = state
+        if not on:
+            self._fx_plan = self._fx_profile = None
+        else:
+            from marea.model.cinematic import analyze_audio
+            from marea.wordfx import library, rules, songs  # perezoso: con la función apagada no se importa nada de marea.wordfx
+            from marea.wordfx.palette import dominant_colors
+            from marea.wordfx.plan import build_plan, track_key
+            from marea.wordfx.profile import ProfileError, classify
+            if self._fx_palette[0] != id(p.cover):
+                self._fx_palette = (id(p.cover), dominant_colors(p.cover))
+            try:
+                # shortcut: el desfase del audio (audio_offset_ms) no se aplica al RMS ni a la tensión; mínimo si el desfase es de decenas de ms
+                analysis = analyze_audio(p.audio_samples, local.RATE) if p.audio_samples is not None else None
+                lib, key = library.load(), track_key(p.lyrics, p.track.id if p.track else "")
+                profile = songs.load_profile(key) or classify(p.lyrics, lib, stats, track_id=key)  # lo guardado manda sobre lo calculado
+                self._fx_plan = build_plan(p.lyrics, lib, intensity=self.sl_fx.value() / 100, track_id=p.track.id if p.track else "",
+                                           palette=self._fx_palette[1], analysis=analysis, profile=profile, audio_stats=stats,
+                                           adapt_bg=self.cb_fxbg.isChecked())
+                self._fx_profile = profile
+            except (library.LibraryError, rules.RulesError, songs.SongError, ProfileError) as err:
+                self.notify(f"Efectos por palabra: {err} Se mantiene el plan anterior.", "error")  # un JSON a medio editar no apaga todo
+        self.preview.set_wordfx(self._fx_plan, state[1], rebuild=rebuild)
+
+    def _wordfx_audio_stats(self):
+        """AudioStats del audio local o None mientras se calculan (la primera vez, en segundo plano) o si no hay audio local."""
+        p = self.project
+        if p.audio_samples is None:
+            return None
+        key = id(p.audio_samples)
+        if self._fx_audio[0] == key:
+            return self._fx_audio[1]
+        self._fx_audio = (key, None)
+        samples, audio_file = p.audio_samples, p.audio_file
+
+        def work():
+            from marea.model.cinematic import analyze_audio
+            from marea.wordfx import audiofeat
+            stem = audiofeat.find_cached_stem(audio_file) if audio_file else None  # voz separada del laboratorio si ya existe
+            return audiofeat.analyze(samples, local.RATE, stem=stem, analysis=analyze_audio(samples, local.RATE))
+
+        def done(stats):
+            if self.project is p and self._fx_audio[0] == key:
+                self._fx_audio = (key, stats)
+                self._wordfx_sync()
+
+        run_async(work, done, lambda _e: None)  # sin estadísticas el plan sigue sin tensión vocal
+        return None
+
+    def _open_fx_profile(self):
+        """Panel del perfil de ánimo: tags, arco y notas editables; guardar escribe el archivo de la canción y rehace el plan."""
+        from PySide6.QtWidgets import QDialog
+
+        from marea.ui.wordfx_profile import ProfileDialog
+        from marea.wordfx import library, songs
+        from marea.wordfx.plan import track_key
+        from marea.wordfx.profile import ProfileError, classify
+        p = self.project
+        if p is None:
+            return
+        self._wordfx_sync()
+        if self._fx_profile is None:
+            self.notify("Activa los efectos por palabra en Ajustes para editar el perfil.", "info")
+            return
+        key = track_key(p.lyrics, p.track.id if p.track else "")
+        stats = self._fx_audio[1] if p.audio_samples is not None else None
+        try:
+            lib = library.load()
+        except library.LibraryError as err:
+            self.notify(f"Biblioteca de efectos no válida: {err}", "error")
+            return
+        end = max((l.end for l in p.lyrics.lines), default=1000) / 1000
+        arc_end = self._fx_profile.arc[-1].end if self._fx_profile.arc else 0.0
+        dlg = ProfileDialog(self._fx_profile, max(end, arc_end), lambda notes: classify(p.lyrics, lib, stats, notes=notes, track_id=key),
+                            p.title, self)
+        if dlg.exec() == QDialog.Accepted:
+            try:
+                songs.save_profile(key, dlg.result_profile())
+            except (songs.SongError, ProfileError, OSError) as err:
+                self.notify(f"No pude guardar el perfil: {err}", "error")
+                return
+            self._fx_state = None
+            self._wordfx_sync()
+
+    def _wordfx_files_key(self) -> tuple:
+        """Fechas de los JSON editables (biblioteca, reglas y overrides de esta canción): si cambian, se rearma el plan (hot reload)."""
+        from marea.wordfx import library, rules, songs
+        from marea.wordfx.plan import track_key
+        p = self.project
+        files = (library.user_path(), library.BUNDLED, rules.user_path(), rules.BUNDLED,
+                 songs.path_for(track_key(p.lyrics, p.track.id if p.track else "")))
+        return tuple(f.stat().st_mtime_ns if f.is_file() else None for f in files)
 
     def _credit_toggled(self, on: bool):
         self.style.credit = on
@@ -1295,6 +1450,7 @@ class EditorPage(QWidget):
                 self._sync_auto_opening_trim()
                 self._refresh_audio_tab()
                 self._refresh_cinematic_tab()
+                self._wordfx_sync()
 
         run_async(lambda: local.decode(path), done,
                   lambda e: self.notify(str(e) if isinstance(e, AudioError) else "No pude leer ese archivo de audio.", "error"))
@@ -1345,7 +1501,7 @@ class EditorPage(QWidget):
         return ExportJob(self.project.lyrics, self.project.cover_png(), unique_path(self._output_dir(), name), start_ms, end_ms,
                          size=(preset[1], preset[2]), fps=60, encoder=self.settings.value("export/encoder", "cpu"),
                          marker=self.settings.value("export/marker", "none"), params=replace(self.params),
-                         style=replace(self.style), cinematic=copy.deepcopy(self.project.cinematic))
+                         style=replace(self.style), cinematic=copy.deepcopy(self.project.cinematic), wordfx=self._fx_plan)
 
     def _audio_spec(self, start_ms: float, end_ms: float) -> AudioSpec | None:
         """Qué audio lleva el clip, o None (tras avisar qué falta) si no se puede."""

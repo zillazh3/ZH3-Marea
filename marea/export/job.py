@@ -41,6 +41,7 @@ class ExportJob:
     prefer_gpu: bool = True
     audio_path: Path | None = None  # WAV ya recortado al tramo (con fundidos); el pitido solo aplica sin audio
     cinematic: CinematicConfig = field(default_factory=CinematicConfig)
+    wordfx: object | None = None  # marea.wordfx.plan.FxPlan (experimental) ya compuesto: el mismo plan que vio la preview
 
     @property
     def frames(self) -> int:
@@ -80,7 +81,7 @@ def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
     try:
         cover = skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(job.cover_png))
         scene = Scene(job.lyrics, cover, job.size, job.params, Style(**vars(job.style)), gpu=ctx.gpu,
-                      cinematic=job.cinematic)
+                      cinematic=job.cinematic, wordfx=job.wordfx)
         scene.clip_start_ms = job.start_ms
         surface = ctx.make_surface(*job.size)
         canvas = surface.getCanvas()

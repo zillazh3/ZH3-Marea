@@ -241,3 +241,10 @@ def apply(app, name: str):
 def saved_name(settings: QSettings) -> str:
     n = settings.value("theme", "dark")
     return n if n in THEMES else "dark"
+
+
+# Ánimos del perfil de canción (Semantic Word FX): el mismo tono en tema claro y oscuro, texto oscuro encima.
+MOOD_COLORS = {
+    "sad": "#5B7A99", "nostalgic": "#C8A27A", "longing": "#8F86B8", "anguished": "#B04A73", "tender": "#FFB5A7",
+    "hopeful": "#9BE37E", "joyful": "#FFC56B", "euphoric": "#FF8FA3", "bittersweet": "#C9A0DC", "healing": "#7FCFC3",
+    "numb": "#9A9A9A", "calm": "#9FD8E0"}

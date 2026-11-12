@@ -17,6 +17,8 @@ from marea.render.text import (BG_PAD_TOP, CREDIT_GAP_TOP, LINE_H, PAD_L, PAD_R,
 
 DESIGN_PX = 42.0
 FW = 0.5  # borde del wipe (em)
+PROBE_HZ = 10
+PROBE_W, PROBE_H = 32, 56  # miniatura del fondo que se promedia bajo cada palabra con efecto (mismo aspecto 9:16)
 FW_SOFT = 1.3  # borde del wipe en letra por línea (em): degradado ancho, como Spicy Lyrics sin sílabas
 ORIGIN_SYL, ORIGIN_CH = 0.81, 0.75  # transform-origin vertical (em desde el borde superior de la línea)
 BLOOM = ((0.28, 0.16), (0.06, 0.22))  # (radio em, alpha) de las dos sombras
@@ -58,9 +60,12 @@ def _paint(**kw) -> skia.Paint:
 class Scene:
     def __init__(self, lyrics, cover: skia.Image, size=(1080, 1920), params: Params | None = None,
                  style: Style | None = None, gpu: bool = False, cinematic: CinematicConfig | None = None,
-                 async_video: bool = False, on_video_frame=None):
-        """gpu=True si el canvas es de una superficie GPU (`marea.render.gpu`); la portada debe estar en ese contexto."""
+                 async_video: bool = False, on_video_frame=None, wordfx=None, wordfx_debug: bool = False):
+        """gpu=True si el canvas es de una superficie GPU (`marea.render.gpu`); la portada debe estar en ese contexto.
+        wordfx: `marea.wordfx.plan.FxPlan` (experimental) o None; wordfx_debug dibuja la superposición de depuración (solo preview)."""
         self.w, self.h = size
+        self.wordfx, self.wordfx_debug = wordfx, wordfx_debug
+        self._probe = None  # miniatura del fondo para adaptar el color de las palabras con efecto (se crea al primer uso)
         self.style = style or Style()
         self.cover = cover
         self.fonts = Fonts(self.style.font_family)
@@ -81,6 +86,8 @@ class Scene:
             credit, self.fonts, self.size, stage_w - PAD_L * self.size - PAD_R * stage_w)
         self.engine = Engine(lyrics, self._measure, self.stage.height(), self.size, params, credit_h=credit_h)
         self._by_line = {id(L.src): L for L in self.engine.items if not (L.is_gap or L.is_credit)}
+        if wordfx is not None:
+            self.attach_wordfx(lyrics, wordfx)
         self._layouts = {}
         self.clip_start_ms: float | None = None  # inicio del clip: la marca de agua entra con fundido desde ahí
 
@@ -95,6 +102,14 @@ class Scene:
                                                     on_frame_ready=self._on_video_frame)
         else:
             self.cinematic_bg.set_config(cinematic)
+
+    def attach_wordfx(self, lyrics, plan):
+        """Marca cada palabra del motor con su efecto: la clave (verso, palabra) coincide con el orden de `Item.words`."""
+        by_src = {id(l): i for i, l in enumerate(lyrics.lines)}
+        for L in self._by_line.values():
+            li = by_src[id(L.src)]
+            for wi, w in enumerate(L.words):
+                w.fx = None if w.bg else plan.get(li, wi)
 
     def close(self):
         if self.cinematic_bg is not None:
@@ -112,13 +127,39 @@ class Scene:
         lay = self._layout(self._by_line[id(line)])
         return lay.h_active if active else lay.h_inactive
 
-    def render(self, canvas: skia.Canvas):
-        e, st = self.engine, self.stage
+    def _draw_bg(self, canvas: skia.Canvas, base):
+        e = self.engine
         if self.cinematic_bg is not None and self.cinematic_bg.active_at(e.t * 1000.0):
             lyric_act = max((L.act for L in e.items if not (L.is_gap or L.is_credit)), default=0.0)
-            self.cinematic_bg.draw(canvas, self.bg, e.t, lyric_act)
+            self.cinematic_bg.draw(canvas, base, e.t, lyric_act)
         else:
-            self.bg.draw(canvas, e.t)
+            base.draw(canvas, e.t)
+
+    def _backdrop(self, x: float, top: float, w: float, h: float) -> tuple[int, int, int]:
+        """Color medio del fondo real (portada o cinemático) bajo una caja en px del lienzo: se dibuja el fondo en una miniatura
+        (una vez por fotograma) y se promedia. Función pura de (portada, cinemático, t): preview y export ven lo mismo."""
+        t = round(self.engine.t * PROBE_HZ) / PROBE_HZ  # el fondo cambia despacio: se muestrea a 10 Hz (sigue siendo función pura de t)
+        if self._probe is None:
+            self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1), [None, None])
+        surf, small, cache = self._probe
+        if cache[0] != t:
+            c = surf.getCanvas()
+            c.save()
+            if self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0):
+                c.scale(PROBE_W / self.w, PROBE_H / self.h)  # el cinemático dibuja en px del lienzo real
+                self._draw_bg(c, self.bg)
+            else:
+                small.draw(c, t)
+            c.restore()
+            cache[0], cache[1] = t, surf.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)[..., :3]
+        x0, x1 = int(max(0.0, x) / self.w * PROBE_W), int(min(self.w, x + w) / self.w * PROBE_W) + 1
+        y0, y1 = int(max(0.0, top) / self.h * PROBE_H), int(min(self.h, top + h) / self.h * PROBE_H) + 1
+        px = cache[1][min(y0, PROBE_H - 1):max(y1, y0 + 1), min(x0, PROBE_W - 1):max(x1, x0 + 1)]
+        return tuple(int(v) for v in px.reshape(-1, 3).mean(axis=0))
+
+    def render(self, canvas: skia.Canvas):
+        e, st = self.engine, self.stage
+        self._draw_bg(canvas, self.bg)
         self._header(canvas)
         canvas.save()
         canvas.clipRect(st)
@@ -309,7 +350,32 @@ class Scene:
         for ri, (row, rw) in enumerate(zip(rows, widths)):
             x0 = lay.width - lay.pad_r - rw if L.duet else lay.pad_l  # dueto: alineado a la derecha
             for word, wx, ww in row:
-                self._word(canvas, word, x0 + wx, top + ri * LINE_H * size, ww, size, ba, da)
+                lt = top + ri * LINE_H * size
+                if word.fx is None:
+                    self._word(canvas, word, x0 + wx, lt, ww, size, ba, da)
+                    continue
+                self._fx_word(canvas, word, x0 + wx, lt, ww, size, ba, da)
+                if self.wordfx_debug:
+                    from marea.wordfx import debug  # perezoso: con la función apagada no se importa nada de marea.wordfx
+                    debug.draw_label(canvas, self.fonts, word.fx, x0 + wx, ww, lt + self.fonts.baseline(size), size)
+
+    def _fx_word(self, canvas, word, x, line_top, ww, size, ba, da):
+        """Palabra con efecto semántico (marea.wordfx): el render dibuja las letras con sus efectos y aquí se aplica el mismo
+        wipe de la palabra con énfasis, así que el relleno cantado/no cantado se ve igual que en el resto de la línea."""
+        from marea.wordfx import render  # perezoso: con la función apagada no se importa nada de marea.wordfx
+        pad = 0.6 * size
+        bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
+        canvas.saveLayer(bounds, None)
+        render.draw_word_fx(canvas, self.fonts, word.fx, render.letters_for(self.fonts, word.text, size), x,
+                            line_top + self.fonts.baseline(size), size, self.engine.t, self.wordfx.rms_at(self.engine.t),
+                            self.engine.p.reduce, strain=self.wordfx.strain_at(self.engine.t),
+                            onsets=[u.b + (u.e - u.b) * j / len(u.text) for u in word.parts for j in range(len(u.text))],  # cada letra al ritmo de su sílaba
+                            backdrop=(self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
+                                      if self.wordfx.adapt_bg else None))
+        filled = sum(self.fonts.text(u.text, size)[1] * u.p for u in word.parts)  # px ya cantados: cada sílaba/letra con su avance
+        canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, filled / ww if ww else 0.0, ba, da, size),
+                                           BlendMode=skia.BlendMode.kDstIn))
+        canvas.restore()
 
     def _wipe(self, x, w, p, ba, da, size, a=1.0, fw=FW):
         """Máscara del prototipo: gradiente horizontal de alpha ba→da con borde de `fw` em que avanza con p."""

@@ -83,6 +83,7 @@ class Word:
         self.soft = soft  # letra por línea: borde del wipe más ancho
         self.text = "".join(p.text for p in parts)
         self.p = 0.0  # progreso del wipe de toda la palabra (emph: promedio de sus letras)
+        self.fx = None  # marea.wordfx.matcher.Match si la palabra lleva efecto semántico (lo asigna la escena)
 
 
 class Dot:
