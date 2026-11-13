@@ -8,7 +8,8 @@ from marea.wordfx.lexicon import lemma_candidates, normalize
 
 EMOTIONS = {"sadness", "anguish", "numbness", "loss", "longing", "memory", "tenderness", "love", "joy", "healing",
             "calm", "fear", "anger", "intoxication", "growth"}
-ELEMENTS = {"time", "celestial", "air", "cloud", "photo", "earth", "water", "fire", "dryness", "dream", "shadow", "craft", "broken"}
+ELEMENTS = {"time", "celestial", "air", "cloud", "photo", "earth", "water", "fire", "dryness", "dream", "shadow", "craft", "broken",
+            "spring", "summer", "autumn", "winter"}
 
 LEGACY = {  # kind, vector, primitives, priority: must never change
     "time": ("element", {"valence": -0.1, "arousal": 0.35, "gravity": 0.1, "temperature": 0.0, "fragility": 0.4, "blur": 0.3},

@@ -42,9 +42,10 @@ def _mix(a: RGB, b: RGB, t: float) -> RGB:
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
-def seed_for(track_id: str, line: int, word: int) -> int:
-    """Entero de 64 bits estable por (pista, verso, palabra)."""
-    return int.from_bytes(hashlib.sha1(f"{track_id}:{line}:{word}".encode()).digest()[:8], "big")
+def seed_for(track_id: str, line: int, word: int, repeat_n: int = 0) -> int:
+    """Deterministic 64-bit integer seed for `(track_id, line, word, repeat_n)`."""
+    raw = f"{track_id}:{line}:{word}" if repeat_n == 0 else f"{track_id}:{line}:{word}:{repeat_n}"
+    return int.from_bytes(hashlib.sha1(raw.encode()).digest()[:8], "big")
 
 
 def blend_categories(cats: Sequence[str], lib: Library) -> Vector:
@@ -149,7 +150,8 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
             line_mood: Vector | None = None, song_mood: Vector | None = None, palette: Sequence[RGB] = (),
             repeat_n: int = 0, intensity: float = 1.0, bleed: float = 0.3, beat_period_ms: float | None = None,
             partner: Match | None = None, osc_phase: float = 0.0, vector_override: Mapping[str, float] | None = None,
-            raw_vocals: bool = False) -> FxParams:
+            raw_vocals: bool = False, bleed_donors: Sequence[tuple[Match, float]] | None = None,
+            is_bg: bool = False, handoff_overlap_s: float = 0.32) -> FxParams:
     """Parámetros de una aparición de `match`. `neighbors` = (palabra con efecto del mismo verso, distancia en tokens).
 
     `vector_override` (eje -> valor, por canción) sustituye ejes del vector final antes de mapear. `partner` (par de contraste)
@@ -158,10 +160,25 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     `raw_vocals` (etiqueta del perfil de canción: voz tensa/cruda) da `strain_gain`: el render hace que la curva de tensión vocal
     module temblor y aberración cromática. Si la palabra aún no tiene ninguno de los dos, se le añaden en pequeño.
     """
-    seed = seed_for(track_id, match.line, match.word)
+    base_seed = seed_for(track_id, match.line, match.word, 0)
+    seed = seed_for(track_id, match.line, match.word, repeat_n)
     intensity = _clamp(intensity, 0.0, 1.5)
-    near = [(m, d) for m, d in neighbors if d <= 2 and bleed > 0]
-    parts = [(1.0, blend_categories(match.categories, lib))] + [(bleed, blend_categories(m.categories, lib)) for m, _ in near]
+    if is_bg:
+        intensity *= 0.40  # background vocals / ad-libs run at 30-50% amplitude
+    if bleed_donors is not None and bleed > 0:
+        # Spatial falloff kernel (0.35 at +-1, 0.12 at +-2, including cross-line hero donors)
+        weighted_near = [(m, float(w)) for m, w in bleed_donors if w > 0.0]
+        parts = [(1.0, blend_categories(match.categories, lib))] + [(w, blend_categories(m.categories, lib)) for m, w in weighted_near]
+        bleed_total = round(sum(w for _, w in weighted_near), 6)
+        bleed_from = ",".join(m.lemma for m, _ in weighted_near)
+        strongest_donor = max(weighted_near, key=lambda x: x[1])[0] if weighted_near else None
+    else:
+        near = [(m, d) for m, d in neighbors if d <= 2 and bleed > 0]
+        weighted_near = [(m, bleed) for m, _ in near]
+        parts = [(1.0, blend_categories(match.categories, lib))] + [(bleed, blend_categories(m.categories, lib)) for m, _ in near]
+        bleed_total = round(bleed * len(near), 6)
+        bleed_from = ",".join(m.lemma for m, _ in near)
+        strongest_donor = min(near, key=lambda x: x[1])[0] if near else None
     parts += [(0.15, v) for v in (line_mood, song_mood) if v is not None]
     tot = sum(w for w, _ in parts)
     vec = tuple(_clamp(sum(w * v[i] for w, v in parts) / tot, *RANGES[a]) for i, a in enumerate(AXES))
@@ -170,10 +187,8 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         if bad := set(vector_override) - set(AXES):
             raise ValueError(f"vector_override: ejes desconocidos {sorted(bad)}")
     val, aro, gra, tem, fra, blu = vec
-    bleed_total = round(bleed * len(near), 6)
-    bleed_from = ",".join(m.lemma for m, _ in near)
     hold_s = max(0.0, (match.end_ms - match.begin_ms) / 1000)
-    prims, rise = _primitives(match, lib, vec, repeat_n, seed)
+    prims, rise = _primitives(match, lib, vec, repeat_n, base_seed)
     on = set(prims)
     strain, forced = 0.0, False
     if raw_vocals and intensity > 0:
@@ -195,10 +210,9 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         base = _mix(base, GRAY, 0.2)
     c_from = blend_palette(base, palette, AUTHORED_WEIGHT if auth else 0.6)
     c_to = blend_palette(auth[1], palette, AUTHORED_WEIGHT) if auth else c_from
-    if near:
-        nm = min(near, key=lambda x: x[1])[0]
-        nv = blend_categories(nm.categories, lib)
-        nauth = _authored(nm.categories, lib)
+    if strongest_donor is not None:
+        nv = blend_categories(strongest_donor.categories, lib)
+        nauth = _authored(strongest_donor.categories, lib)
         n_col = (blend_palette(nauth[0], palette, AUTHORED_WEIGHT) if nauth else blend_palette(anchor_color(nv[0], nv[3], nv[1]), palette, 0.6))
         c_to = _mix(c_to, n_col, min(1.0, 2 * bleed_total))
     if not auth:
@@ -254,7 +268,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         for key in ("jitter_em", "chromatic_em"):
             if key in amp:
                 amp[key] *= 1.2
-    k = intensity * min(2.0, 1 + 0.25 * repeat_n) * (0.85 + 0.3 * _u(seed, "mag"))  # el ±15% por seed afecta a todas
+    k = intensity * min(2.0, 1 + 0.25 * repeat_n) * (0.85 + 0.3 * _u(base_seed, "mag"))  # el ±15% por seed afecta a todas
     f = {key: _clamp(v * k, -LIMITS[key], LIMITS[key]) for key, v in amp.items()}
 
     if forced:
@@ -284,4 +298,99 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     if partner:
         f.update(osc_hz=2.0, osc_phase=osc_phase, osc_jitter_em=0.03 * intensity)  # constantes: ambas palabras laten igual
         f["audio_gain"] = max(f.get("audio_gain", 0.0), 0.3)
+    from marea.wordfx.envelope import duration_mode
+    from marea.wordfx.signatures import CUSTOM_PARTICLE_KINDS, signature_for
+    d_mode, _ = duration_mode(hold_s)
+    sig = signature_for(match.categories, vec)
+    release_s = sig.release_ms / 1000.0
+    residue_level = sig.residue_level
+    zeta = sig.zeta
+    sig_freq = sig.freq_range_hz[0] + (sig.freq_range_hz[1] - sig.freq_range_hz[0]) * aro
+    sig_amp = (sig.amp_range_em[0] + (sig.amp_range_em[1] - sig.amp_range_em[0]) * max(aro, fra)) * min(1.5, intensity)
+    if d_mode == "accent":
+        f["particles"] = 0
+        f["sparkle"] = 0
+    elif "particles" in on and sig.particle_kind in CUSTOM_PARTICLE_KINDS and intensity > 0.0:
+        f["particles"] = round(_clamp(max(f.get("particles", 0), sig.particle_max * min(1.5, intensity)), 0, 28))
+    donor_b0 = (strongest_donor.begin_ms / 1000.0) if strongest_donor is not None else -1.0
+    donor_b1 = (strongest_donor.end_ms / 1000.0) if strongest_donor is not None else -1.0
+    f.update(
+        release_s=release_s,
+        residue_level=residue_level,
+        zeta=zeta,
+        is_hero=not is_bg,
+        is_bg=is_bg,
+        tier="support" if is_bg else "hero",
+        bleed_donor_s=donor_b0,
+        bleed_donor_end_s=donor_b1,
+        handoff_overlap_s=handoff_overlap_s,
+        duration_mode=d_mode,
+        waveform=sig.waveform,
+        sig_freq_hz=sig_freq,
+        sig_axis=sig.axis,
+        sig_amp_em=sig_amp,
+        fill_tint=sig.fill_tint,
+        fill_edge_softness=sig.fill_edge_softness,
+        glow_spread=sig.glow_spread,
+        particle_kind=sig.particle_kind if sig.particle_kind in CUSTOM_PARTICLE_KINDS else "dust",
+    )
     return FxParams(primitives=tuple(prims), **meta, **f)
+
+
+def compose_ambient(
+    vec: Sequence[float],
+    *,
+    track_id: str = "",
+    line_i: int = 0,
+    word_i: int = 0,
+    hold_s: float = 0.4,
+    intensity: float = 1.0,
+    palette: Sequence[RGB] = (),
+    bleed_col: RGB | None = None,
+    bleed_weight: float = 0.0,
+    donor: Match | None = None,
+    is_bg: bool = False,
+    handoff_overlap_s: float = 0.32,
+) -> FxParams:
+    """Compose subtle (<= 15% amplitude) Undertow ambient parameters for non-semantic words."""
+    from marea.wordfx.envelope import duration_mode
+    from marea.wordfx.momentum import MAX_AMBIENT_AMP, ambient_vector_color
+
+    k = _clamp(intensity, 0.0, 1.0) * (0.40 if is_bg else 1.0)
+    col = blend_palette(ambient_vector_color(vec), palette, 0.45)
+    c_to = col
+    if bleed_col is not None and bleed_weight > 0.0:
+        # Cross-line or adjacent bleed into a non-semantic word (capped within support/ambient bounds)
+        c_to = _mix(col, bleed_col, min(0.85, bleed_weight * 2.0))
+    fill_tint = _clamp(MAX_AMBIENT_AMP * k * (1.0 + 1.2 * bleed_weight), 0.0, 0.25 if bleed_weight > 0.0 else MAX_AMBIENT_AMP)
+    sig_amp = _clamp(0.005 * k * (1.0 + 1.5 * bleed_weight), 0.0, 0.012)
+    softness = _clamp(1.0 + 0.12 * (vec[5] if len(vec) > 5 else 0.0), 0.85, 1.25)
+    d_mode, _ = duration_mode(max(0.05, hold_s))
+    return FxParams(
+        seed=seed_for(track_id, line_i, word_i, 0),
+        vector=tuple(float(x) for x in vec[:6]),
+        primitives=(),
+        bleed=round(bleed_weight, 4),
+        bleed_from=donor.lemma if donor is not None else "",
+        hold_s=hold_s,
+        color_from=col,
+        color_to=c_to,
+        glow=_clamp(0.12 * k, 0.0, 0.15),
+        glow_spread=0.18,
+        fill_tint=fill_tint,
+        fill_edge_softness=softness,
+        sig_amp_em=sig_amp,
+        sig_freq_hz=0.8,
+        sig_axis="y",
+        waveform="sine",
+        release_s=0.65,
+        residue_level=0.14,
+        is_hero=False,
+        is_bg=is_bg,
+        tier="ambient",
+        bleed_donor_s=(donor.begin_ms / 1000.0) if donor is not None else -1.0,
+        bleed_donor_end_s=(donor.end_ms / 1000.0) if donor is not None else -1.0,
+        handoff_overlap_s=handoff_overlap_s,
+        duration_mode=d_mode,
+        note="ambient",
+    )

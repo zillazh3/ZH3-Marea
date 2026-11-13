@@ -45,8 +45,8 @@ WM_RIGHT_MARGIN = 0.17  # fracción de `ref` que se deja libre a la derecha (col
 WM_DODGE = 0.7  # cuánto baja la opacidad al cruzarse con la línea activa
 
 
-def _argb(a: float) -> int:
-    return skia.ColorSetARGB(round(max(0.0, min(1.0, a)) * 255), 255, 255, 255)
+def _argb(a: float, rgb: tuple[int, int, int] = (255, 255, 255)) -> int:
+    return skia.ColorSetARGB(round(max(0.0, min(1.0, a)) * 255), rgb[0], rgb[1], rgb[2])
 
 
 def _paint(**kw) -> skia.Paint:
@@ -110,6 +110,7 @@ class Scene:
             li = by_src[id(L.src)]
             for wi, w in enumerate(L.words):
                 w.fx = None if w.bg else plan.get(li, wi)
+                w.fx_layer = plan.word_fx(li, wi, is_bg=w.bg) if hasattr(plan, "word_fx") else w.fx
 
     def close(self):
         if self.cinematic_bg is not None:
@@ -302,6 +303,8 @@ class Scene:
         gw = 3 * d + 2 * gap
         left = w - 0.15 * w - gw if L.duet else size  # con dueto siguiente, a la derecha
         cy = L.h / 2
+        dot_rgb = (self.wordfx.interlude_color(self.engine.t)
+                   if (self.wordfx is not None and self.wordfx.intensity > 0.0) else (255, 255, 255))
         canvas.save()
         canvas.translate(left + gw / 2, cy)
         canvas.scale(L.grp_sc, L.grp_sc)
@@ -313,8 +316,8 @@ class Scene:
             if dot.halo_a > 0:
                 sigma = dot.halo_r * size / 2
                 canvas.drawCircle(0, 0, d / 2, _paint(
-                    Color=_argb(dot.halo_a * dot.op * L.grp_op), MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, sigma)))
-            canvas.drawCircle(0, 0, d / 2, _paint(Color=_argb(dot.op * L.grp_op)))
+                    Color=_argb(dot.halo_a * dot.op * L.grp_op, dot_rgb), MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, sigma)))
+            canvas.drawCircle(0, 0, d / 2, _paint(Color=_argb(dot.op * L.grp_op, dot_rgb)))
             canvas.restore()
         canvas.restore()
 
@@ -347,33 +350,67 @@ class Scene:
             canvas.restore()
 
     def _block(self, canvas, L, lay, rows, widths, size, top, ba, da):
+        fx_active = self.wordfx is not None and self.wordfx.intensity > 0.0
         for ri, (row, rw) in enumerate(zip(rows, widths)):
             x0 = lay.width - lay.pad_r - rw if L.duet else lay.pad_l  # dueto: alineado a la derecha
             for word, wx, ww in row:
                 lt = top + ri * LINE_H * size
-                if word.fx is None:
+                fx_item = word.fx if word.fx is not None else getattr(word, "fx_layer", None)
+                if not fx_active or fx_item is None:
                     self._word(canvas, word, x0 + wx, lt, ww, size, ba, da)
                     continue
-                self._fx_word(canvas, word, x0 + wx, lt, ww, size, ba, da)
-                if self.wordfx_debug:
+                self._fx_word(canvas, L, word, x0 + wx, lt, ww, size, ba, da, fx_item=fx_item)
+                if self.wordfx_debug and word.fx is not None:
                     from marea.wordfx import debug  # perezoso: con la función apagada no se importa nada de marea.wordfx
                     debug.draw_label(canvas, self.fonts, word.fx, x0 + wx, ww, lt + self.fonts.baseline(size), size)
 
-    def _fx_word(self, canvas, word, x, line_top, ww, size, ba, da):
+    def _carrier_word(self, L, word, size: float):
+        """Read-only snapshot of base renderer carrier state for `word` and its parent line `L`."""
+        from marea.wordfx.fxtypes import CarrierLetter, CarrierWord
+        c_letters = []
+        filled = 0.0
+        total_w = 0.0
+        for u in word.parts:
+            pw = self.fonts.text(u.text, size)[1]
+            filled += pw * u.p
+            total_w += pw
+            k = max(1, len(u.text))
+            if word.emph:
+                dy = u.y + (u.wdy[0] if u.wdy else 0.0)
+                sc = u.scale * (1.0 + (u.wds[0] if u.wds else 0.0))
+                c_letters.append(CarrierLetter(u.p, u.b, dy, sc, u.glow_a, u.glow_r))
+            else:
+                front_px = u.p * pw
+                cx = 0.0
+                for j, ch in enumerate(u.text):
+                    cw = self.fonts.text(ch, size)[1]
+                    lp = min(1.0, max(0.0, (front_px - cx) / max(1.0, cw)))
+                    dy = u.y + (u.wdy[j] if u.wdy else 0.0)
+                    sc = u.scale * (1.0 + (u.wds[j] if u.wds else 0.0))
+                    c_letters.append(CarrierLetter(lp, u.b + (u.e - u.b) * j / k, dy, sc, u.glow_a, u.glow_r))
+                    cx += cw
+        front_u = min(1.0, max(0.0, filled / total_w)) if total_w > 0.0 else word.p
+        return CarrierWord(tuple(c_letters), front_u, L.act, L.on, L.opacity, L.blur * self.k, L.start, L.end, word.bg), front_u
+
+    def _fx_word(self, canvas, L, word, x, line_top, ww, size, ba, da, fx_item=None):
         """Palabra con efecto semántico (marea.wordfx): el render dibuja las letras con sus efectos y aquí se aplica el mismo
         wipe de la palabra con énfasis, así que el relleno cantado/no cantado se ve igual que en el resto de la línea."""
         from marea.wordfx import render  # perezoso: con la función apagada no se importa nada de marea.wordfx
+        fx_use = fx_item if fx_item is not None else word.fx
         pad = 0.6 * size
         bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
+        carrier, front_u = self._carrier_word(L, word, size)
         canvas.saveLayer(bounds, None)
-        render.draw_word_fx(canvas, self.fonts, word.fx, render.letters_for(self.fonts, word.text, size), x,
+        oy = line_top + (ORIGIN_CH if word.emph else ORIGIN_SYL) * size
+        render.draw_word_fx(canvas, self.fonts, fx_use, render.letters_for(self.fonts, word.text, size), x,
                             line_top + self.fonts.baseline(size), size, self.engine.t, self.wordfx.rms_at(self.engine.t),
                             self.engine.p.reduce, strain=self.wordfx.strain_at(self.engine.t),
-                            onsets=[u.b + (u.e - u.b) * j / len(u.text) for u in word.parts for j in range(len(u.text))],  # cada letra al ritmo de su sílaba
+                            onsets=[cl.onset_s for cl in carrier.letters],
                             backdrop=(self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
-                                      if self.wordfx.adapt_bg else None))
-        filled = sum(self.fonts.text(u.text, size)[1] * u.p for u in word.parts)  # px ya cantados: cada sílaba/letra con su avance
-        canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, filled / ww if ww else 0.0, ba, da, size),
+                                      if self.wordfx.adapt_bg else None),
+                            carrier=carrier, origin_y=oy)
+        fw = FW * max(0.35, min(1.8, fx_use.params.fill_edge_softness))
+        canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, front_u, ba, da, size, fw=fw),
                                            BlendMode=skia.BlendMode.kDstIn))
         canvas.restore()
 

@@ -8,7 +8,7 @@ import skia
 
 from marea.wordfx.anim import LetterState, echoes, letter_state, particles, smoothstep, strain_boost
 from marea.wordfx.contrast import adapt_params
-from marea.wordfx.fxtypes import FxWord
+from marea.wordfx.fxtypes import CarrierWord, FxWord
 
 GHOSTS = ((0.12, 0.1), (0.08, 0.2), (0.04, 0.35))  # (retraso s, alpha base): del más viejo al más reciente
 GLOW_ASC, GLOW_DESC = 1.0, 0.4  # em sobre/bajo la línea base que cubre la imagen del glow
@@ -114,8 +114,131 @@ def _star(path: skia.Path, x, y, r):
     path.close()
 
 
+def _draw_particle(canvas: skia.Canvas, q, px: float, py: float, r: float, halo) -> None:
+    """Render one emitted particle (dust, spark, petal, firefly, leaf, or snowflake)."""
+    if q.kind == "spark":  # estrella de 4 puntas que crece con el destello, sobre un punto suave
+        canvas.drawCircle(px, py, r * 0.6, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.7), MaskFilter=halo))
+        star = skia.Path()
+        _star(star, px, py, r * (0.5 + 0.5 * q.alpha))
+        canvas.drawPath(star, skia.Paint(AntiAlias=True, Color=_argb(q.color, min(1.0, q.alpha * 1.3))))
+    elif q.kind == "firefly":
+        canvas.drawCircle(px, py, r * 2.6, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.45), MaskFilter=halo))
+        canvas.drawCircle(px, py, r * 1.25, skia.Paint(AntiAlias=True, Color=_argb(q.color, min(1.0, q.alpha * 0.85))))
+        canvas.drawCircle(px, py, r * 0.65, skia.Paint(AntiAlias=True, Color=_argb((255, 250, 225), min(1.0, q.alpha * 1.15))))
+    elif q.kind == "petal":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        petal = skia.Path()
+        petal.moveTo(0.0, -r * 1.35)
+        petal.quadTo(r * 0.95, -r * 0.15, 0.0, r * 1.15)
+        petal.quadTo(-r * 0.95, -r * 0.15, 0.0, -r * 1.35)
+        petal.close()
+        canvas.drawCircle(0.0, 0.0, r * 1.4, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.35), MaskFilter=halo))
+        canvas.drawPath(petal, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
+        canvas.restore()
+    elif q.kind == "leaf":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        leaf = skia.Path()
+        leaf.moveTo(0.0, -r * 1.55)
+        leaf.quadTo(r * 1.10, -r * 0.10, 0.0, r * 1.35)
+        leaf.quadTo(-r * 1.10, -r * 0.10, 0.0, -r * 1.55)
+        leaf.close()
+        canvas.drawPath(leaf, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
+        rib = skia.Paint(AntiAlias=True, Color=_argb((255, 240, 210), q.alpha * 0.45),
+                         Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.7, r * 0.18))
+        canvas.drawLine(0.0, -r * 1.15, 0.0, r * 1.25, rib)
+        canvas.restore()
+    elif q.kind == "snow":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        canvas.drawCircle(0.0, 0.0, r * 1.3, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.32), MaskFilter=halo))
+        stroke = skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha),
+                            Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.9, r * 0.24),
+                            StrokeCap=skia.Paint.kRound_Cap)
+        arm = r * 1.15
+        for deg in (0.0, 60.0, 120.0):
+            rad = math.radians(deg)
+            dx, dy = math.cos(rad) * arm, math.sin(rad) * arm
+            canvas.drawLine(-dx, -dy, dx, dy, stroke)
+        if r >= 2.2:
+            canvas.drawCircle(0.0, 0.0, r * 0.28, skia.Paint(AntiAlias=True, Color=_argb((255, 255, 255), q.alpha)))
+        canvas.restore()
+    elif q.kind == "ember":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        canvas.drawCircle(0.0, 0.0, r * 2.1, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.55), MaskFilter=halo))
+        ember = skia.Path()
+        ember.moveTo(0.0, -r * 1.45)
+        ember.lineTo(r * 0.72, 0.0)
+        ember.lineTo(0.0, r * 1.10)
+        ember.lineTo(-r * 0.72, 0.0)
+        ember.close()
+        canvas.drawPath(ember, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
+        canvas.drawCircle(0.0, 0.0, r * 0.45, skia.Paint(AntiAlias=True, Color=_argb((255, 245, 200), min(1.0, q.alpha * 1.1))))
+        canvas.restore()
+    elif q.kind == "raindrop":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        drop = skia.Path()
+        drop.moveTo(0.0, -r * 1.65)
+        drop.quadTo(r * 0.95, r * 0.20, 0.0, r * 1.10)
+        drop.quadTo(-r * 0.95, r * 0.20, 0.0, -r * 1.65)
+        drop.close()
+        canvas.drawPath(drop, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.85)))
+        canvas.drawCircle(-r * 0.18, r * 0.35, r * 0.24, skia.Paint(AntiAlias=True, Color=_argb((235, 248, 255), q.alpha * 0.7)))
+        canvas.restore()
+    elif q.kind == "bubble":
+        canvas.drawCircle(px, py, r * 1.05, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.18)))
+        canvas.drawCircle(px, py, r * 1.05, skia.Paint(
+            AntiAlias=True, Color=_argb(q.color, q.alpha * 0.85), Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.8, r * 0.22)))
+        canvas.drawCircle(px - r * 0.35, py - r * 0.35, r * 0.25, skia.Paint(AntiAlias=True, Color=_argb((255, 255, 255), q.alpha * 0.9)))
+    elif q.kind == "mist":
+        canvas.drawCircle(px, py, r * 1.4, skia.Paint(
+            AntiAlias=True, Color=_argb(q.color, q.alpha * 0.42), MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, max(1.5, r * 0.7))))
+    elif q.kind == "shard":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        shard = skia.Path()
+        shard.moveTo(0.0, -r * 1.50)
+        shard.lineTo(r * 0.85, r * 0.65)
+        shard.lineTo(-r * 0.55, r * 1.10)
+        shard.close()
+        canvas.drawPath(shard, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.85)))
+        canvas.drawLine(0.0, -r * 1.35, r * 0.65, r * 0.55, skia.Paint(
+            AntiAlias=True, Color=_argb((255, 255, 255), q.alpha * 0.85), Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.7, r * 0.16)))
+        canvas.restore()
+    elif q.kind == "wisp":
+        canvas.drawCircle(px, py, r * 2.0, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.38), MaskFilter=halo))
+        canvas.drawCircle(px, py, r * 0.9, skia.Paint(
+            AntiAlias=True, Color=_argb(q.color, q.alpha * 0.80), Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.7, r * 0.18)))
+        canvas.drawCircle(px, py, r * 0.35, skia.Paint(AntiAlias=True, Color=_argb((255, 255, 255), q.alpha * 0.9)))
+    elif q.kind == "seed":
+        canvas.save()
+        canvas.translate(px, py)
+        canvas.rotate(q.rot_deg)
+        stroke = skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.90),
+                            Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.7, r * 0.18), StrokeCap=skia.Paint.kRound_Cap)
+        canvas.drawLine(0.0, -r * 0.35, 0.0, r * 1.15, stroke)
+        for ang in (-42.0, 0.0, 42.0):
+            rad = math.radians(ang)
+            canvas.drawLine(0.0, -r * 0.35, math.sin(rad) * r * 1.05, -r * 0.35 - math.cos(rad) * r * 1.05, stroke)
+        canvas.restore()
+    else:
+        canvas.drawCircle(px, py, r * 1.8, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.5), MaskFilter=halo))
+        canvas.drawCircle(px, py, r, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
+
+
 def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: list[Letter], x: float, base: float, size: float,
-                 t: float, rms: float = 0.0, reduce: bool = False, strain: float = 0.0, onsets: list[float] | None = None, backdrop: tuple[int, int, int] | None = None) -> None:
+                 t: float, rms: float = 0.0, reduce: bool = False, strain: float = 0.0, onsets: list[float] | None = None,
+                 backdrop: tuple[int, int, int] | None = None, carrier: CarrierWord | None = None,
+                 origin_y: float | None = None) -> None:
     """`onsets`: segundo en que se canta cada letra (según las sílabas); las letras entran y destellan a ese ritmo.
     `backdrop`: color medio del fondo detrás de la palabra; el color se corrige para que contraste con él (sin cambiar el tono)."""
     n = len(letters)
@@ -123,11 +246,12 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: list[Letter], 
         return
     p, m = adapt_params(fx.params, backdrop), fx.match
     b0, b1 = m.begin_ms / 1000.0, m.end_ms / 1000.0
-    gap = p.spacing_em * size
+    eff_spacing = max(-0.006, min(0.014, p.spacing_em)) * carrier.fill_front_u if carrier is not None else p.spacing_em
+    gap = eff_spacing * size
     xs = [x + L.x + i * gap for i, L in enumerate(letters)]  # x absoluta de cada letra con el espaciado aplicado
     width = letters[-1].x + letters[-1].w + (n - 1) * gap
     blobs = [fonts.text(L.ch, size)[0] for L in letters]
-    cy = base - CENTER_Y * size
+    cy = origin_y if origin_y is not None else (base - CENTER_Y * size)
     chroma = (p.chromatic_em + 0.045 * strain_boost(p, strain)) * size  # +~2 px en los picos de tensión vocal (a 42 px)
     chroma = chroma if abs(chroma) >= CHROMA_MIN_PX else 0.0
     fr = 0.0 if reduce or p.fracture <= 0.0 else p.fracture * smoothstep(b0, b1 + 0.15, t)
@@ -138,12 +262,30 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: list[Letter], 
     if grain:  # capa propia para que el ruido solo caiga sobre píxeles de letra (kSrcATop)
         canvas.saveLayer(box, None)
 
-    states = [letter_state(p, i, n, t, b0, b1, rms, reduce, strain, onsets[i] if onsets else None) for i in range(n)]
+    c_letters = carrier.letters if (carrier is not None and len(carrier.letters) == n) else None
+    line_act = carrier.line_act if carrier is not None else None
+    line_end_s = carrier.line_end_s if carrier is not None else None
+    states = [
+        letter_state(
+            p, i, n, t, b0, b1, rms, reduce, strain,
+            onsets[i] if onsets else None,
+            carrier=c_letters[i] if c_letters else None,
+            line_act=line_act,
+            line_end_s=line_end_s,
+        )
+        for i in range(n)
+    ]
 
     if p.trail > 0.0 and not reduce:  # estela: copias sencillas en las posiciones pasadas
         for delay, a0 in GHOSTS:
             for i in range(n):
-                g = letter_state(p, i, n, t - delay, b0, b1, rms, reduce, strain, onsets[i] if onsets else None)
+                g = letter_state(
+                    p, i, n, t - delay, b0, b1, rms, reduce, strain,
+                    onsets[i] if onsets else None,
+                    carrier=c_letters[i] if c_letters else None,
+                    line_act=line_act,
+                    line_end_s=line_end_s,
+                )
                 a = g.alpha * a0 * p.trail
                 st = states[i]
                 if a < 0.004 or (g.dx, g.dy, g.scale, g.rot_deg) == (st.dx, st.dy, st.scale, st.rot_deg):
@@ -197,11 +339,12 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: list[Letter], 
         _enter(canvas, st, xs[i] + L.w / 2, cy, size)
         flip = 1.0 if p.seed >> i & 1 else -1.0  # sentido de giro de cada letra al partirse, estable por semilla
         slant = (((p.seed >> (i + 3)) & 7) - 3.5) * 0.04  # inclinación del corte en em
-        if chroma:
-            e = 0.4 * size + abs(chroma)
+        chroma_i = chroma * c_letters[i].fill_p if c_letters is not None else chroma
+        if abs(chroma_i) >= CHROMA_MIN_PX:
+            e = 0.4 * size + abs(chroma_i)
             canvas.saveLayer(skia.Rect.MakeLTRB(xs[i] - e, base - 1.3 * size - e, xs[i] + L.w + e, base + 0.5 * size + e),
                              skia.Paint(Alphaf=st.alpha))
-            _body(canvas, blobs[i], xs[i], base, size, L.w, st.color, fr, chroma, flip, slant)
+            _body(canvas, blobs[i], xs[i], base, size, L.w, st.color, fr, chroma_i, flip, slant)
             canvas.restore()
         elif fr >= 0.01:  # las mitades se solapan en el borde: alpha por capa para no doblarlo
             canvas.saveLayer(None, skia.Paint(Alphaf=st.alpha))
@@ -215,18 +358,13 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: list[Letter], 
 
     if p.particles > 0 or p.sparkle > 0:
         halo = skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, HALO_SIGMA * size)
-        for q in particles(p, [(xi - x) / size for xi in xs], [L.w / size for L in letters], t, b0, b1, reduce):
+        c_onsets = [cl.onset_s for cl in c_letters] if c_letters else onsets
+        front_u = carrier.fill_front_u if carrier is not None else None
+        for q in particles(p, [(xi - x) / size for xi in xs], [L.w / size for L in letters], t, b0, b1, reduce,
+                           onsets=c_onsets, fill_front_u=front_u):
             if q.alpha < 0.01:
                 continue
-            px, py, r = x + q.x_em * size, base + q.y_em * size, q.r_em * size
-            if q.kind == "spark":  # estrella de 4 puntas que crece con el destello, sobre un punto suave
-                canvas.drawCircle(px, py, r * 0.6, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.7), MaskFilter=halo))
-                star = skia.Path()
-                _star(star, px, py, r * (0.5 + 0.5 * q.alpha))
-                canvas.drawPath(star, skia.Paint(AntiAlias=True, Color=_argb(q.color, min(1.0, q.alpha * 1.3))))
-            else:
-                canvas.drawCircle(px, py, r * 1.8, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.5), MaskFilter=halo))
-                canvas.drawCircle(px, py, r, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
+            _draw_particle(canvas, q, x + q.x_em * size, base + q.y_em * size, q.r_em * size, halo)
 
     if grain:
         frame = int(t * 24) if t >= 0 else -int(-t * 24) - 1

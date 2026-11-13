@@ -78,9 +78,10 @@ class Part:
 
 
 class Word:
-    def __init__(self, parts, bg, b, e, emph, last, soft=False):
+    def __init__(self, parts, bg, b, e, emph, last, soft=False, word_index=-1):
         self.parts, self.bg, self.b, self.e, self.emph, self.last = parts, bg, b, e, emph, last
         self.soft = soft  # letra por línea: borde del wipe más ancho
+        self.word_index = word_index  # índice de palabra (solo lectura para hooks de wordfx)
         self.text = "".join(p.text for p in parts)
         self.p = 0.0  # progreso del wipe de toda la palabra (emph: promedio de sus letras)
         self.fx = None  # marea.wordfx.matcher.Match si la palabra lleva efecto semántico (lo asigna la escena)
@@ -159,7 +160,7 @@ def _words(syllables: list[Syllable], bg: bool, line_idx: int, approx: bool = Fa
                     c = Part(ch, sb + (se - sb) * j / k, sb + (se - sb) * (j + 1) / k, True, _phase(line_idx, wi + 97 * bg, len(parts)))
                     c.sb, c.se, c.j, c.k = sb, se, j, k
                     parts.append(c)
-            words.append(Word(parts, bg, wb, we, True, last))
+            words.append(Word(parts, bg, wb, we, True, last, word_index=wi))
             continue
         parts = [Part(s.text, s.begin / 1000, s.end / 1000) for s in g]
         for u in parts:
@@ -170,7 +171,7 @@ def _words(syllables: list[Syllable], bg: bool, line_idx: int, approx: bool = Fa
                 wb, parts[0].b = wb - ov, parts[0].b - ov
             if not last:
                 we, parts[-1].e = we + ov, parts[-1].e + ov
-        words.append(Word(parts, bg, wb, we, False, last, approx))
+        words.append(Word(parts, bg, wb, we, False, last, approx, word_index=wi))
     return words
 
 

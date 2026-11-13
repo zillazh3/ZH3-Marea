@@ -67,6 +67,7 @@ _ES_IRREG = _invert({
     "empezar": "empiezo empiezas empieza empece",
     "cerrar": "cierro cierras cierra",
     "morder": "muerdo muerde",
+    "doler": "duele dueles duelen dolia dolio dolera",
     "llover": "llueve",
     "arder": "ardo arde",
 })
@@ -83,7 +84,7 @@ _VERB_END = {
     "i": _ER_IR, "iste": _ER_IR, "io": _ER_IR, "imos": _ER_IR, "ieron": _ER_IR,
     "iendo": _ER_IR, "ido": _ER_IR, "ida": _ER_IR, "idos": _ER_IR, "idas": _ER_IR,
     "ia": _ER_IR, "ias": _ER_IR, "ian": _ER_IR, "iamos": _ER_IR,
-    "yo": _ER_IR, "ye": _ER_IR, "yendo": _ER_IR, "yeron": _ER_IR,
+    "yo": _ER_IR, "ye": _ER_IR, "yen": _ER_IR, "ya": _ER_IR, "yan": _ER_IR, "yendo": _ER_IR, "yeron": _ER_IR,
 }
 _VERB_END_ORDER = sorted(_VERB_END, key=lambda e: -len(e))
 # terminaciones donde la raiz puede cambiar (duermo, pierdo, pidio, durmiendo...)

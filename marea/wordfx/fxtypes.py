@@ -58,6 +58,51 @@ class FxParams:
     osc_jitter_em: float = 0.0  # amplitud de temblor que se suma cuando el color está en el polo de la pareja
     note: str = ""  # por qué se eligió (frase, negación…), solo depuración
     strain_gain: float = 0.0  # 0..1 cuánto sigue la tensión vocal (raw_vocals) al temblor y a la aberración cromática
+    # --- Undertow continuity & envelope metadata ---
+    release_s: float = 0.65  # 0.40..0.90 s decay into residue
+    residue_level: float = 0.16  # 0.10..0.25 settled level while line is active
+    zeta: float = 1.0  # spring damping ratio (1.0 critically damped; 0.75..0.9 for joy/love)
+    is_hero: bool = True  # hero words get pre-onset anticipation
+    is_bg: bool = False  # background vocal (30-50% amplitude)
+    tier: str = "hero"  # hero | support | ambient
+    bleed_donor_s: float = -1.0  # donor begin_s (>=0 enables spring-eased bleed arrival)
+    bleed_donor_end_s: float = -1.0
+    handoff_overlap_s: float = 0.32  # 0.25..0.40 s line release/anticipation overlap
+    duration_mode: str = "normal"  # accent | normal | held
+    # --- Motion signature parameters ---
+    waveform: str = "sine"  # sine | flicker | step | tick | orbit | breath | erode
+    sig_freq_hz: float = 1.2
+    sig_axis: str = "y"  # y | x | scale | rot
+    sig_amp_em: float = 0.03
+    fill_tint: float = 0.42  # 0.25..0.60 category color mix on sung fill
+    fill_edge_softness: float = 1.0  # FW multiplier
+    glow_spread: float = 0.25
+    particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | bubble | mist | shard | wisp | seed
+
+
+@dataclass(frozen=True)
+class CarrierLetter:
+    """Read-only base renderer carrier state for a single character."""
+    fill_p: float = 0.0  # 0..1 wipe progress at this letter
+    onset_s: float = 0.0  # timestamp when fill front reaches this letter
+    y_em: float = 0.0  # base syllable/letter lift + character motion wave
+    scale: float = 1.0  # base syllable/letter scale
+    glow_a: float = 0.0
+    glow_r: float = 0.0
+
+
+@dataclass(frozen=True)
+class CarrierWord:
+    """Read-only base renderer carrier state for a word and its parent line."""
+    letters: tuple[CarrierLetter, ...] = ()
+    fill_front_u: float = 0.0  # 0..1 position of wipe front across word width
+    line_act: float = 1.0  # L.act (0..1)
+    line_on: bool = True  # L.on
+    line_opacity: float = 1.0
+    line_blur_px: float = 0.0
+    line_start_s: float = 0.0
+    line_end_s: float = 0.0
+    is_bg: bool = False
 
 
 @dataclass(frozen=True)
