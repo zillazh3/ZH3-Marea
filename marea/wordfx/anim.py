@@ -324,6 +324,21 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
         x = x0 + 0.06 * age
         y = -0.55 - 0.40 * h(5) + (0.68 + 0.42 * h(6)) * age
         return Particle(x, y, 0.048 + 0.036 * h(7), 0.88 * env, "raindrop", _lerp(col, (175, 215, 255), 0.45), rot_deg=-6.0)
+    if kind == "tear":
+        # Swells at letter bottom (0..0.24s), drips & accelerates (0.24..1.00s), splashes into ripple (1.00..1.45s)
+        t_col = _lerp(col, (185, 224, 255), 0.55)
+        y_base = 0.08 + 0.04 * h(5)
+        r0 = 0.052 + 0.036 * h(7)
+        if age < 0.24:
+            u = age / 0.24
+            return Particle(x0, y_base + 0.04 * u, r0 * (0.4 + 0.6 * math.sin(u * math.pi * 0.5)), 0.90 * min(1.0, u * 2.2), "tear", t_col)
+        if age < 1.00:
+            dt = age - 0.24
+            y = y_base + 0.04 + 0.14 * dt + 1.15 * dt * dt
+            return Particle(x0, y, r0, 0.92, "tear", t_col)
+        u = min(1.0, (age - 1.00) / 0.50)
+        y_pool = y_base + 0.04 + 0.14 * 0.76 + 1.15 * 0.76 * 0.76
+        return Particle(x0, y_pool, r0 * (1.2 + 4.2 * u), 0.75 * (1.0 - u) ** 1.4, "ripple", _lerp(t_col, (230, 245, 255), 0.4))
     if kind == "bubble":
         x = x0 + 0.06 * (h(4) - 0.5) * age + 0.10 * math.sin(3.0 * age + ph)
         y = -0.05 - 0.40 * h(5) - (0.36 + 0.25 * h(6)) * age

@@ -302,6 +302,11 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     from marea.wordfx.signatures import CUSTOM_PARTICLE_KINDS, signature_for
     d_mode, _ = duration_mode(hold_s)
     sig = signature_for(match.categories, vec)
+    p_kind = sig.particle_kind
+    p_max = sig.particle_max
+    if "sadness" in match.categories and "water" in match.categories:
+        p_kind = "tear"
+        p_max = max(p_max, 14)
     release_s = sig.release_ms / 1000.0
     residue_level = sig.residue_level
     zeta = sig.zeta
@@ -310,8 +315,8 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     if d_mode == "accent":
         f["particles"] = 0
         f["sparkle"] = 0
-    elif "particles" in on and sig.particle_kind in CUSTOM_PARTICLE_KINDS and intensity > 0.0:
-        f["particles"] = round(_clamp(max(f.get("particles", 0), sig.particle_max * min(1.5, intensity)), 0, 28))
+    elif "particles" in on and p_kind in CUSTOM_PARTICLE_KINDS and intensity > 0.0:
+        f["particles"] = round(_clamp(max(f.get("particles", 0), p_max * min(1.5, intensity)), 0, 28))
     donor_b0 = (strongest_donor.begin_ms / 1000.0) if strongest_donor is not None else -1.0
     donor_b1 = (strongest_donor.end_ms / 1000.0) if strongest_donor is not None else -1.0
     f.update(
@@ -332,7 +337,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         fill_tint=sig.fill_tint,
         fill_edge_softness=sig.fill_edge_softness,
         glow_spread=sig.glow_spread,
-        particle_kind=sig.particle_kind if sig.particle_kind in CUSTOM_PARTICLE_KINDS else "dust",
+        particle_kind=p_kind if p_kind in CUSTOM_PARTICLE_KINDS else "dust",
     )
     return FxParams(primitives=tuple(prims), **meta, **f)
 

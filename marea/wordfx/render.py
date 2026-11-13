@@ -181,18 +181,26 @@ def _draw_particle(canvas: skia.Canvas, q, px: float, py: float, r: float, halo)
         canvas.drawPath(ember, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha)))
         canvas.drawCircle(0.0, 0.0, r * 0.45, skia.Paint(AntiAlias=True, Color=_argb((255, 245, 200), min(1.0, q.alpha * 1.1))))
         canvas.restore()
-    elif q.kind == "raindrop":
+    elif q.kind in ("raindrop", "tear"):
         canvas.save()
         canvas.translate(px, py)
         canvas.rotate(q.rot_deg)
+        top_mul = 2.05 if q.kind == "tear" else 1.65
+        if q.kind == "tear":
+            canvas.drawCircle(0.0, 0.0, r * 1.4, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.30), MaskFilter=halo))
         drop = skia.Path()
-        drop.moveTo(0.0, -r * 1.65)
+        drop.moveTo(0.0, -r * top_mul)
         drop.quadTo(r * 0.95, r * 0.20, 0.0, r * 1.10)
-        drop.quadTo(-r * 0.95, r * 0.20, 0.0, -r * 1.65)
+        drop.quadTo(-r * 0.95, r * 0.20, 0.0, -r * top_mul)
         drop.close()
-        canvas.drawPath(drop, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.85)))
-        canvas.drawCircle(-r * 0.18, r * 0.35, r * 0.24, skia.Paint(AntiAlias=True, Color=_argb((235, 248, 255), q.alpha * 0.7)))
+        canvas.drawPath(drop, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.88)))
+        canvas.drawCircle(-r * 0.18, r * 0.35, r * 0.24, skia.Paint(AntiAlias=True, Color=_argb((240, 250, 255), q.alpha * 0.75)))
         canvas.restore()
+    elif q.kind == "ripple":
+        rx, ry = r * 1.35, r * 0.36
+        rect = skia.Rect.MakeLTRB(px - rx, py - ry, px + rx, py + ry)
+        canvas.drawOval(rect, skia.Paint(
+            AntiAlias=True, Color=_argb(q.color, q.alpha * 0.80), Style=skia.Paint.kStroke_Style, StrokeWidth=max(0.8, r * 0.08)))
     elif q.kind == "bubble":
         canvas.drawCircle(px, py, r * 1.05, skia.Paint(AntiAlias=True, Color=_argb(q.color, q.alpha * 0.18)))
         canvas.drawCircle(px, py, r * 1.05, skia.Paint(

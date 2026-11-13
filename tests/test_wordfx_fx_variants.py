@@ -26,6 +26,8 @@ def _line(text: str, start: int = 1000, dur: int = 1400) -> Line:
 @pytest.mark.parametrize("phrase,word,cat,kind", [
     ("arde el fuego", "fuego", "fire", "ember"),
     ("lloro de tristeza", "tristeza", "sadness", "raindrop"),
+    ("quiero llorar", "llorar", "sadness", "tear"),
+    ("tears as I cry", "cry", "sadness", "tear"),
     ("bajo el agua", "agua", "water", "bubble"),
     ("mi nube blanca", "nube", "cloud", "mist"),
     ("todo está roto", "roto", "broken", "shard"),
@@ -52,11 +54,26 @@ def test_category_fx_variants_emit_custom_particles(lib, phrase, word, cat, kind
     assert emitted and any(q.kind == kind for q in emitted)
 
 
+def test_tears_drip_and_ripple_below_word(lib):
+    line = _line("lloro sin parar", start=1000, dur=1800)
+    plan = build_plan(Lyrics([line]), lib, track_id="tears_ripple")
+    fx = plan.get(0, 0)
+    assert fx is not None and fx.params.particle_kind == "tear"
+    b0, b1 = fx.match.begin_ms / 1000.0, fx.match.end_ms / 1000.0
+    xs = [i * 0.6 for i in range(5)]
+    ws = [0.55] * 5
+    early = particles(fx.params, xs, ws, b0 + 0.55, b0, b1)
+    late = particles(fx.params, xs, ws, b0 + 1.25, b0, b1)
+    assert any(q.kind == "tear" for q in early)
+    assert any(q.kind == "ripple" for q in late)
+
+
 def test_fx_variants_render_cleanly_in_scene(lib):
     lines = [
         _line("fuego y burbujas en el agua", start=500, dur=2000),
         _line("sueño roto en nube de aire", start=3000, dur=2000),
         _line("lloro de tristeza hasta cicatrizar", start=5500, dur=2000),
+        _line("solo quiero llorar", start=8000, dur=2000),
     ]
     lyrics = Lyrics(lines)
     plan = build_plan(lyrics, lib, track_id="variants_render")

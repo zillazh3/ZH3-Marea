@@ -205,7 +205,7 @@
     },
     "vector": { "valence": 0.25, "arousal": 0.12, "gravity": -0.25, "temperature": -0.25, "fragility": 0.55, "blur": 0.75 },
     "primitives": ["glow", "gravity_drift", "wave", "trail", "particles", "scale"],
-    "color": ["#FFFFFF", "#D5DCE6"],
+    "color": ["#F0F7FF", "#9EC9F7"],
     "priority": 4
   },
   "water": {
