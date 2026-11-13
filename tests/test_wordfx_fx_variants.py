@@ -34,6 +34,9 @@ def _line(text: str, start: int = 1000, dur: int = 1400) -> Line:
     ("como un sueño", "sueño", "dream", "wisp"),
     ("brilla el aire", "aire", "air", "seed"),
     ("logra cicatrizar", "cicatrizar", "healing", "wisp"),
+    ("abierta la herida", "herida", "sadness", "crimson"),
+    ("deep open wound", "wound", "anger", "crimson"),
+    ("never let me bleed", "bleed", "anger", "crimson"),
 ])
 def test_category_fx_variants_emit_custom_particles(lib, phrase, word, cat, kind):
     line = _line(phrase)
@@ -68,12 +71,40 @@ def test_tears_drip_and_ripple_below_word(lib):
     assert any(q.kind == "ripple" for q in late)
 
 
+def test_wound_bleed_drips_crimson_and_stains(lib):
+    line = _line("duele la herida", start=1000, dur=1800)
+    plan = build_plan(Lyrics([line]), lib, track_id="wound_crimson")
+    fx = plan.get(0, 2)
+    assert fx is not None
+    assert fx.params.particle_kind == "crimson"
+    assert fx.params.waveform == "breath" and fx.params.sig_axis == "scale"
+    assert fx.params.fracture >= 0.4 and fx.params.chromatic_em >= 0.01
+    b0, b1 = fx.match.begin_ms / 1000.0, fx.match.end_ms / 1000.0
+    xs = [i * 0.6 for i in range(6)]
+    ws = [0.55] * 6
+    early = particles(fx.params, xs, ws, b0 + 0.65, b0, b1)
+    late = particles(fx.params, xs, ws, b0 + 1.55, b0, b1)
+    assert any(q.kind == "crimson" for q in early)
+    assert any(q.kind == "stain" for q in late)
+
+
+def test_scar_kintsugi_gold_seam(lib):
+    line = _line("queda una cicatriz", start=1000, dur=1800)
+    plan = build_plan(Lyrics([line]), lib, track_id="scar_kintsugi")
+    fx = plan.get(0, 2)
+    assert fx is not None
+    assert {"sadness", "healing"} <= set(fx.match.categories)
+    assert fx.params.particle_kind == "wisp"
+    assert fx.params.fracture >= 0.15 and fx.params.sparkle >= 4
+
+
 def test_fx_variants_render_cleanly_in_scene(lib):
     lines = [
         _line("fuego y burbujas en el agua", start=500, dur=2000),
         _line("sueño roto en nube de aire", start=3000, dur=2000),
         _line("lloro de tristeza hasta cicatrizar", start=5500, dur=2000),
         _line("solo quiero llorar", start=8000, dur=2000),
+        _line("abierta la herida deja cicatriz", start=10500, dur=2200),
     ]
     lyrics = Lyrics(lines)
     plan = build_plan(lyrics, lib, track_id="variants_render")

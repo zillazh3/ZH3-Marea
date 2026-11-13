@@ -223,6 +223,16 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     vivid = not auth and "desaturate" not in on and aro >= 0.15  # lo apagado/entumecido se queda grisáceo
     meta = dict(seed=seed, vector=vec, bleed=bleed_total, bleed_from=bleed_from, repeat_n=repeat_n, hold_s=hold_s,
                 color_from=_finish(c_from, vivid, val), color_to=_finish(c_to, vivid, val), note=match.note)
+    if not partner:
+        cats_set = set(match.categories)
+        if {"sadness", "anger"} <= cats_set:
+            # Arterial crimson fading to deep dark wine for wounds & bleeding
+            meta["color_from"] = _mix(meta["color_from"], (217, 43, 75), 0.72)
+            meta["color_to"] = _mix(meta["color_to"], (110, 18, 36), 0.78)
+        elif {"sadness", "healing"} <= cats_set:
+            # Kintsugi gold seam fading softly back toward cool memory slate
+            meta["color_from"] = _mix(meta["color_from"], (230, 194, 122), 0.65)
+            meta["color_to"] = _mix(meta["color_to"], (143, 168, 184), 0.50)
     if partner:  # mismo pipeline que color_from, con las categorías de la pareja
         pv = blend_categories(partner.categories, lib)
         pauth = _authored(partner.categories, lib)
@@ -304,14 +314,32 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     sig = signature_for(match.categories, vec)
     p_kind = sig.particle_kind
     p_max = sig.particle_max
-    if "sadness" in match.categories and "water" in match.categories:
+    sig_waveform = sig.waveform
+    sig_axis = sig.axis
+    sig_freq = sig.freq_range_hz[0] + (sig.freq_range_hz[1] - sig.freq_range_hz[0]) * aro
+    sig_amp = (sig.amp_range_em[0] + (sig.amp_range_em[1] - sig.amp_range_em[0]) * max(aro, fra)) * min(1.5, intensity)
+    cats_set = set(match.categories)
+    if {"sadness", "water"} <= cats_set:
         p_kind = "tear"
         p_max = max(p_max, 14)
+    elif {"sadness", "anger"} <= cats_set:
+        p_kind = "crimson"
+        p_max = max(p_max, 14)
+        sig_waveform = "breath"
+        sig_axis = "scale"
+        sig_freq = 1.05 + 0.35 * aro
+        sig_amp = max(sig_amp, 0.024 * min(1.5, intensity))
+        f["fracture"] = max(f.get("fracture", 0.0), 0.42 * min(1.3, intensity))
+        f["chromatic_em"] = max(f.get("chromatic_em", 0.0), 0.014 * min(1.3, intensity))
+    elif {"sadness", "healing"} <= cats_set:
+        p_kind = "wisp"
+        p_max = max(p_max, 8)
+        f["fracture"] = max(f.get("fracture", 0.0), 0.16 * min(1.2, intensity))
+        if d_mode != "accent":
+            f["sparkle"] = max(f.get("sparkle", 0), 4)
     release_s = sig.release_ms / 1000.0
     residue_level = sig.residue_level
     zeta = sig.zeta
-    sig_freq = sig.freq_range_hz[0] + (sig.freq_range_hz[1] - sig.freq_range_hz[0]) * aro
-    sig_amp = (sig.amp_range_em[0] + (sig.amp_range_em[1] - sig.amp_range_em[0]) * max(aro, fra)) * min(1.5, intensity)
     if d_mode == "accent":
         f["particles"] = 0
         f["sparkle"] = 0
@@ -330,9 +358,9 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         bleed_donor_end_s=donor_b1,
         handoff_overlap_s=handoff_overlap_s,
         duration_mode=d_mode,
-        waveform=sig.waveform,
+        waveform=sig_waveform,
         sig_freq_hz=sig_freq,
-        sig_axis=sig.axis,
+        sig_axis=sig_axis,
         sig_amp_em=sig_amp,
         fill_tint=sig.fill_tint,
         fill_edge_softness=sig.fill_edge_softness,

@@ -177,7 +177,7 @@ El módulo `marea/wordfx/` analiza cada verso en español e inglés y aplica efe
 - **Contexto, negación y frases en [`assets/wordfx/rules.json`](assets/wordfx/rules.json):** soporta expresiones bilingües (*para siempre*, *patadas de ahogado*, *flor de papel*, *drift apart*), negaciones e inversiones (*sin miedo* → `growth`, *no puedo respirar* → `anguish`, *volví a respirar* → `healing`), guardias de muletillas y pares de contraste.
 - **Partículas vectoriales propias:**
   - **Estaciones del año:** pétalos flotantes (`spring`), luciérnagas cálidas (`summer`), hojas balanceándose (`autumn`) y copos de nieve de 6 puntas (`winter`).
-  - **Elementos y emociones:** brasas (`fire`), lluvia (`sadness`), lágrimas que resbalan y abren ondas `ripple` abajo (`sadness` + `water`, p. ej. *llorar* / *cry*), burbujas (`water`), bruma suave (`cloud`), esquirlas (`broken`), halos orbitales (`dream`, `healing`) y vilanos al viento (`air`).
+  - **Elementos y emociones:** brasas (`fire`), lluvia (`sadness`), lágrimas que resbalan y abren ondas `ripple` abajo (`sadness` + `water`, p. ej. *llorar* / *cry*), gotas carmesí viscosas que escurren desde un corte con latido y fractura (`sadness` + `anger`, p. ej. *herida* / *wound* / *bleed*), costura *kintsugi* dorada (`sadness` + `healing`, p. ej. *cicatriz* / *scar*), burbujas (`water`), bruma suave (`cloud`), esquirlas (`broken`), halos orbitales (`dream`, `healing`) y vilanos al viento (`air`).
 - **Continuidad y color adaptativo:** firmas de movimiento (`breath`, `tick`, `flicker`, `orbit`, `sine`, `step`, `erode`), mezcla por prioridad, contagio suave con vecinas y corrección de contraste frente al fondo.
 
 ## 🔐 Seguridad y datos

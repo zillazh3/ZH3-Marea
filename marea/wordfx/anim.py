@@ -284,7 +284,7 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
     start_s = onsets[li] if (onsets is not None and len(onsets) == n) else begin_s
     spawn = start_s + h(0) * max(0.30, dur * 0.85)
     kind = p.particle_kind
-    life = (0.9 + 0.5 * h(1)) if kind in ("ember", "shard") else (1.5 + 0.7 * h(1))
+    life = (0.9 + 0.5 * h(1)) if kind in ("ember", "shard") else ((1.7 + 0.6 * h(1)) if kind == "crimson" else (1.5 + 0.7 * h(1)))
     age = t - spawn
     if not 0.0 <= age < life:
         return None
@@ -339,6 +339,23 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
         u = min(1.0, (age - 1.00) / 0.50)
         y_pool = y_base + 0.04 + 0.14 * 0.76 + 1.15 * 0.76 * 0.76
         return Particle(x0, y_pool, r0 * (1.2 + 4.2 * u), 0.75 * (1.0 - u) ** 1.4, "ripple", _lerp(t_col, (230, 245, 255), 0.4))
+    if kind == "crimson":
+        # Viscous bleed: swells at letter cut (0..0.34s), drips slowly (0.34..1.30s), stains into dark wine pool (1.30..1.75s)
+        c_edge = _lerp(col, (217, 43, 75), 0.72)
+        c_wine = _lerp(c_edge, (110, 18, 36), 0.65)
+        y_base = -0.04 + 0.16 * h(5)
+        r0 = 0.056 + 0.040 * h(7)
+        if age < 0.34:
+            u = age / 0.34
+            return Particle(x0, y_base + 0.03 * u, r0 * (0.35 + 0.65 * math.sin(u * math.pi * 0.5)), 0.92 * min(1.0, u * 2.0), "crimson", c_edge)
+        if age < 1.30:
+            dt = age - 0.34
+            u = dt / 0.96
+            y = y_base + 0.03 + 0.08 * dt + 0.48 * dt * dt
+            return Particle(x0, y, r0, 0.94, "crimson", _lerp(c_edge, c_wine, u * 0.85))
+        u = min(1.0, (age - 1.30) / 0.45)
+        y_pool = y_base + 0.03 + 0.08 * 0.96 + 0.48 * 0.96 * 0.96
+        return Particle(x0, y_pool, r0 * (1.0 + 2.2 * u), 0.78 * (1.0 - u) ** 1.5, "stain", c_wine)
     if kind == "bubble":
         x = x0 + 0.06 * (h(4) - 0.5) * age + 0.10 * math.sin(3.0 * age + ph)
         y = -0.05 - 0.40 * h(5) - (0.36 + 0.25 * h(6)) * age

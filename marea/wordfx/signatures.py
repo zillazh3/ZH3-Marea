@@ -12,7 +12,7 @@ from marea.wordfx.fxtypes import RGB
 WAVEFORMS = ("sine", "flicker", "step", "tick", "orbit", "breath", "erode")
 CUSTOM_PARTICLE_KINDS = frozenset({
     "petal", "firefly", "leaf", "snow",
-    "ember", "raindrop", "tear", "bubble", "mist", "shard", "wisp", "seed",
+    "ember", "raindrop", "tear", "crimson", "bubble", "mist", "shard", "wisp", "seed",
 })
 
 

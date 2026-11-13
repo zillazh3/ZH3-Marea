@@ -77,7 +77,7 @@ class FxParams:
     fill_tint: float = 0.42  # 0.25..0.60 category color mix on sung fill
     fill_edge_softness: float = 1.0  # FW multiplier
     glow_spread: float = 0.25
-    particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | tear | bubble | mist | shard | wisp | seed
+    particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | tear | crimson | bubble | mist | shard | wisp | seed
 
 
 @dataclass(frozen=True)
