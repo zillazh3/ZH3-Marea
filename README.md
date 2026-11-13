@@ -36,6 +36,7 @@ exactamente el mismo motor, así que lo que ves es lo que sale.
 - 🎧 **Audio alineado**: loopback de tu propia reproducción de Spotify o archivo propio con forma de onda para ajustar el desfase.
 - 🌅 **Outro ajustable**: el menú Outro extiende el rango del clip unos segundos más y desvanece el audio.
 - 📝 **Cambia la letra sin perder el proyecto**: «Reemplazar letra con .ttml» en el menú del Editor conserva portada y metadatos.
+- 🎨 **Efectos semánticos por palabra**: detecta 32 categorías de emoción y elementos (ES/EN) con firmas de movimiento y partículas propias por categoría y estación.
 - 🎚️ **Sincronía automática de letras** (experimental, opcional): alinea una letra con el audio y te deja revisarla.
 - 📥 **Cola de exportaciones** con progreso, ETA, cancelar y abrir carpeta.
 - 🔐 **Credenciales seguras**: claves y tokens en el Credential Manager de Windows, nunca en archivos.
@@ -168,6 +169,17 @@ exactamente igual y no carga nada de esto.
 - **Licenses:** audio-separator code is MIT licensed; model weight permissions remain unresolved. Review the
   [karaoke licensing question](https://github.com/Anjok07/ultimatevocalremovergui/issues/2295) before downloading. Weights are not bundled.
 
+## 🎨 Efectos semánticos por palabra
+
+El módulo `marea/wordfx/` analiza cada verso en español e inglés y aplica efectos continuos sobre palabras clave manteniendo la tipografía alineada:
+
+- **32 categorías en [`assets/wordfx/library.json`](assets/wordfx/library.json):** 15 emociones (`sadness`, `anguish`, `numbness`, `loss`, `longing`, `memory`, `tenderness`, `love`, `joy`, `healing`, `calm`, `fear`, `anger`, `intoxication`, `growth`) y 17 elementos (`time`, `celestial`, `air`, `cloud`, `photo`, `earth`, `water`, `fire`, `dryness`, `dream`, `shadow`, `craft`, `broken`, más las 4 estaciones: `spring`, `summer`, `autumn`, `winter`).
+- **Contexto, negación y frases en [`assets/wordfx/rules.json`](assets/wordfx/rules.json):** soporta expresiones bilingües (*para siempre*, *patadas de ahogado*, *flor de papel*, *drift apart*), negaciones e inversiones (*sin miedo* → `growth`, *no puedo respirar* → `anguish`, *volví a respirar* → `healing`), guardias de muletillas y pares de contraste.
+- **Partículas vectoriales propias:**
+  - **Estaciones del año:** pétalos flotantes (`spring`), luciérnagas cálidas (`summer`), hojas balanceándose (`autumn`) y copos de nieve de 6 puntas (`winter`).
+  - **Elementos y emociones:** brasas (`fire`), lluvia (`sadness`), lágrimas que resbalan y abren ondas `ripple` abajo (`sadness` + `water`, p. ej. *llorar* / *cry*), burbujas (`water`), bruma suave (`cloud`), esquirlas (`broken`), halos orbitales (`dream`, `healing`) y vilanos al viento (`air`).
+- **Continuidad y color adaptativo:** firmas de movimiento (`breath`, `tick`, `flicker`, `orbit`, `sine`, `step`, `erode`), mezcla por prioridad, contagio suave con vecinas y corrección de contraste frente al fondo.
+
 ## 🔐 Seguridad y datos
 
 - Las **claves de API y tokens** van al **Credential Manager** de Windows (cifrado por usuario). Nada de secretos en `data/`,
@@ -200,6 +212,7 @@ exactamente igual y no carga nada de esto.
 marea/
 ├─ engine/      animación pura: springs, splines, layout, interludios (sin dependencias de UI)
 ├─ render/      Skia: escena, fondo, texto, GPU/CPU, marca de agua
+├─ wordfx/      efectos semánticos por palabra: léxico, reglas, compositor, firmas y partículas
 ├─ export/      ffmpeg por pipe, proceso de render aparte, cola e historial
 ├─ audio/       loopback WASAPI, alineación, audio local, sesión de grabación
 ├─ providers/   Spotify (PKCE), LRCLIB, TTML
