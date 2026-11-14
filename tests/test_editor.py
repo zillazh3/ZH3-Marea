@@ -133,7 +133,8 @@ def test_build_job_uses_range_preset_and_copies_settings(win, monkeypatch, tmp_p
     click_row(e, 1, monkeypatch=monkeypatch)
     click_row(e, 3, shift=True, monkeypatch=monkeypatch)
     job = e.build_job()
-    assert job.size == (1920, 1080) and job.fps == 60 and job.marker == "flash" and job.encoder == "cpu"
+    from marea.export import ffmpeg
+    assert job.size == (1920, 1080) and job.fps == 60 and job.marker == "flash" and job.encoder == ffmpeg.default_encoder()
     assert (job.start_ms, job.end_ms) == clip_range(e.project.lyrics, 1, 3)
     assert job.out_path == tmp_path / "Demo · letra original - Marea de luz (versos 2–4) [ZH3 Marea].mp4"
     e.cb_vib.setChecked(False)

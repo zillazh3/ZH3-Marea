@@ -21,8 +21,8 @@ from marea.engine.curves import clamp01
 from marea.export.ffmpeg import NO_WINDOW, find_ffmpeg
 from marea.model.cinematic import ActiveInterval, CinematicConfig, CinematicTreatment, VideoResource, evaluate_at
 
-CHUNK_FRAMES = 12       # ~0.4–0.5 s por bloque: rápido de decodificar y ligero en RAM
-MAX_CACHE_FRAMES = 28   # techo de memoria (~230 MB máx en 1080×1920, ~58 MB en 540×960, ~14 MB en 270×480)
+CHUNK_FRAMES = 24       # ~0.8–1.0 s por bloque: menos spawns de ffmpeg manteniendo arrastre ágil
+MAX_CACHE_FRAMES = 40   # techo de memoria (~330 MB máx en 1080×1920, ~83 MB en 540×960)
 LOOKAHEAD_MS = 900.0    # pre-carga antes de entrar a un intervalo durante la reproducción en vivo
 GRAIN_TILE = 128        # mosaico determinista de grano de película (se repite con shader en 24 Hz)
 

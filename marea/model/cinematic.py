@@ -455,6 +455,15 @@ def _estimate_tempo_and_beats(novelty: np.ndarray, env_rate: float) -> tuple[flo
     return round(tempo_bpm, 2), round(beat_period_ms, 2), beats_ms
 
 
+def cached_audio_analysis(samples: np.ndarray, sample_rate: int = 48000) -> AudioAnalysis | None:
+    """Return cached `AudioAnalysis` if already computed for `samples`, without blocking."""
+    key = (id(samples), tuple(samples.shape), int(sample_rate))
+    cached = _ANALYSIS_CACHE.get(key)
+    if cached is not None:
+        _ANALYSIS_CACHE.move_to_end(key)
+    return cached
+
+
 def analyze_audio(samples: np.ndarray, sample_rate: int = 48000) -> AudioAnalysis:
     """Extrae RMS, pulso/tempo, cambios de sección, pausas y acentos reutilizando `align.onset_envelope`, con caché."""
     global _analysis_computations

@@ -170,8 +170,10 @@ class EditorPage(QWidget):
         self.btn_play.clicked.connect(lambda: self.preview.set_playing(not self.preview.playing))
         self.scrub = QSlider(Qt.Horizontal)
         self.scrub.setRange(0, 1000)
+        self._scrub_timer = QTimer(self, singleShot=True, interval=16)
+        self._scrub_timer.timeout.connect(self._flush_scrub)
         self.scrub.sliderPressed.connect(lambda: setattr(self, "_scrubbing", True))
-        self.scrub.sliderReleased.connect(lambda: setattr(self, "_scrubbing", False))
+        self.scrub.sliderReleased.connect(self._on_scrub_released)
         self.scrub.valueChanged.connect(self._on_scrub)
         self.time = QLabel("0:00.0 / 0:00.0")
         self.time.setObjectName("Caption")
@@ -286,16 +288,20 @@ class EditorPage(QWidget):
         self.cb_fxbg.setVisible(False)
         self.cb_fxbg.toggled.connect(lambda v: (self.settings.setValue("wordfx/adapt_bg", v), self._wordfx_sync()))
         form.addRow(self.cb_fxbg)
-        self._fx_timer = QTimer(self, singleShot=True, interval=250)  # el slider no reconstruye la escena en cada paso
+        self._fx_timer = QTimer(self, singleShot=True, interval=16)  # coalesce rápido sin bloquear al arrastrar
         self._fx_timer.timeout.connect(self._wordfx_sync)
         self.sl_fx.valueChanged.connect(lambda v: (self.lb_fx.setText(f"{v} %"), self._fx_timer.start()))
-        self._fx_watch = QTimer(self, interval=1000)  # hot reload: mira las fechas de los JSON mientras la función está activa
-        self._fx_watch.timeout.connect(self._wordfx_sync)
+        self.sl_fx.sliderReleased.connect(lambda: (self._fx_timer.stop(), self._wordfx_sync()))
+        self._fx_watch = QTimer(self, interval=2500)  # hot reload: mira las fechas de los JSON mientras la función está activa
+        self._fx_watch.timeout.connect(lambda: self.isVisible() and self._wordfx_sync())
         self._fx_state = None  # (función, depuración, intensidad, audio) con los que se armó la escena
         self._fx_plan = None  # FxPlan vigente: la preview y el export usan el mismo
         self._fx_palette = (None, ())  # (id de la portada, colores dominantes)
         self._fx_audio = (None, None)  # (id de las muestras, AudioStats) del audio local: tensión vocal, tempo, brillo, modo
         self._fx_profile = None  # SongProfile con el que se armó el plan (guardado o calculado)
+        self._fx_cached_base = None  # (base_key, lib, rls, raw_matches, profile) para no recomputar al mover sliders
+        self._fx_cached_refs = None  # mantiene referencias vivas para evitar colisiones de id()
+        self._last_time_text = ""
         self.sl_blur, self.lb_blur = self._slider(0, 20, 10), QLabel("1.0×")
         self.sl_wob, self.lb_wob = self._slider(25, 100, 40), QLabel("ζ 0.40")
         self.sl_amt, self.lb_amt = self._slider(0, 150, 100), QLabel("100 %")
@@ -450,6 +456,8 @@ class EditorPage(QWidget):
             ("Saturación", self.sl_cine_sat, self.lb_cine_sat),
             ("Contraste", self.sl_cine_con, self.lb_cine_con),
         )
+        self._cine_timer = QTimer(self, singleShot=True, interval=16)
+        self._cine_timer.timeout.connect(self.preview.update_cinematic)
         for name, sl, lb in self._cine_sliders:
             r = QHBoxLayout()
             lb.setObjectName("Caption")
@@ -458,6 +466,7 @@ class EditorPage(QWidget):
             r.addWidget(lb)
             form.addRow(name, r)
             sl.valueChanged.connect(self._treatment_changed)
+            sl.sliderReleased.connect(self._flush_treatment)
 
         lay.addLayout(form)
         lay.addStretch()
@@ -614,6 +623,8 @@ class EditorPage(QWidget):
         self.act_fx_sep.setVisible(fx)
         for key, actions in (("export/preset", self.preset_actions), ("export/encoder", self.encoder_actions)):
             current = self.settings.value(key)
+            if current is None and key == "export/encoder":
+                current = ffmpeg.default_encoder()
             if current in actions:
                 actions[current].setChecked(True)
         self._update_summary()
@@ -641,6 +652,8 @@ class EditorPage(QWidget):
         if not ok and self.encoder_actions["nvenc"].isChecked():
             self.encoder_actions["cpu"].setChecked(True)
             self.settings.setValue("export/encoder", "cpu")
+        elif ok and self.settings.value("export/encoder") is None:
+            self.encoder_actions["nvenc"].setChecked(True)
 
     def _refresh_icons(self):
         t = theme.current
@@ -821,14 +834,31 @@ class EditorPage(QWidget):
 
     # ---------------- preview ----------------
     def _on_position(self, ms: float, total: float):
-        self.time.setText(f"{fmt_ms(ms)} / {fmt_ms(total)}")
+        text = f"{fmt_ms(ms)} / {fmt_ms(total)}"
+        if text != getattr(self, "_last_time_text", ""):
+            self._last_time_text = text
+            self.time.setText(text)
         if not self._scrubbing:
-            self.scrub.blockSignals(True)
-            self.scrub.setValue(round(min(1.0, ms / total) * 1000))
-            self.scrub.blockSignals(False)
+            val = round(min(1.0, ms / total) * 1000)
+            if val != self.scrub.value():
+                self.scrub.blockSignals(True)
+                self.scrub.setValue(val)
+                self.scrub.blockSignals(False)
 
     def _on_scrub(self, v: int):
-        self.preview.seek(v / 1000 * self.preview.duration)
+        if self._scrubbing or self.scrub.isSliderDown():
+            if not self._scrub_timer.isActive():
+                self._scrub_timer.start()
+        else:
+            self.preview.seek(v / 1000 * self.preview.duration)
+
+    def _flush_scrub(self):
+        self.preview.seek(self.scrub.value() / 1000 * self.preview.duration)
+
+    def _on_scrub_released(self):
+        self._scrubbing = False
+        self._scrub_timer.stop()
+        self._flush_scrub()
 
     def _on_playing(self, playing: bool):
         self._refresh_icons()
@@ -848,31 +878,58 @@ class EditorPage(QWidget):
         elif not on:
             self._fx_watch.stop()
         stats = self._wordfx_audio_stats() if on and p else None
-        state = (on, on and self.cb_fxdebug.isChecked(), self.sl_fx.value(), self.cb_fxbg.isChecked(), id(p.audio_samples) if p else None, stats is not None,
-                 self._wordfx_files_key() if on and p else None)
+        state = (
+            on,
+            on and self.cb_fxdebug.isChecked(),
+            self.sl_fx.value(),
+            self.cb_fxbg.isChecked(),
+            id(p) if p else None,
+            id(p.lyrics) if p else None,
+            id(p.cover) if p else None,
+            id(p.audio_samples) if p else None,
+            id(stats) if stats is not None else None,
+            self._wordfx_files_key() if on and p else None,
+        )
         if p is None or (rebuild and state == self._fx_state):
             return
-        self._fx_state = state
+        prev_state = self._fx_state
         if not on:
-            self._fx_plan = self._fx_profile = None
+            self._fx_state = state
+            self._fx_plan = self._fx_profile = self._fx_cached_base = self._fx_cached_refs = None
+        elif (prev_state is not None and self._fx_plan is not None
+              and prev_state[0] == state[0] and prev_state[2:] == state[2:]):
+            # Solo cambió la casilla de depuración: no reconstruir el plan ni reclasificar.
+            self._fx_state = state
         else:
-            from marea.model.cinematic import analyze_audio
+            from marea.model.cinematic import cached_audio_analysis
             from marea.wordfx import library, rules, songs  # perezoso: con la función apagada no se importa nada de marea.wordfx
+            from marea.wordfx.matcher import match_lyrics
             from marea.wordfx.palette import dominant_colors
             from marea.wordfx.plan import build_plan, track_key
             from marea.wordfx.profile import ProfileError, classify
             if self._fx_palette[0] != id(p.cover):
                 self._fx_palette = (id(p.cover), dominant_colors(p.cover))
             try:
-                # shortcut: el desfase del audio (audio_offset_ms) no se aplica al RMS ni a la tensión; mínimo si el desfase es de decenas de ms
-                analysis = analyze_audio(p.audio_samples, local.RATE) if p.audio_samples is not None else None
-                lib, key = library.load(), track_key(p.lyrics, p.track.id if p.track else "")
-                profile = songs.load_profile(key) or classify(p.lyrics, lib, stats, track_id=key)  # lo guardado manda sobre lo calculado
+                # Non-blocking cache check: when audio_samples is loaded, _wordfx_audio_stats computes analyze_audio off-thread.
+                analysis = cached_audio_analysis(p.audio_samples, local.RATE) if p.audio_samples is not None else None
+                key = track_key(p.lyrics, p.track.id if p.track else "")
+                base_key = (id(p.lyrics), key, state[9], id(stats) if stats is not None else None)
+                if self._fx_cached_base is not None and self._fx_cached_base[0] == base_key:
+                    _, lib, rls, raw_matches, profile = self._fx_cached_base
+                else:
+                    lib = library.load()
+                    rls = rules.load()
+                    raw_matches = match_lyrics(p.lyrics, lib, rules=rls)
+                    profile = songs.load_profile(key) or classify(p.lyrics, lib, stats, track_id=key)  # lo guardado manda sobre lo calculado
+                    self._fx_cached_base = (base_key, lib, rls, raw_matches, profile)
                 self._fx_plan = build_plan(p.lyrics, lib, intensity=self.sl_fx.value() / 100, track_id=p.track.id if p.track else "",
                                            palette=self._fx_palette[1], analysis=analysis, profile=profile, audio_stats=stats,
-                                           adapt_bg=self.cb_fxbg.isChecked())
+                                           adapt_bg=self.cb_fxbg.isChecked(), rules=rls, matches=raw_matches)
                 self._fx_profile = profile
+                self._fx_cached_refs = (p, p.lyrics, p.cover, p.audio_samples, stats)
+                self._fx_state = state
             except (library.LibraryError, rules.RulesError, songs.SongError, ProfileError) as err:
+                self._fx_cached_base = None
                 self.notify(f"Efectos por palabra: {err} Se mantiene el plan anterior.", "error")  # un JSON a medio editar no apaga todo
         self.preview.set_wordfx(self._fx_plan, state[1], rebuild=rebuild)
 
@@ -934,6 +991,7 @@ class EditorPage(QWidget):
                 self.notify(f"No pude guardar el perfil: {err}", "error")
                 return
             self._fx_state = None
+            self._fx_cached_base = None
             self._wordfx_sync()
 
     def _wordfx_files_key(self) -> tuple:
@@ -943,7 +1001,13 @@ class EditorPage(QWidget):
         p = self.project
         files = (library.user_path(), library.BUNDLED, rules.user_path(), rules.BUNDLED,
                  songs.path_for(track_key(p.lyrics, p.track.id if p.track else "")))
-        return tuple(f.stat().st_mtime_ns if f.is_file() else None for f in files)
+        out = []
+        for f in files:
+            try:
+                out.append(f.stat().st_mtime_ns)
+            except OSError:
+                out.append(None)
+        return tuple(out)
 
     def _credit_toggled(self, on: bool):
         self.style.credit = on
@@ -983,6 +1047,7 @@ class EditorPage(QWidget):
         except ValueError as e:
             self.notify(str(e), "error")
             return
+        self._wordfx_sync(rebuild=False)
         self.preview.rebuild()
 
     def _replace_ttml(self):
@@ -1288,7 +1353,16 @@ class EditorPage(QWidget):
         iv = self._selected_interval()
         if iv is not None:
             iv.treatment = tr
-        self.preview.update_cinematic()
+        if any(sl.isSliderDown() for _, sl, _ in self._cine_sliders):
+            if not self._cine_timer.isActive():
+                self._cine_timer.start()
+        else:
+            self.preview.update_cinematic()
+
+    def _flush_treatment(self):
+        if self._cine_timer.isActive():
+            self._cine_timer.stop()
+            self.preview.update_cinematic()
 
     # ---------------- audio ----------------
     def _spotify_track(self) -> Track | None:
@@ -1499,7 +1573,7 @@ class EditorPage(QWidget):
             start_ms, end_ms = self._clip_range()
         name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (self.first, self.last)))
         return ExportJob(self.project.lyrics, self.project.cover_png(), unique_path(self._output_dir(), name), start_ms, end_ms,
-                         size=(preset[1], preset[2]), fps=60, encoder=self.settings.value("export/encoder", "cpu"),
+                         size=(preset[1], preset[2]), fps=60, encoder=self.settings.value("export/encoder") or ffmpeg.default_encoder(),
                          marker=self.settings.value("export/marker", "none"), params=replace(self.params),
                          style=replace(self.style), cinematic=copy.deepcopy(self.project.cinematic), wordfx=self._fx_plan)
 

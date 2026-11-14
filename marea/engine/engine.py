@@ -240,6 +240,26 @@ class Engine:
         self.now += dt * 1000.0
         self._frame(dt)
 
+    def is_settled(self) -> bool:
+        """Return True when pending config/seek flags cleared and all springs/tweens have converged."""
+        if self.seek_flag or self.config_flag:
+            return False
+        now = self.now
+        for L in self.items:
+            if L.y.pending is not None or L.y.p != L.y.t or L.y.v != 0.0:
+                return False
+            if L.s.pending is not None or L.s.p != L.s.t or L.s.v != 0.0:
+                return False
+            for tw in (L.blur_tw, L.op_tw, L.act_tw, L.bgp_tw, L.bgo_tw):
+                if tw.v0 != tw.t and now < tw.t0 + tw.dur:
+                    return False
+            for w in L.words:
+                for u in w.parts:
+                    for sp in (u.S, u.Y, u.G):
+                        if abs(sp.p - sp.g) > 1e-4 or abs(sp.v) > 1e-3:
+                            return False
+        return True
+
     def warmup(self, t_ms, dt=1 / 60, preroll_ms=3000):
         """Simula desde `preroll_ms` antes hasta `t_ms` para que los springs lleguen asentados."""
         from_ms = max(0, t_ms - preroll_ms)

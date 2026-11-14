@@ -5,8 +5,11 @@ el estado, aquí solo se dibuja. Todo se mide en px del lienzo; blur y glow vien
 (letra de 42 px) y se escalan con `k = tamaño de letra / 42`.
 """
 import math
+import weakref
 from dataclasses import dataclass
+from functools import lru_cache
 
+import numpy as np
 import skia
 
 from marea.engine.engine import Engine, Params
@@ -23,6 +26,12 @@ FW_SOFT = 1.3  # borde del wipe en letra por línea (em): degradado ancho, como 
 ORIGIN_SYL, ORIGIN_CH = 0.81, 0.75  # transform-origin vertical (em desde el borde superior de la línea)
 BLOOM = ((0.28, 0.16), (0.06, 0.22))  # (radio em, alpha) de las dos sombras
 WHITE = skia.ColorSetARGB(255, 255, 255, 255)
+
+
+@lru_cache(maxsize=2048)
+def _part_char_widths(fonts, text: str, size: float) -> tuple[float, ...]:
+    """Cached un-kerned per-character widths for a syllable/word part."""
+    return tuple(fonts.text(ch, size)[1] for ch in text)
 
 
 @dataclass
@@ -81,6 +90,14 @@ class Scene:
         self.k = self.size / DESIGN_PX
         stage_w = min(0.94 * self.w, 1.2 * self.h)  # en horizontal, la letra queda en una columna centrada
         self.stage = skia.Rect.MakeXYWH((self.w - stage_w) / 2, 0.16 * self.h, stage_w, 0.72 * self.h)
+        fade = skia.GradientShader.MakeLinear([(0, self.stage.top()), (0, self.stage.bottom())],  # máscara de bordes del prototipo
+                                              [_argb(0), _argb(1), _argb(1), _argb(0)], [0, 0.06, 0.90, 1])
+        self._stage_fade_paint = skia.Paint(Shader=fade, BlendMode=skia.BlendMode.kDstIn)
+        self._bloom_cache: dict[float, object] = {}
+        self._mask_blur_cache: dict[int, object] = {}
+        self._blur_filter_cache: dict[int, object] = {}
+        self._wfx_lyrics_ref = weakref.ref(lyrics)
+        self._wfx_mods: tuple | None = None
         credit = lyrics.credit_lines() if self.style.credit else []
         self._credit_rows, self._credit_size, credit_h = layout_credit(
             credit, self.fonts, self.size, stage_w - PAD_L * self.size - PAD_R * stage_w)
@@ -92,6 +109,7 @@ class Scene:
         self.clip_start_ms: float | None = None  # inicio del clip: la marca de agua entra con fundido desde ahí
 
     def set_cinematic(self, cinematic: CinematicConfig | None):
+        self.invalidate_probe()
         if cinematic is None:
             if self.cinematic_bg is not None:
                 self.cinematic_bg.close()
@@ -103,14 +121,59 @@ class Scene:
         else:
             self.cinematic_bg.set_config(cinematic)
 
+    def invalidate_probe(self):
+        if self._probe is not None:
+            self._probe[2][0] = None
+
+    def matches_lyrics(self, lyrics) -> bool:
+        return self._wfx_lyrics_ref() is lyrics
+
     def attach_wordfx(self, lyrics, plan):
         """Marca cada palabra del motor con su efecto: la clave (verso, palabra) coincide con el orden de `Item.words`."""
+        self.wordfx = plan
+        self._wfx_lyrics_ref = weakref.ref(lyrics)
         by_src = {id(l): i for i, l in enumerate(lyrics.lines)}
+        has_word_fx = plan is not None and hasattr(plan, "word_fx")
         for L in self._by_line.values():
-            li = by_src[id(L.src)]
+            li = by_src.get(id(L.src))
+            if li is None:
+                for w in L.words:
+                    w.fx = None
+                    w.fx_layer = None
+                continue
             for wi, w in enumerate(L.words):
-                w.fx = None if w.bg else plan.get(li, wi)
-                w.fx_layer = plan.word_fx(li, wi, is_bg=w.bg) if hasattr(plan, "word_fx") else w.fx
+                if plan is None:
+                    w.fx = None
+                    w.fx_layer = None
+                else:
+                    w.fx = None if w.bg else plan.get(li, wi)
+                    w.fx_layer = plan.word_fx(li, wi, is_bg=w.bg) if has_word_fx else w.fx
+
+    def _get_wfx_mods(self):
+        if self._wfx_mods is None:
+            from marea.wordfx import debug, render
+            from marea.wordfx.fxtypes import CarrierLetter, CarrierWord
+            self._wfx_mods = (render, debug, CarrierLetter, CarrierWord)
+        return self._wfx_mods
+
+    def _mask_blur(self, sigma: float):
+        key = round(sigma * 200.0)
+        mf = self._mask_blur_cache.get(key)
+        if mf is None:
+            if len(self._mask_blur_cache) >= 256:
+                self._mask_blur_cache.clear()
+            mf = self._mask_blur_cache[key] = skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, key / 200.0)
+        return mf
+
+    def _blur_filter(self, sigma: float):
+        key = round(sigma * 200.0)
+        bf = self._blur_filter_cache.get(key)
+        if bf is None:
+            if len(self._blur_filter_cache) >= 256:
+                self._blur_filter_cache.clear()
+            s = key / 200.0
+            bf = self._blur_filter_cache[key] = skia.ImageFilters.Blur(s, s)
+        return bf
 
     def close(self):
         if self.cinematic_bg is not None:
@@ -141,7 +204,7 @@ class Scene:
         (una vez por fotograma) y se promedia. Función pura de (portada, cinemático, t): preview y export ven lo mismo."""
         t = round(self.engine.t * PROBE_HZ) / PROBE_HZ  # el fondo cambia despacio: se muestrea a 10 Hz (sigue siendo función pura de t)
         if self._probe is None:
-            self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1), [None, None])
+            self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1), [None, None, None])
         surf, small, cache = self._probe
         if cache[0] != t:
             c = surf.getCanvas()
@@ -152,11 +215,26 @@ class Scene:
             else:
                 small.draw(c, t)
             c.restore()
-            cache[0], cache[1] = t, surf.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)[..., :3]
-        x0, x1 = int(max(0.0, x) / self.w * PROBE_W), int(min(self.w, x + w) / self.w * PROBE_W) + 1
-        y0, y1 = int(max(0.0, top) / self.h * PROBE_H), int(min(self.h, top + h) / self.h * PROBE_H) + 1
-        px = cache[1][min(y0, PROBE_H - 1):max(y1, y0 + 1), min(x0, PROBE_W - 1):max(x1, x0 + 1)]
-        return tuple(int(v) for v in px.reshape(-1, 3).mean(axis=0))
+            rgb = surf.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)[..., :3]
+            sat = np.zeros((PROBE_H + 1, PROBE_W + 1, 3), dtype=np.int32)
+            np.cumsum(np.cumsum(rgb, axis=0, dtype=np.int32), axis=1, out=sat[1:, 1:])
+            cache[0], cache[1], cache[2] = t, rgb, sat.ravel().tolist()
+        sat = cache[2]
+        stride = (PROBE_W + 1) * 3
+        x0 = min(int(max(0.0, x) / self.w * PROBE_W), PROBE_W - 1)
+        x1 = min(PROBE_W, max(int(min(self.w, x + w) / self.w * PROBE_W) + 1, x0 + 1))
+        y0 = min(int(max(0.0, top) / self.h * PROBE_H), PROBE_H - 1)
+        y1 = min(PROBE_H, max(int(min(self.h, top + h) / self.h * PROBE_H) + 1, y0 + 1))
+        i00 = y0 * stride + x0 * 3
+        i01 = y0 * stride + x1 * 3
+        i10 = y1 * stride + x0 * 3
+        i11 = y1 * stride + x1 * 3
+        area = (y1 - y0) * (x1 - x0)
+        return (
+            int((sat[i11] - sat[i01] - sat[i10] + sat[i00]) / area),
+            int((sat[i11 + 1] - sat[i01 + 1] - sat[i10 + 1] + sat[i00 + 1]) / area),
+            int((sat[i11 + 2] - sat[i01 + 2] - sat[i10 + 2] + sat[i00 + 2]) / area),
+        )
 
     def render(self, canvas: skia.Canvas):
         e, st = self.engine, self.stage
@@ -170,9 +248,7 @@ class Scene:
         for L in e.items:
             self._item(canvas, L)
         canvas.restore()
-        fade = skia.GradientShader.MakeLinear([(0, st.top()), (0, st.bottom())],  # máscara de bordes del prototipo
-                                              [_argb(0), _argb(1), _argb(1), _argb(0)], [0, 0.06, 0.90, 1])
-        canvas.drawRect(st, skia.Paint(Shader=fade, BlendMode=skia.BlendMode.kDstIn))
+        canvas.drawRect(st, self._stage_fade_paint)
         canvas.restore()
         canvas.restore()
         self._watermark(canvas)
@@ -273,7 +349,7 @@ class Scene:
         layer = L.opacity < 0.999 or sigma > 0.01
         if layer:
             canvas.saveLayer(skia.Rect.MakeLTRB(-m, -m, st_w + m, L.h + m), _paint(
-                Alphaf=L.opacity, ImageFilter=skia.ImageFilters.Blur(sigma, sigma) if sigma > 0.01 else None))
+                Alphaf=L.opacity, ImageFilter=self._blur_filter(sigma) if sigma > 0.01 else None))
         if L.is_gap:
             self._gap(canvas, L)
         elif L.is_credit:
@@ -325,10 +401,12 @@ class Scene:
         size, ba, da = lay.size, 0.2 + 0.8 * L.act, 0.2 + 0.2 * L.act
         bloom = None
         if L.on and self.style.bloom:  # dos drop-shadow encadenados sobre lo ya cantado
-            f = None
-            for r, a in BLOOM:
-                f = skia.ImageFilters.DropShadow(0, 0, r * size / 2, r * size / 2, _argb(a), f)
-            bloom = f
+            bloom = self._bloom_cache.get(size)
+            if bloom is None:
+                f = None
+                for r, a in BLOOM:
+                    f = skia.ImageFilters.DropShadow(0, 0, r * size / 2, r * size / 2, _argb(a), f)
+                bloom = self._bloom_cache[size] = f
         m = BLOOM[0][0] * size * 2
         top = PAD_V * size
         if bloom:
@@ -351,6 +429,8 @@ class Scene:
 
     def _block(self, canvas, L, lay, rows, widths, size, top, ba, da):
         fx_active = self.wordfx is not None and self.wordfx.intensity > 0.0
+        t_now = self.engine.t
+        strain_now = self.wordfx.strain_at(t_now) if fx_active else 0.0
         for ri, (row, rw) in enumerate(zip(rows, widths)):
             x0 = lay.width - lay.pad_r - rw if L.duet else lay.pad_l  # dueto: alineado a la derecha
             for word, wx, ww in row:
@@ -359,14 +439,32 @@ class Scene:
                 if not fx_active or fx_item is None:
                     self._word(canvas, word, x0 + wx, lt, ww, size, ba, da)
                     continue
-                self._fx_word(canvas, L, word, x0 + wx, lt, ww, size, ba, da, fx_item=fx_item)
+                p_fx = fx_item.params
+                anti_s = 0.25 if p_fx.is_hero else 0.0
+                if (
+                    word.p == 0.0
+                    and not self.wordfx_debug
+                    and t_now <= fx_item.match.begin_ms / 1000.0 - anti_s - 0.05
+                    and p_fx.opacity_min >= 1.0
+                    and p_fx.blur_em <= 0.0
+                    and p_fx.grain <= 0.0
+                    and p_fx.particles <= 0.0
+                    and p_fx.sparkle <= 0.0
+                    and p_fx.vanish_s <= 0.0
+                    and (strain_now <= 0.0 or p_fx.strain_gain <= 0.0)
+                    and (p_fx.bleed_donor_s < 0.0 or t_now <= p_fx.bleed_donor_s - 0.17)
+                ):
+                    # Completely idle pre-onset word: identical to base draw without layer/envelope allocations.
+                    self._word(canvas, word, x0 + wx, lt, ww, size, ba, da)
+                    continue
+                self._fx_word(canvas, L, word, x0 + wx, lt, ww, size, ba, da, fx_item=fx_item, strain=strain_now)
                 if self.wordfx_debug and word.fx is not None:
-                    from marea.wordfx import debug  # perezoso: con la función apagada no se importa nada de marea.wordfx
-                    debug.draw_label(canvas, self.fonts, word.fx, x0 + wx, ww, lt + self.fonts.baseline(size), size)
+                    _, debug_mod, _, _ = self._get_wfx_mods()
+                    debug_mod.draw_label(canvas, self.fonts, word.fx, x0 + wx, ww, lt + self.fonts.baseline(size), size)
 
     def _carrier_word(self, L, word, size: float):
         """Read-only snapshot of base renderer carrier state for `word` and its parent line `L`."""
-        from marea.wordfx.fxtypes import CarrierLetter, CarrierWord
+        _, _, CarrierLetter, CarrierWord = self._get_wfx_mods()
         c_letters = []
         filled = 0.0
         total_w = 0.0
@@ -382,8 +480,7 @@ class Scene:
             else:
                 front_px = u.p * pw
                 cx = 0.0
-                for j, ch in enumerate(u.text):
-                    cw = self.fonts.text(ch, size)[1]
+                for j, cw in enumerate(_part_char_widths(self.fonts, u.text, size)):
                     lp = min(1.0, max(0.0, (front_px - cx) / max(1.0, cw)))
                     dy = u.y + (u.wdy[j] if u.wdy else 0.0)
                     sc = u.scale * (1.0 + (u.wds[j] if u.wds else 0.0))
@@ -392,27 +489,53 @@ class Scene:
         front_u = min(1.0, max(0.0, filled / total_w)) if total_w > 0.0 else word.p
         return CarrierWord(tuple(c_letters), front_u, L.act, L.on, L.opacity, L.blur * self.k, L.start, L.end, word.bg), front_u
 
-    def _fx_word(self, canvas, L, word, x, line_top, ww, size, ba, da, fx_item=None):
+    def _fx_word(self, canvas, L, word, x, line_top, ww, size, ba, da, fx_item=None, strain: float | None = None):
         """Palabra con efecto semántico (marea.wordfx): el render dibuja las letras con sus efectos y aquí se aplica el mismo
         wipe de la palabra con énfasis, así que el relleno cantado/no cantado se ve igual que en el resto de la línea."""
-        from marea.wordfx import render  # perezoso: con la función apagada no se importa nada de marea.wordfx
+        render, _, _, _ = self._get_wfx_mods()
         fx_use = fx_item if fx_item is not None else word.fx
+        p_fx = fx_use.params
         pad = 0.6 * size
         bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
         carrier, front_u = self._carrier_word(L, word, size)
-        canvas.saveLayer(bounds, None)
+        t_now = self.engine.t
+        strain_val = self.wordfx.strain_at(t_now) if strain is None else strain
         oy = line_top + (ORIGIN_CH if word.emph else ORIGIN_SYL) * size
-        render.draw_word_fx(canvas, self.fonts, fx_use, render.letters_for(self.fonts, word.text, size), x,
-                            line_top + self.fonts.baseline(size), size, self.engine.t, self.wordfx.rms_at(self.engine.t),
-                            self.engine.p.reduce, strain=self.wordfx.strain_at(self.engine.t),
-                            onsets=[cl.onset_s for cl in carrier.letters],
-                            backdrop=(self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
-                                      if self.wordfx.adapt_bg else None),
-                            carrier=carrier, origin_y=oy)
-        fw = FW * max(0.35, min(1.8, fx_use.params.fill_edge_softness))
-        canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, front_u, ba, da, size, fw=fw),
-                                           BlendMode=skia.BlendMode.kDstIn))
-        canvas.restore()
+        backdrop = (self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
+                    if self.wordfx.adapt_bg else None)
+        letters = render.letters_for(self.fonts, word.text, size)
+        onsets = [cl.onset_s for cl in carrier.letters]
+        rms_now = self.wordfx.rms_at(t_now)
+        base = line_top + self.fonts.baseline(size)
+        simple_wipe = (
+            (front_u <= 0.0 or front_u >= 1.0)
+            and p_fx.grain <= 0.0
+            and p_fx.blur_em <= 0.0
+            and p_fx.fracture <= 0.0
+            and abs(p_fx.chromatic_em) == 0.0
+            and p_fx.trail <= 0.0
+            and (strain_val <= 0.0 or p_fx.strain_gain <= 0.0)
+        )
+        if simple_wipe:
+            wipe_a = ba if front_u >= 1.0 else da
+            render.draw_word_fx(canvas, self.fonts, fx_use, letters, x, base, size, t_now, rms_now,
+                                self.engine.p.reduce, strain=strain_val, onsets=onsets,
+                                backdrop=backdrop, carrier=carrier, origin_y=oy, wipe_alpha=wipe_a,
+                                include_particles=False)
+        else:
+            canvas.saveLayer(bounds, None)
+            render.draw_word_fx(canvas, self.fonts, fx_use, letters, x, base, size, t_now, rms_now,
+                                self.engine.p.reduce, strain=strain_val, onsets=onsets,
+                                backdrop=backdrop, carrier=carrier, origin_y=oy,
+                                include_particles=False)
+            fw = FW * max(0.35, min(1.8, p_fx.fill_edge_softness))
+            canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, front_u, ba, da, size, fw=fw),
+                                               BlendMode=skia.BlendMode.kDstIn))
+            canvas.restore()
+        if p_fx.particles > 0 or p_fx.sparkle > 0:
+            p_wipe_a = da + (ba - da) * min(1.0, max(0.0, front_u))
+            render.draw_word_particles(canvas, fx_use, letters, x, base, size, t_now, self.engine.p.reduce,
+                                       onsets=onsets, backdrop=backdrop, carrier=carrier, wipe_alpha=p_wipe_a)
 
     def _wipe(self, x, w, p, ba, da, size, a=1.0, fw=FW):
         """Máscara del prototipo: gradiente horizontal de alpha ba→da con borde de `fw` em que avanza con p."""
@@ -425,10 +548,21 @@ class Scene:
             fw = FW_SOFT if word.soft else FW
             for u in word.parts:
                 blob, pw = self.fonts.text(u.text, size)
-                text = skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, fw=fw))
-                glow = (skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, u.glow_a, fw),
-                                   MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, u.glow_r * self.k / 2))
-                        if u.glow_a > 0 else None)
+                if u.p <= 0.0:
+                    text = skia.Paint(AntiAlias=True, Color=_argb(da))
+                    glow = (skia.Paint(AntiAlias=True, Color=_argb(u.glow_a * da),
+                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
+                            if u.glow_a > 0 else None)
+                elif u.p >= 1.0:
+                    text = skia.Paint(AntiAlias=True, Color=_argb(ba))
+                    glow = (skia.Paint(AntiAlias=True, Color=_argb(u.glow_a * ba),
+                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
+                            if u.glow_a > 0 else None)
+                else:
+                    text = skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, fw=fw))
+                    glow = (skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, u.glow_a, fw),
+                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
+                            if u.glow_a > 0 else None)
                 self._glyphs(canvas, u, blob, x, base, pw, size, line_top + ORIGIN_SYL * size, text, glow)
                 x += pw
             return
@@ -437,13 +571,14 @@ class Scene:
         bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
         canvas.saveLayer(bounds, None)
         cx, filled = x, 0.0  # filled: px de la palabra ya rellenos; cada letra aporta su ancho real, no una fracción igual
+        white_paint = skia.Paint(AntiAlias=True, Color=WHITE)
         for c in word.parts:
             blob, pw = self.fonts.text(c.text, size)
             glow = (skia.Paint(AntiAlias=True, Color=_argb(c.glow_a),
-                               MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, c.glow_r * self.k / 2))
+                               MaskFilter=self._mask_blur(c.glow_r * self.k / 2))
                     if c.glow_a > 0 else None)
             self._glyphs(canvas, c, blob, cx, base, pw, size, line_top + ORIGIN_CH * size,
-                         skia.Paint(AntiAlias=True, Color=WHITE), glow)
+                         white_paint, glow)
             cx += pw
             filled += pw * c.p
         canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, filled / ww if ww else 0.0, ba, da, size),

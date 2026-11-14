@@ -245,6 +245,10 @@ class SettingsBody(QWidget):
         item.setEnabled(ok)
         if not ok and self.encoder.currentData() == "nvenc":
             self.encoder.setCurrentIndex(0)
+        elif ok and self.settings.value("export/encoder") is None:
+            idx = self.encoder.findData("nvenc")
+            if idx >= 0:
+                self.encoder.setCurrentIndex(idx)
 
     def output_dir(self) -> Path:
         return Path(self.settings.value("output_dir", str(default_output_dir())))

@@ -36,6 +36,11 @@ def nvenc_available() -> bool:
         return False
 
 
+def default_encoder() -> str:
+    """Prefer hardware NVENC encoding when available on the host GPU; otherwise fall back to CPU libx264."""
+    return "nvenc" if nvenc_available() else "cpu"
+
+
 def build_command(out: Path, w: int, h: int, fps: int, encoder: str = "cpu", beep: bool = False,
                   audio: Path | None = None) -> list[str]:
     """Orden de ffmpeg. `beep`: pista con un pitido de 120 ms al inicio y silencio después (marcador de sincronía)."""
@@ -71,7 +76,10 @@ class FfmpegWriter:
 
     def __enter__(self):
         self.out.parent.mkdir(parents=True, exist_ok=True)
-        self.proc = subprocess.Popen(self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+        self.proc = subprocess.Popen(
+            self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+            bufsize=16 * 1024 * 1024, creationflags=NO_WINDOW,
+        )
         return self
 
     def write(self, frame):

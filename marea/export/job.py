@@ -1,6 +1,9 @@
 """Trabajo de export: rango del clip, nombre de archivo, render determinista de frames y codificación."""
+import queue
 import re
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
@@ -104,20 +107,71 @@ def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
 
 def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | None = None,
                cancelled: Callable[[], bool] | None = None) -> Path:
-    """Renderiza y codifica. progress(hechos, total, segundos restantes); cancelled() -> bool."""
+    """Renderiza y codifica con pipeline render/escritura en paralelo y ETA móvil."""
     ctx = make_context(job.prefer_gpu)
-    t0, total, last_report = time.perf_counter(), job.frames, 0.0
+    total = job.frames
+    frame_q: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=3)
+    writer_err: list[BaseException] = []
+    stop_ev = threading.Event()
+    recent_times: deque[float] = deque(maxlen=48)
     try:
         with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.marker == "beep" and not job.audio_path,
                           audio=job.audio_path) as out:
-            for i, frame in enumerate(render_frames(job, ctx)):
-                if cancelled and cancelled():
-                    raise ExportCancelled()
-                out.write(frame)
-                now = time.perf_counter()
-                if progress and (now - last_report > 0.25 or i + 1 == total):
-                    last_report = now
-                    progress(i + 1, total, (now - t0) / (i + 1) * (total - i - 1))
+            t0 = time.perf_counter()
+            recent_times.append(t0)
+
+            def _writer_loop():
+                done_frames = 0
+                last_report = 0.0
+                try:
+                    while True:
+                        item = frame_q.get()
+                        if item is None:
+                            return
+                        out.write(item)
+                        done_frames += 1
+                        now = time.perf_counter()
+                        recent_times.append(now)
+                        if progress and (now - last_report > 0.25 or done_frames == total):
+                            last_report = now
+                            n_win = len(recent_times)
+                            sec_per_frame = ((now - recent_times[0]) / (n_win - 1)) if n_win >= 4 else ((now - t0) / done_frames)
+                            progress(done_frames, total, sec_per_frame * (total - done_frames))
+                except BaseException as exc:
+                    writer_err.append(exc)
+                    stop_ev.set()
+
+            writer = threading.Thread(target=_writer_loop, daemon=True)
+            writer.start()
+            try:
+                for frame in render_frames(job, ctx):
+                    if stop_ev.is_set() or (cancelled and cancelled()):
+                        if writer_err:
+                            raise writer_err[0]
+                        raise ExportCancelled()
+                    while not stop_ev.is_set():
+                        try:
+                            frame_q.put(frame, timeout=0.05)
+                            break
+                        except queue.Full:
+                            if cancelled and cancelled():
+                                raise ExportCancelled()
+                    if writer_err:
+                        raise writer_err[0]
+            finally:
+                stop_ev.set()
+                while True:
+                    try:
+                        frame_q.put(None, timeout=0.05)
+                        break
+                    except queue.Full:
+                        try:
+                            frame_q.get_nowait()
+                        except queue.Empty:
+                            pass
+                writer.join(timeout=10.0)
+            if writer_err:
+                raise writer_err[0]
     finally:
         ctx.close()
     return job.out_path

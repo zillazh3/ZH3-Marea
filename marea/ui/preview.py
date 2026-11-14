@@ -29,7 +29,7 @@ class PreviewWidget(QWidget):
         self.playing, self._frame, self._image = False, None, None
         self._acc, self._settle = 0.0, 0.0
         self._clock = QElapsedTimer()
-        self._timer = QTimer(self, interval=8, timerType=Qt.PreciseTimer)  # el tick real lo marca el reloj, no el timer
+        self._timer = QTimer(self, interval=16, timerType=Qt.PreciseTimer)  # ~60 Hz UI pacing; el paso real lo marca el reloj
         self._timer.timeout.connect(self._tick)
         self._video_frame_ready.connect(self._on_video_frame_ready, Qt.QueuedConnection)
 
@@ -39,11 +39,26 @@ class PreviewWidget(QWidget):
         self._range = range_ms
         self.rebuild()
 
-    def set_wordfx(self, plan, debug: bool = False, rebuild: bool = True):
-        """Plan de Semantic Word FX (None = apagado). Reconstruye la escena porque las palabras se marcan al crearla."""
+    def update_wordfx(self, plan, debug: bool = False):
+        """Actualiza Semantic Word FX en vivo sobre la escena actual sin reconstruir springs ni layout."""
         self._wordfx, self._wordfx_debug = plan, debug
-        if rebuild:
-            self.rebuild()
+        if self.scene and self._project is not None:
+            self.scene.attach_wordfx(self._project.lyrics, plan)
+            self.scene.wordfx_debug = debug
+            if not self.playing:
+                self._render()
+            self._wake()
+
+    def set_wordfx(self, plan, debug: bool = False, rebuild: bool = True):
+        """Plan de Semantic Word FX (None = apagado). Actualiza la escena en vivo si la letra no cambió."""
+        self._wordfx, self._wordfx_debug = plan, debug
+        if not rebuild:
+            return
+        if (self.scene is not None and self._project is not None
+                and self.scene.matches_lyrics(self._project.lyrics)):
+            self.update_wordfx(plan, debug)
+            return
+        self.rebuild()
 
     def rebuild(self):
         """Escena nueva (cambió la portada, la fuente o la letra); conserva la posición."""
@@ -98,6 +113,7 @@ class PreviewWidget(QWidget):
 
     def _on_video_frame_ready(self):
         if self.scene and not self.playing:
+            self.scene.invalidate_probe()
             self._render()
 
     def restyle(self):
@@ -153,7 +169,7 @@ class PreviewWidget(QWidget):
         self._settle = SETTLE_MS if self.playing else self._settle - steps * DT * 1000
         self._render()
         self.position.emit(e.t * 1000 - self._range[0], self.duration)
-        if not self.playing and self._settle <= 0:
+        if not self.playing and (self._settle <= 0 or e.is_settled()):
             self._timer.stop()
 
     def _render(self):
