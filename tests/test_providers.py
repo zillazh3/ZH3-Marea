@@ -1,5 +1,6 @@
 import json
 import re
+import socket
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
@@ -424,3 +425,25 @@ lines:
             parse_lyricsfile(bad)
     with pytest.raises(ValueError, match="grande"):
         parse_lyricsfile("x" * 1_000_001)
+
+
+def test_authorize_deadline_holds_against_a_silent_connection_and_releases_the_port():
+    held = []
+
+    def browser(url):  # algo conecta al callback y nunca termina la petición HTTP
+        s = socket.create_connection(("127.0.0.1", sp.REDIRECT_PORT), timeout=5)
+        s.sendall(b"GET /callback?code=X")
+        held.append(s)
+        threading.Timer(8, s.close).start()  # red de seguridad: sin el arreglo, el test termina en vez de colgarse
+
+    c = client(lambda req: pytest.fail("no debía canjear nada"))
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(SpotifyError, match="a tiempo"):
+            c.authorize(open_browser=browser, timeout=1.0)
+        assert time.monotonic() - t0 < 2.5
+        sp._bind().server_close()  # el puerto quedó libre
+    finally:
+        for s in held:
+            s.close()
+    assert not c.connected

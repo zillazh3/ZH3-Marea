@@ -146,6 +146,24 @@ def test_cancelling_an_install_step_kills_the_process_tree_quickly(tmp_path):
     assert time.monotonic() - t0 < 5
 
 
+def test_cancelling_a_silent_install_step_kills_it_without_waiting_for_output(tmp_path):
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()  # el proceso no escribe nada: la cancelación no puede depender de sus líneas
+    t0 = time.monotonic()
+    with pytest.raises(InstallCancelled):
+        env._run(tmp_path, "torch", [sys.executable, "-c", "import time; time.sleep(60)"], lambda *a: None, cancel, "x")
+    assert time.monotonic() - t0 < 5
+
+
+def test_cancel_after_the_last_step_does_not_publish_the_ready_marker(tmp_path, monkeypatch):
+    cancel = threading.Event()
+    monkeypatch.setattr(env, "fetch_uv", lambda root, progress, cancel=None: root / "bin" / "uv.exe")
+    monkeypatch.setattr(env, "_run", lambda root, stage, args, progress, c, msg: stage == "verificación" and cancel.set())
+    with pytest.raises(InstallCancelled):
+        env.install(tmp_path / "lab", lambda *a: None, cancel, req_dir=ROOT / "sidecar")
+    assert not (tmp_path / "lab" / "ready.json").exists()
+
+
 # ---------------- desinstalar ----------------
 
 def test_uninstall_only_removes_a_folder_named_lab(tmp_path):

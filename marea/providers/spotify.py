@@ -30,6 +30,7 @@ API = "https://api.spotify.com/v1"
 KEYRING_SERVICE, KEYRING_USER = "ZH3 Marea", "spotify-token"
 SEARCH_LIMIT = 10
 EXPIRY_MARGIN = 60  # s: renovar el token un minuto antes de que caduque
+READ_TIMEOUT = 5.0  # s: máximo de espera por lectura de una conexión al callback
 
 _PAGE = """<!doctype html><meta charset="utf-8"><title>ZH3 Marea</title>
 <body style="font-family:Segoe UI,sans-serif;background:#0E0D1A;color:#F4F3FA;display:grid;place-items:center;height:100vh;margin:0">
@@ -117,6 +118,12 @@ def _bind() -> HTTPServer:
 
 
 class _Callback(BaseHTTPRequestHandler):
+    def setup(self):
+        # Lecturas acotadas por el plazo de la autorización: una conexión que no manda la petición completa no la bloquea.
+        # shortcut: el timeout es por lectura, un cliente que gotea bytes puede estirarlo; acotar el total si eso importa.
+        self.timeout = max(0.05, min(READ_TIMEOUT, self.server.deadline - time.monotonic()))
+        super().setup()
+
     def do_GET(self):
         url = urlparse(self.path)
         if url.path != "/callback":
@@ -139,7 +146,7 @@ class _Callback(BaseHTTPRequestHandler):
 
 def _serve(server: HTTPServer, timeout: float) -> dict | None:
     server.result, server.timeout = None, 0.5
-    deadline = time.monotonic() + timeout
+    deadline = server.deadline = time.monotonic() + timeout
     while server.result is None and time.monotonic() < deadline:
         server.handle_request()
     return server.result

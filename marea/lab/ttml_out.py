@@ -12,7 +12,7 @@ from pathlib import Path
 
 import defusedxml.ElementTree as ET
 
-from marea.export.job import unique_path
+from marea.export.job import safe_filename, unique_path
 from marea.lab.alignment import Alignment, AlignmentError, Line, Word, apply_offset, validate
 from marea.model.lyrics import MAREA, MAREA_URI, TT, TTM, join_text, parse_time, parse_ttml
 
@@ -360,7 +360,7 @@ def write_new(al: Alignment, folder: str | Path, name: str, original: bytes | No
     data = export_ttml(al, original)
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    path = unique_path(folder, name)
+    path = unique_path(folder, safe_filename(name, "letra.ttml", 255))  # un nombre con separadores nunca sale de `folder`
     with open(path, "xb") as f:
         f.write(data)
     return path

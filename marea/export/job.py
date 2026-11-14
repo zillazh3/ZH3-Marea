@@ -58,19 +58,28 @@ def clip_range(lyrics: Lyrics, first: int, last: int, tail_ms: float = TAIL_MS) 
 
 
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))}
+
+
+def safe_filename(text: str, fallback: str, limit: int = 100) -> str:
+    """Nombre de archivo válido en Windows: sin separadores ni caracteres prohibidos (no puede salir de su carpeta), sin nombres
+    reservados (CON, NUL, COM1…) y nunca vacío."""
+    name = _INVALID.sub("", text).strip(" .")[:limit].rstrip(" .") or fallback
+    return "_" + name if name.split(".")[0].rstrip().upper() in _RESERVED else name
 
 
 def clip_name(artist: str, title: str, first: int | None = None, last: int | None = None) -> str:
     """`Artista - Canción (versos X–Y) [ZH3 Marea].mp4`; first/last son índices de 0. Sin ellos: `(completa)`."""
     base = f"{artist.strip()} - {title.strip()}" if artist.strip() else title.strip() or "Sin título"
-    base = _INVALID.sub("", base).strip(" .")[:100] or "Sin título"
+    base = safe_filename(base, "Sin título")
     span = "completa" if first is None else f"versos {first + 1}–{last + 1}"
     return f"{base} ({span}) [ZH3 Marea].mp4"
 
 
-def unique_path(folder: Path, name: str) -> Path:
+def unique_path(folder: Path, name: str, taken=()) -> Path:
+    """`folder/name`, o `name (2)`… si ya existe en disco o está en `taken` (destinos reservados que aún no existen)."""
     p, stem, suffix, n = folder / name, Path(name).stem, Path(name).suffix, 2
-    while p.exists():
+    while p.exists() or p in taken:
         p = folder / f"{stem} ({n}){suffix}"
         n += 1
     return p
@@ -143,6 +152,7 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
 
             writer = threading.Thread(target=_writer_loop, daemon=True)
             writer.start()
+            rendered = False
             try:
                 for frame in render_frames(job, ctx):
                     if stop_ev.is_set() or (cancelled and cancelled()):
@@ -158,6 +168,7 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
                                 raise ExportCancelled()
                     if writer_err:
                         raise writer_err[0]
+                rendered = True
             finally:
                 stop_ev.set()
                 while True:
@@ -165,11 +176,13 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
                         frame_q.put(None, timeout=0.05)
                         break
                     except queue.Full:
+                        if rendered and not writer_err:
+                            continue  # fin normal: el escritor vacía la cola antes del centinela
                         try:
                             frame_q.get_nowait()
                         except queue.Empty:
                             pass
-                writer.join(timeout=10.0)
+                writer.join(timeout=None if rendered and not writer_err else 10.0)
             if writer_err:
                 raise writer_err[0]
     finally:

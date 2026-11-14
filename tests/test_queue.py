@@ -229,3 +229,17 @@ def test_real_pipeline_local_audio_to_mp4_with_aac(qapp, tmp_path, monkeypatch):
     assert sorted(s["codec_name"] for s in info["streams"]) == ["aac", "h264"]
     assert float(info["format"]["duration"]) == pytest.approx(0.9, abs=0.1)
     assert it.wav is None
+
+
+def test_duplicate_destinations_queued_behind_an_active_job_get_distinct_files(q, tmp_path):
+    a, b, c = (item(tmp_path, "clip.mp4") for _ in range(3))
+    q.add(a)
+    assert a.state == RENDER  # activo: su archivo todavía no existe en disco
+    q.add(b)
+    q.add(c)
+    assert [i.out_path.name for i in (a, b, c)] == ["clip.mp4", "clip (2).mp4", "clip (3).mp4"]
+    for it in (a, b, c):
+        assert q._runner.started[-1] is it.job
+        it.out_path.write_bytes(it.out_path.name.encode())  # lo que escribiría ffmpeg
+        q._runner.finished.emit(str(it.out_path))
+    assert all(i.state == DONE and i.out_path.read_bytes() == i.out_path.name.encode() for i in (a, b, c))

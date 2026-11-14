@@ -557,6 +557,71 @@ def test_auto_offset_with_spotify_refuses_while_an_export_is_running_and_ignores
     assert float(win.settings.value("audio/loopback_offset_ms")) == 0
 
 
+def test_rejected_project_file_leaves_the_current_project_intact(win, tmp_path):
+    import json
+    from marea.project import project_to_dict
+    e = win.editor
+    current, offset = e.project, e.project.audio_offset_ms
+    raw = project_to_dict(current)
+    raw["lyrics"]["lines"][0]["start"] = "6000"  # pasa json.loads, pero no es un tiempo
+    bad = tmp_path / "malo.marea.json"
+    bad.write_text(json.dumps(raw), encoding="utf-8")
+    before = win.toasts.count()
+    assert e.open_project_path(bad) is False
+    assert e.project is current and e.project.audio_offset_ms == offset and win.toasts.count() == before + 1
+
+
+def start_auto_captured(e, monkeypatch):
+    """Pulsa «Auto» y devuelve el callback de éxito sin correr la medición (el resultado se entrega a mano, más tarde)."""
+    from marea.ui import editor as editor_mod
+    calls, orig = [], editor_mod.run_async
+    monkeypatch.setattr(editor_mod, "run_async", lambda job, done, failed: calls.append(done))
+    e.btn_auto.click()
+    monkeypatch.setattr(editor_mod, "run_async", orig)
+    assert len(calls) == 1 and not e.btn_auto.isEnabled()
+    return calls[0]
+
+
+def measured(ms):
+    from types import SimpleNamespace
+    return SimpleNamespace(reliable=True, offset_ms=ms)
+
+
+def test_auto_offset_result_is_discarded_after_switching_projects(win, monkeypatch):
+    from marea.project import demo_project
+    e = auto_setup(win, "local", np.zeros((local.RATE, 2), np.float32))
+    a = e.project
+    done = start_auto_captured(e, monkeypatch)
+    b = demo_project()
+    b.audio_samples = a.audio_samples  # misma entrada de audio: lo que cambia es el proyecto
+    e.set_project(b)
+    done(measured(230))
+    assert a.audio_offset_ms == 0 and b.audio_offset_ms == 0 and e.sl_offset.value() == 0
+    assert e.btn_auto.isEnabled() and not e._auto_busy
+
+
+def test_auto_offset_result_is_discarded_after_switching_source_or_audio(win, monkeypatch):
+    e = auto_setup(win, "local", np.zeros((local.RATE, 2), np.float32))
+    loopback = e.settings.value("audio/loopback_offset_ms", 0)
+    done = start_auto_captured(e, monkeypatch)
+    e.cmb_source.setCurrentIndex(e.cmb_source.findData("spotify"))
+    done(measured(230))
+    assert e.settings.value("audio/loopback_offset_ms", 0) == loopback and e.sl_offset.value() != 230
+    assert e.btn_auto.isEnabled()
+    e = auto_setup(win, "local", np.zeros((local.RATE, 2), np.float32))
+    done = start_auto_captured(e, monkeypatch)
+    e.project.audio_samples = np.zeros((local.RATE * 2, 2), np.float32)  # eligió otro archivo mientras medía
+    done(measured(230))
+    assert e.project.audio_offset_ms == 0 and e.btn_auto.isEnabled()
+
+
+def test_auto_offset_result_applies_when_the_input_did_not_change(win, monkeypatch):
+    e = auto_setup(win, "local", np.zeros((local.RATE, 2), np.float32))
+    done = start_auto_captured(e, monkeypatch)
+    done(measured(230))
+    assert e.project.audio_offset_ms == 230 and e.sl_offset.value() == 230 and e.btn_auto.isEnabled()
+
+
 def test_settings_loopback_offset_follows_the_editor_when_reopened(win):
     from marea.ui.screens import SettingsBody
     body = win.pages.widget(5).findChild(SettingsBody)

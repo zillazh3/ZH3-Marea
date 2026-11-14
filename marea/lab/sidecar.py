@@ -40,6 +40,7 @@ class SidecarClient(QObject):
     failed = Signal(str, str, str)  # id, mensaje para el usuario, detalle técnico
     cancelled = Signal(str)
     exited = Signal(int)
+    start_failed = Signal(str, str)  # mensaje para el usuario, detalle técnico: el proceso ni siquiera arrancó
 
     def __init__(self, parent=None, log_path: Path | None = None):
         super().__init__(parent)
@@ -146,7 +147,9 @@ class SidecarClient(QObject):
 
     def _on_error(self, error):
         if error == QProcess.FailedToStart:
-            self._fail_pending("No pude iniciar el proceso de sincronía.")
+            message = "No pude iniciar el proceso de sincronía."
+            self._fail_pending(message)
+            self.start_failed.emit(message, self._proc.errorString())  # sin `finished`: quien espera `ready` debe enterarse aquí
 
     def _on_finished(self, code, _status):
         self._on_stdout()  # lo último que dijo antes de salir (un resultado, p. ej.) aún puede estar en el pipe

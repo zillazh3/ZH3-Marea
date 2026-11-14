@@ -2,6 +2,7 @@ import hashlib
 import json
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -164,3 +165,48 @@ def test_runner_cancel_cleans_up(qapp, tmp_path):
     threading.Timer(4.0, runner.cancel).start()  # da tiempo a que arranque el proceso
     got = wait_for(runner, ["cancelled", "finished", "failed"])
     assert "cancelled" in got and not j.out_path.exists() and not runner.running
+
+
+def test_writer_never_overwrites_or_deletes_a_file_it_did_not_create(tmp_path):
+    other = tmp_path / "ajeno.mp4"
+    other.write_bytes(b"export terminado")
+    with pytest.raises(RuntimeError):
+        with ffmpeg.FfmpegWriter(other, *SIZE, FPS):
+            pass
+    assert other.read_bytes() == b"export terminado"
+    mine = tmp_path / "propio.mp4"
+    with pytest.raises(ExportCancelled):
+        with ffmpeg.FfmpegWriter(mine, *SIZE, FPS):
+            assert mine.exists()  # reservado antes de lanzar ffmpeg
+            raise ExportCancelled()
+    assert not mine.exists() and other.read_bytes() == b"export terminado"
+
+
+def test_normal_completion_writes_every_frame_once_and_in_order_with_a_slow_writer(tmp_path, monkeypatch):
+    from marea.export import job as job_mod
+    written = []
+
+    class SlowWriter:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def write(self, frame):
+            time.sleep(0.12)  # más que el timeout del centinela: la cola sigue llena al terminar el render
+            written.append(int(frame[0, 0, 0]))
+
+    class Ctx:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(job_mod, "FfmpegWriter", SlowWriter)
+    monkeypatch.setattr(job_mod, "make_context", lambda prefer_gpu: Ctx())
+    monkeypatch.setattr(job_mod, "render_frames", lambda j, ctx: (np.full((2, 2, 4), i, np.uint8) for i in range(j.frames)))
+    j = job(tmp_path, frames=12)
+    assert run_export(j) == j.out_path
+    assert written == list(range(12))

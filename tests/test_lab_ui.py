@@ -250,6 +250,15 @@ def test_approve_writes_a_new_ttml_next_to_the_original_and_never_touches_it(rev
     assert ttml.with_name("cancion.aligned (2).ttml").exists()  # la segunda vez no pisa la primera
 
 
+def test_approve_without_a_source_file_uses_a_valid_name_from_the_title(review, tmp_path, monkeypatch):
+    rw, runner, _, _, _ = review
+    monkeypatch.setattr(lab, "app_data", lambda: tmp_path / "datos")
+    aligned(rw, runner)
+    rw._orig_project.source, rw._orig_project.title = None, "Love/Hate"
+    rw.btn_approve.click()
+    assert (tmp_path / "datos" / "letras" / "LoveHate.aligned.ttml").exists()
+
+
 def test_a_saved_alignment_can_be_reopened_and_exported_against_its_original(review, tmp_path):
     rw, runner, _, _, ttml = review
     aligned(rw, runner)

@@ -76,10 +76,18 @@ class FfmpegWriter:
 
     def __enter__(self):
         self.out.parent.mkdir(parents=True, exist_ok=True)
-        self.proc = subprocess.Popen(
-            self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-            bufsize=16 * 1024 * 1024, creationflags=NO_WINDOW,
-        )
+        try:  # creación exclusiva: `-y` solo pisa este archivo propio y `_discard` nunca borra el de otro export
+            open(self.out, "xb").close()
+        except OSError as e:
+            raise RuntimeError(f"No puedo escribir «{self.out.name}»: ya existe o la carpeta no lo permite.") from e
+        try:
+            self.proc = subprocess.Popen(
+                self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                bufsize=16 * 1024 * 1024, creationflags=NO_WINDOW,
+            )
+        except BaseException:
+            self._discard()
+            raise
         return self
 
     def write(self, frame):

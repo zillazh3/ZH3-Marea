@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, Signal
 from marea.audio import local
 from marea.audio.session import RecordingCancelled, record_song_range
 from marea.export import history
-from marea.export.job import ExportJob
+from marea.export.job import ExportJob, unique_path
 from marea.export.runner import ExportRunner
 from marea.providers.errors import ProviderError
 from marea.ui.net import run_async
@@ -78,6 +78,8 @@ class ExportQueue(QObject):
 
     # ---- API ----
     def add(self, item: QueueItem):
+        out = item.job.out_path  # el destino se asigna aquí: los trabajos en cola o en curso aún no tienen su archivo en disco
+        item.job.out_path = unique_path(out.parent, out.name, {i.out_path for i in self.items if not i.finished})
         self.items.append(item)
         self.changed.emit()
         self._pump()

@@ -126,6 +126,17 @@ def _run(root: Path, stage: str, args: list[str], progress: Progress, cancel: th
            "UV_NO_PROGRESS": "1", "NO_COLOR": "1", "PYTHONUTF8": "1"}
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW,
                             text=True, encoding="utf-8", errors="replace")
+
+    def watch():  # la cancelación no depende de que el proceso escriba: uno callado también se mata
+        while proc.poll() is None:
+            if cancel.wait(0.1):
+                if proc.poll() is None:
+                    kill_tree(proc.pid)
+                return
+
+    watcher = threading.Thread(target=watch, daemon=True) if cancel is not None else None
+    if watcher:
+        watcher.start()
     tail = []
     try:
         for line in proc.stdout:
@@ -138,6 +149,9 @@ def _run(root: Path, stage: str, args: list[str], progress: Progress, cancel: th
     finally:
         proc.stdout.close()
         code = proc.wait()
+        if watcher:
+            watcher.join()
+    _checked(cancel)  # matado por el vigilante: su salida terminó sin una línea que lo detectara
     if code != 0:
         raise InstallError(f"{check_msg} (código {code}). Últimas líneas:\n" + "\n".join(tail))
 
@@ -160,6 +174,7 @@ def install(root: Path, progress: Progress, cancel: threading.Event | None = Non
     _run(root, "paquetes", base + ["-r", str(req_dir / "requirements.txt")], progress, cancel, "No pude instalar las dependencias")
     _run(root, "verificación", [str(py), "-c", "import torch, ctranslate2, transformers, faster_whisper, numpy"], progress, cancel,
          "El entorno se instaló pero no importa")
+    _checked(cancel)  # cancelado: nunca publicar el marcador de instalación completa
     (root / "ready.json").write_text(json.dumps({"requirements": requirements_hash(req_dir), "uv": UV_VERSION}), encoding="utf-8")
     return py
 

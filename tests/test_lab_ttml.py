@@ -180,6 +180,35 @@ def test_write_new_never_overwrites(demo_bytes, demo_al, tmp_path):
     assert parse_ttml(path.read_bytes()).lines
 
 
+@pytest.mark.parametrize("name, expected", [
+    ("Love/Hate.aligned.ttml", "LoveHate.aligned.ttml"),
+    ("../../escape.ttml", "escape.ttml"),
+    ("C:\\abs\\x.ttml", "Cabsx.ttml"),
+    ('a<>:"|?*b.ttml', "ab.ttml"),
+    ("CON.aligned.ttml", "_CON.aligned.ttml"),
+    ("...", "letra.ttml"),
+    ("Canción — 夜.aligned.ttml", "Canción — 夜.aligned.ttml"),
+])
+def test_write_new_keeps_any_name_inside_the_folder(demo_bytes, demo_al, tmp_path, name, expected):
+    folder = tmp_path / "out"
+    path = write_new(demo_al, folder, name, demo_bytes)
+    assert path == folder / expected and path.parent == folder and parse_ttml(path.read_bytes()).lines
+    again = write_new(demo_al, folder, name, demo_bytes)  # exclusiva: la segunda no pisa la primera
+    assert again != path and again.parent == folder and path.read_bytes() == again.read_bytes()
+    assert [p.name for p in tmp_path.iterdir()] == ["out"]  # nada escapó de la carpeta
+
+
+def test_safe_filename_handles_separators_reserved_names_and_empty_titles():
+    from marea.export.job import safe_filename
+    assert safe_filename("Love/Hate", "letra") == "LoveHate"
+    assert safe_filename("a\\b/c", "letra") == "abc"
+    assert safe_filename("nul", "letra") == "_nul" and safe_filename("com3.txt", "x") == "_com3.txt"
+    assert safe_filename("Lpt1 ", "x") == "_Lpt1" and safe_filename("CONSOLA", "x") == "CONSOLA"
+    assert safe_filename(" ./\\. ", "letra") == "letra" and safe_filename("", "letra") == "letra"
+    assert safe_filename("Mañana — 夜", "letra") == "Mañana — 夜"
+    assert len(safe_filename("x" * 300, "letra")) == 100
+
+
 def test_bad_refs_are_errors_not_silent(demo_bytes, demo_al):
     demo_al.lines[0].ref["ttml_p_index"] = 99
     with pytest.raises(AlignmentError, match="no apunta a un <p>"):

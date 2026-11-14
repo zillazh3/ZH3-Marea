@@ -307,3 +307,19 @@ def test_native_libraries_load_while_the_worker_waits_for_commands():
         pytest.skip("Esta versión de Windows/numpy ya no reproduce el cuelgue: el test no demostraría nada.")
     out, hung = run_child(NUMPY_AFTER_READER, "polling", timeout=15)
     assert out == "OK" and not hung
+
+
+def test_runner_recovers_when_the_worker_cannot_start_and_allows_a_retry(qapp, tmp_path):
+    from marea.ui.lab import Runner
+    runner = Runner(tmp_path / "lab")  # sin entorno instalado: el intérprete no existe
+    failed = []
+    runner.failed.connect(lambda cmd, msg: failed.append((cmd, msg)))
+    runner.ask("decode", audio="x.wav")
+    assert until(lambda: failed, 5000)
+    assert failed == [("decode", failed[0][1])] and "iniciar" in failed[0][1]
+    assert not runner.busy and not runner.client.running
+    runner.ask("decode", audio="x.wav")  # reintento explícito, sin bucle de reinicios
+    assert until(lambda: len(failed) == 2, 5000)
+    time.sleep(0.3)
+    qapp.processEvents()
+    assert len(failed) == 2 and not runner.busy

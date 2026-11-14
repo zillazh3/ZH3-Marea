@@ -1,6 +1,7 @@
 """Proyecto de clip: la letra, los datos de la canción, su portada, configuración cinemática y persistencia (.marea.json)."""
 import base64
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -68,8 +69,41 @@ def _syl_to_dict(s: Syllable) -> dict:
     return {"text": s.text, "begin": s.begin, "end": s.end, "word_end": bool(s.word_end)}
 
 
-def _syl_from_dict(d: dict) -> Syllable:
-    return Syllable(str(d["text"]), d["begin"], d["end"], bool(d.get("word_end", False)))
+def _obj(v, where: str) -> dict:
+    if not isinstance(v, dict):
+        raise ProjectError(f"El proyecto no es válido: {where} no es un objeto.")
+    return v
+
+
+def _list(v, where: str) -> list:
+    if not isinstance(v, list):
+        raise ProjectError(f"El proyecto no es válido: {where} no es una lista.")
+    return v
+
+
+def _num(v, where: str) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        raise ProjectError(f"El proyecto no es válido: {where} debe ser un número finito (llegó {v!r}).")
+    return v
+
+
+def _span(d: dict, a: str, b: str, where: str) -> tuple[float, float]:
+    """Intervalo obligatorio, numérico y finito, que no termina antes de empezar."""
+    for key in (a, b):
+        if key not in d:
+            raise ProjectError(f"El proyecto no es válido: a {where} le falta «{key}».")
+    start, end = _num(d[a], f"{where}.{a}"), _num(d[b], f"{where}.{b}")
+    if end < start:
+        raise ProjectError(f"El proyecto no es válido: {where} termina antes de empezar ({start} > {end}).")
+    return start, end
+
+
+def _syl_from_dict(d, where: str) -> Syllable:
+    d = _obj(d, where)
+    if not isinstance(d.get("text"), str):
+        raise ProjectError(f"El proyecto no es válido: {where}.text falta o no es texto.")
+    begin, end = _span(d, "begin", "end", where)
+    return Syllable(d["text"], begin, end, bool(d.get("word_end", False)))
 
 
 def _bg_to_dict(b: BgVocal) -> dict:
@@ -110,17 +144,26 @@ def lyrics_from_dict(d: dict) -> Lyrics:
     if not isinstance(d, dict) or not isinstance(d.get("lines"), list):
         raise ProjectError("El proyecto no contiene una letra válida.")
     lines: list[Line] = []
-    for ld in d["lines"]:
-        syls = [_syl_from_dict(s) for s in ld.get("syllables") or []]
-        bgs = [
-            BgVocal(bd["start"], bd["end"], [_syl_from_dict(s) for s in bd.get("syllables") or []],
-                    role=str(bd.get("role", "backing")), agent=str(bd.get("agent", "")))
-            for bd in (ld.get("bg") or [])
-            if bd.get("syllables")
-        ]
+    # Solo se valida cada intervalo: versos solapados, duetos y voces de fondo son datos válidos.
+    for i, ld in enumerate(d["lines"], 1):
+        where = f"verso {i}"
+        ld = _obj(ld, where)
+        syls = [_syl_from_dict(s, f"{where}, sílaba {j}")
+                for j, s in enumerate(_list(ld.get("syllables") or [], f"{where}.syllables"), 1)]
+        bgs = []
+        for k, bd in enumerate(_list(ld.get("bg") or [], f"{where}.bg"), 1):
+            bw = f"{where}, voz de fondo {k}"
+            bd = _obj(bd, bw)
+            if not bd.get("syllables"):
+                continue
+            bs, be = _span(bd, "start", "end", bw)
+            bgs.append(BgVocal(bs, be, [_syl_from_dict(s, f"{bw}, sílaba {j}")
+                                        for j, s in enumerate(_list(bd["syllables"], f"{bw}.syllables"), 1)],
+                               role=str(bd.get("role", "backing")), agent=str(bd.get("agent", ""))))
         if not syls and not bgs:
             continue
-        lines.append(Line(ld["start"], ld["end"], str(ld.get("agent", "v1")), syls, bgs, bool(ld.get("approx", False)),
+        start, end = _span(ld, "start", "end", where)
+        lines.append(Line(start, end, str(ld.get("agent", "v1")), syls, bgs, bool(ld.get("approx", False)),
                           role=str(ld.get("role", "")), raw_agent=str(ld.get("raw_agent", ""))))
     if not lines:
         raise ProjectError("El proyecto no tiene versos con tiempos.")
@@ -151,7 +194,10 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         raise ProjectError("El archivo de proyecto no es un JSON válido.")
     if raw.get("schema") != PROJECT_SCHEMA:
         raise ProjectError(f"Formato de proyecto no soportado: {raw.get('schema')!r}.")
-    ver = int(raw.get("version", 0))
+    try:
+        ver = int(raw.get("version", 0))
+    except (TypeError, ValueError):
+        raise ProjectError(f"Versión de proyecto no válida: {raw.get('version')!r}.") from None
     if ver < 1 or ver > PROJECT_VERSION:
         raise ProjectError(f"Versión de proyecto no soportada: v{ver} (esta app lee hasta v{PROJECT_VERSION}).")
     d = dict(raw)
@@ -179,15 +225,15 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
             title=str(td.get("title", "")),
             artists=[str(a) for a in (td.get("artists") or [])],
             album=str(td.get("album", "")),
-            duration_ms=int(td.get("duration_ms", 0)),
+            duration_ms=int(_num(td.get("duration_ms", 0), "track.duration_ms")),
             cover_url=td.get("cover_url"),
             uri=str(td.get("uri", "")),
         )
 
-    audio = d.get("audio") or {}
+    audio = _obj(d.get("audio") or {}, "audio")
     audio_path_str = str(audio.get("path") or "").strip()
     audio_file = Path(audio_path_str) if audio_path_str else None
-    audio_offset_ms = float(audio.get("offset_ms", 0.0))
+    audio_offset_ms = float(_num(audio.get("offset_ms", 0.0), "audio.offset_ms"))
 
     try:
         cinematic = cine_model.from_dict(d.get("cinematic"))

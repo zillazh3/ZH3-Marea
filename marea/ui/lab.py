@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxL
 
 from marea.audio import local
 from marea.export.ffmpeg import find_ffmpeg
-from marea.export.job import unique_path
+from marea.export.job import safe_filename, unique_path
 from marea.lab import alignment as A
 from marea.lab import env
 from marea.lab.align_job import apply_result, format_draft_line, from_text_result, needs_review, request_layers, text_request_lines
@@ -113,6 +113,7 @@ class Runner(QObject):
         c.failed.connect(self._on_failed)
         c.cancelled.connect(self._on_cancelled)
         c.exited.connect(self._on_exit)
+        c.start_failed.connect(self._on_start_failed)
 
     @property
     def busy(self) -> bool:
@@ -170,6 +171,12 @@ class Runner(QObject):
     def _on_cancelled(self, _rid):
         self._finish()
         self.cancelled.emit()
+
+    def _on_start_failed(self, message, _detail):
+        """El worker no arrancó: las órdenes en cola fallan (sin reintento automático); el siguiente `ask` vuelve a intentarlo."""
+        queued, self._queue, self._cmd, self._ready = self._queue, [], None, False
+        for cmd, _params in queued:
+            self.failed.emit(cmd, message)
 
     def _on_exit(self, _code):
         self._ready = False
@@ -1233,7 +1240,7 @@ class LabReviewWindow(QWidget):
     def _approve(self):
         src = getattr(self._orig_project, "source", None)
         folder = Path(src).parent if src else app_data() / "letras"  # junto a la app, no en Videos (ahí van los clips)
-        name = (Path(src).stem if src else (self._orig_project.title or "letra")) + ".aligned.ttml"
+        name = safe_filename(Path(src).stem if src else self._orig_project.title or "", "letra") + ".aligned.ttml"
         try:
             ttml, js = self.session.export(folder, name)
         except A.AlignmentError as e:

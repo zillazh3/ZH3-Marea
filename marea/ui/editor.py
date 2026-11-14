@@ -17,7 +17,7 @@ from marea.audio.session import record_song_range
 from marea.engine.engine import Params
 from marea.engine.motion import MODES as MOTION_MODES
 from marea.export import ffmpeg
-from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range, unique_path
+from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range
 from marea.export.queue import AudioSpec, ExportQueue, QueueItem
 from marea.model.cinematic import (
     DEFAULT_INTERVAL_MS,
@@ -1482,11 +1482,25 @@ class EditorPage(QWidget):
             self.notify(f"Se reproducirá la canción en Spotify unos {(end - start) / 1000:.0f} s para medir el desfase…")
         self._auto_busy = True
         self.btn_auto.setEnabled(False)
-        run_async(job, self._auto_done, self._auto_failed)
+        origin = self._auto_input()
+        run_async(job, lambda d: self._auto_done(d, origin), self._auto_failed)
 
-    def _auto_done(self, d: "align.Detection"):
+    def _auto_input(self) -> tuple:
+        """Lo que determina una medición: el proyecto, la fuente y su entrada de audio (muestras locales o pista + dispositivo)."""
+        p, source = self.project, self.cmb_source.currentData()
+        if source == "local":
+            return p, source, p.audio_samples if p else None
+        t = self._spotify_track()
+        return p, source, (t.id if t else None, self.settings.value("audio/device", ""))
+
+    def _auto_done(self, d: "align.Detection", origin: tuple):
         self._auto_busy = False
         self.btn_auto.setEnabled(True)
+        now = self._auto_input()
+        same_audio = now[2] is origin[2] if origin[1] == "local" else now[2] == origin[2]  # muestras: por identidad
+        if now[0] is not origin[0] or now[1] != origin[1] or not same_audio:
+            self.notify("Descarté la medición del desfase: cambiaste de proyecto o de audio mientras se medía.", "info")
+            return
         if not d.reliable:
             self.notify("No pude medir el desfase con seguridad: la letra y el audio no coinciden lo bastante en este tramo. "
                         "Prueba con un tramo con más voz o ajústalo a mano.", "error")
@@ -1572,7 +1586,7 @@ class EditorPage(QWidget):
         if start_ms is None:
             start_ms, end_ms = self._clip_range()
         name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (self.first, self.last)))
-        return ExportJob(self.project.lyrics, self.project.cover_png(), unique_path(self._output_dir(), name), start_ms, end_ms,
+        return ExportJob(self.project.lyrics, self.project.cover_png(), self._output_dir() / name, start_ms, end_ms,  # la cola numera el destino
                          size=(preset[1], preset[2]), fps=60, encoder=self.settings.value("export/encoder") or ffmpeg.default_encoder(),
                          marker=self.settings.value("export/marker", "none"), params=replace(self.params),
                          style=replace(self.style), cinematic=copy.deepcopy(self.project.cinematic), wordfx=self._fx_plan)
