@@ -49,7 +49,10 @@
         "efímero",
         "longevo",
         "tic tac",
-        "eternizar"
+        "eternizar",
+        "permanencia",
+        "espiral",
+        "bucle"
       ],
       "en": [
         "time",
@@ -95,7 +98,10 @@
         "procrastinate",
         "ephemeral",
         "tic tac",
-        "perpetuate"
+        "perpetuate",
+        "permanence",
+        "spiral",
+        "loop"
       ]
     },
     "vector": {
@@ -167,7 +173,11 @@
         "evaporar",
         "muralla",
         "destierro",
-        "irreparable"
+        "irreparable",
+        "vestigio",
+        "desvanecimiento",
+        "agotamiento",
+        "recaída"
       ],
       "en": [
         "lose",
@@ -212,7 +222,11 @@
         "rampart",
         "banishment",
         "irreparable",
-        "extinguish"
+        "extinguish",
+        "vestige",
+        "fading",
+        "exhaustion",
+        "relapse"
       ]
     },
     "vector": {
@@ -299,7 +313,15 @@
         "amuleto",
         "idilio",
         "embelesar",
-        "entregado"
+        "entregado",
+        "pertenencia",
+        "vínculo",
+        "magnetismo",
+        "pacto",
+        "kryptonita",
+        "tentación",
+        "amaretto",
+        "vena"
       ],
       "en": [
         "love",
@@ -358,7 +380,15 @@
         "infatuated",
         "idyll",
         "adore",
-        "devoted"
+        "devoted",
+        "belonging",
+        "bond",
+        "magnetism",
+        "pact",
+        "kryptonite",
+        "temptation",
+        "amaretto",
+        "vein"
       ]
     },
     "vector": {
@@ -451,7 +481,9 @@
         "desconsuelo",
         "desamparo",
         "aflicción",
-        "pesadumbre"
+        "pesadumbre",
+        "sauce",
+        "recaída"
       ],
       "en": [
         "cry",
@@ -515,7 +547,9 @@
         "fortress",
         "griefstricken",
         "helplessness",
-        "affliction"
+        "affliction",
+        "willow",
+        "relapse"
       ]
     },
     "vector": {
@@ -600,7 +634,13 @@
         "desahuciado",
         "torbellino",
         "presa",
-        "atadura"
+        "atadura",
+        "temblor",
+        "desconfianza",
+        "oleaje",
+        "desbordamiento",
+        "espiral",
+        "kryptonita"
       ],
       "en": [
         "drown",
@@ -655,7 +695,11 @@
         "whirlwind",
         "captive",
         "despair",
-        "shackle"
+        "shackle",
+        "tremor",
+        "distrust",
+        "overflow",
+        "kryptonite"
       ]
     },
     "vector": {
@@ -726,7 +770,8 @@
         "encallar",
         "procrastinar",
         "morfina",
-        "anestesia"
+        "anestesia",
+        "agotamiento"
       ],
       "en": [
         "numb",
@@ -777,7 +822,8 @@
         "anesthesia",
         "lethargy",
         "numbed",
-        "unmoved"
+        "unmoved",
+        "exhaustion"
       ]
     },
     "vector": {
@@ -855,7 +901,10 @@
         "alma",
         "desvelo",
         "nostálgico",
-        "suspirar"
+        "suspirar",
+        "evocación",
+        "magnetismo",
+        "sirena"
       ],
       "en": [
         "miss",
@@ -906,7 +955,10 @@
         "sleeplessness",
         "wistful",
         "sigh",
-        "long for"
+        "long for",
+        "evocation",
+        "magnetism",
+        "siren"
       ]
     },
     "vector": {
@@ -980,7 +1032,14 @@
         "plasmar",
         "remembranza",
         "antiguo",
-        "revivir"
+        "revivir",
+        "resina",
+        "evocación",
+        "permanencia",
+        "vestigio",
+        "reminiscencia",
+        "bucle",
+        "pacto"
       ],
       "en": [
         "memory",
@@ -1028,7 +1087,12 @@
         "immortalize",
         "remembrance",
         "relive",
-        "vestige"
+        "vestige",
+        "resin",
+        "evocation",
+        "permanence",
+        "reminiscence",
+        "pact"
       ]
     },
     "vector": {
@@ -1126,7 +1190,12 @@
         "dulzura",
         "tibio",
         "alma",
-        "cobijo"
+        "cobijo",
+        "desnudez",
+        "pertenencia",
+        "vínculo",
+        "vainilla",
+        "pecho"
       ],
       "en": [
         "promise",
@@ -1189,7 +1258,12 @@
         "confess",
         "sweetness",
         "lukewarm",
-        "soul"
+        "soul",
+        "nakedness",
+        "belonging",
+        "bond",
+        "vanilla",
+        "chest"
       ]
     },
     "vector": {
@@ -1405,7 +1479,15 @@
         "elixir",
         "cicatriz",
         "compasión",
-        "sereno"
+        "sereno",
+        "aceptación",
+        "sutura",
+        "restauración",
+        "reconstrucción",
+        "cicatrización",
+        "resurgimiento",
+        "turmalina",
+        "cuarzo"
       ],
       "en": [
         "heal",
@@ -1457,7 +1539,15 @@
         "scar",
         "scarred",
         "compassion",
-        "mended"
+        "mended",
+        "acceptance",
+        "suture",
+        "restoration",
+        "reconstruction",
+        "cicatrization",
+        "resurgence",
+        "tourmaline",
+        "quartz"
       ]
     },
     "vector": {
@@ -1534,7 +1624,12 @@
         "contento",
         "pasto",
         "manso",
-        "sosegado"
+        "sosegado",
+        "aceptación",
+        "arraigo",
+        "jardín",
+        "vetiver",
+        "vainilla"
       ],
       "en": [
         "peace",
@@ -1582,7 +1677,12 @@
         "nestle",
         "content",
         "meadow",
-        "unhurried"
+        "unhurried",
+        "acceptance",
+        "rootedness",
+        "garden",
+        "vetiver",
+        "vanilla"
       ]
     },
     "vector": {
@@ -1655,7 +1755,13 @@
         "presentimiento",
         "amarrar",
         "bandera",
-        "presa"
+        "presa",
+        "barricada",
+        "temblor",
+        "desnudez",
+        "desconfianza",
+        "sirena",
+        "agujero negro"
       ],
       "en": [
         "fear",
@@ -1707,7 +1813,12 @@
         "red flag",
         "prey",
         "jolt",
-        "chill"
+        "chill",
+        "barricade",
+        "nakedness",
+        "distrust",
+        "siren",
+        "black hole"
       ]
     },
     "vector": {
@@ -1966,7 +2077,9 @@
         "hechizo",
         "fiebre",
         "éxtasis",
-        "venenoso"
+        "venenoso",
+        "tentación",
+        "amaretto"
       ],
       "en": [
         "bottle",
@@ -2019,7 +2132,9 @@
         "spellbound",
         "fever",
         "ecstasy",
-        "venomous"
+        "venomous",
+        "temptation",
+        "amaretto"
       ]
     },
     "vector": {
@@ -2111,7 +2226,12 @@
         "hiedra",
         "sembrar",
         "germinar",
-        "brote"
+        "brote",
+        "resurgimiento",
+        "fotosíntesis",
+        "jardín",
+        "germinación",
+        "floración"
       ],
       "en": [
         "grow",
@@ -2177,7 +2297,12 @@
         "squeeze",
         "ivy",
         "sow",
-        "germinate"
+        "germinate",
+        "resurgence",
+        "photosynthesis",
+        "garden",
+        "germination",
+        "flowering"
       ]
     },
     "vector": {
@@ -2251,7 +2376,8 @@
         "inmortal",
         "paralelo",
         "resplandor",
-        "luciérnaga"
+        "luciérnaga",
+        "agujero negro"
       ],
       "en": [
         "star",
@@ -2306,7 +2432,8 @@
         "immortal",
         "parallel",
         "radiance",
-        "starburst"
+        "starburst",
+        "black hole"
       ]
     },
     "vector": {
@@ -2487,7 +2614,8 @@
         "tenue",
         "esfumar",
         "calima",
-        "penumbra"
+        "penumbra",
+        "desvanecimiento"
       ],
       "en": [
         "cloud",
@@ -2527,7 +2655,8 @@
         "wispy",
         "vanish",
         "cloudscape",
-        "veil"
+        "veil",
+        "fading"
       ]
     },
     "vector": {
@@ -2609,7 +2738,10 @@
         "encallar",
         "evaporar",
         "marejada",
-        "remolino"
+        "remolino",
+        "oleaje",
+        "inmersión",
+        "desbordamiento"
       ],
       "en": [
         "water",
@@ -2661,7 +2793,9 @@
         "run aground",
         "evaporate",
         "swell",
-        "whirlpool"
+        "whirlpool",
+        "immersion",
+        "overflow"
       ]
     },
     "vector": {
@@ -2960,7 +3094,8 @@
         "quimera",
         "onironauta",
         "vigilia",
-        "lúcido"
+        "lúcido",
+        "inmersión"
       ],
       "en": [
         "dream",
@@ -3011,7 +3146,8 @@
         "unreality",
         "lucid dreamer",
         "sleepwalker",
-        "waking"
+        "waking",
+        "immersion"
       ]
     },
     "vector": {
@@ -3087,7 +3223,8 @@
         "arrimar",
         "eclipsar",
         "escondite",
-        "clandestino"
+        "clandestino",
+        "agujero negro"
       ],
       "en": [
         "shadow",
@@ -3140,7 +3277,8 @@
         "eclipse",
         "shadowy",
         "hideout",
-        "clandestine"
+        "clandestine",
+        "black hole"
       ]
     },
     "vector": {
@@ -3223,7 +3361,10 @@
         "hilvanar",
         "cincel",
         "taller",
-        "bosquejo"
+        "bosquejo",
+        "resina",
+        "sutura",
+        "reconstrucción"
       ],
       "en": [
         "origami",
@@ -3281,7 +3422,10 @@
         "kintsugi",
         "brushstroke",
         "chisel",
-        "workshop"
+        "workshop",
+        "resin",
+        "suture",
+        "reconstruction"
       ]
     },
     "vector": {
@@ -3456,7 +3600,13 @@
         "sembrar",
         "barro",
         "acantilado",
-        "corteza"
+        "corteza",
+        "barricada",
+        "sauce",
+        "arraigo",
+        "vetiver",
+        "turmalina",
+        "cuarzo"
       ],
       "en": [
         "earth",
@@ -3490,7 +3640,13 @@
         "sow",
         "mud",
         "cliff",
-        "bark"
+        "bark",
+        "barricade",
+        "willow",
+        "rootedness",
+        "vetiver",
+        "tourmaline",
+        "quartz"
       ]
     },
     "vector": {
@@ -3663,7 +3819,11 @@
         "pasto",
         "florecer",
         "jacaranda",
-        "bugambilia"
+        "bugambilia",
+        "fotosíntesis",
+        "jardín",
+        "germinación",
+        "floración"
       ],
       "en": [
         "spring",
@@ -3693,7 +3853,11 @@
         "blossom",
         "jacaranda",
         "bougainvillea",
-        "sprout"
+        "sprout",
+        "photosynthesis",
+        "garden",
+        "germination",
+        "flowering"
       ]
     },
     "vector": {

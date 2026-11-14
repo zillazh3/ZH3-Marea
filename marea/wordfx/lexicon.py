@@ -119,21 +119,29 @@ def _stem_variants(stem: str) -> list[str]:
     return out
 
 
-def _verb_lemmas(b: str) -> list[str]:
+def _verb_lemmas(b: str, *, stem_change: bool | None = None) -> list[str]:
     res = []
-    if len(b) >= 4 and b.endswith(("ar", "er", "ir")):
-        res.append(b)
-    for suf in _FUTURE:  # futuro/condicional = infinitivo + terminacion
-        r = b[: -len(suf)]
-        if b.endswith(suf) and len(r) >= 4 and r.endswith(("ar", "er", "ir")):
-            res.append(r)
+    if stem_change is not True:
+        if len(b) >= 4 and b.endswith(("ar", "er", "ir")):
+            res.append(b)
+        for suf in _FUTURE:  # futuro/condicional = infinitivo + terminacion
+            r = b[: -len(suf)]
+            if b.endswith(suf) and len(r) >= 4 and r.endswith(("ar", "er", "ir")):
+                res.append(r)
     for end in _VERB_END_ORDER:
         if not b.endswith(end) or len(b) - len(end) < 2:
             continue
         stem = b[: -len(end)]
-        stems = [stem] + (_stem_variants(stem) if end in _STEM_CHANGE_END else [])
+        if stem_change is True:
+            if end not in _STEM_CHANGE_END:
+                continue
+            stems = _stem_variants(stem)
+        elif stem_change is False:
+            stems = [stem]
+        else:
+            stems = [stem] + (_stem_variants(stem) if end in _STEM_CHANGE_END else [])
         # Orthographic Spanish stem restorations (crezco->crec, abrace->abraz, busque->busc, apague->apag)
-        if end in ("o", "a", "as", "an", "amos") and stem.endswith("zc"):
+        if end in ("o", "a", "as", "an", "amos") and stem.endswith("zc") and stem_change is not True:
             stems.append(stem[:-2] + "c")
         elif end in ("e", "es", "en", "emos"):
             for base_s in list(stems):
@@ -162,8 +170,9 @@ def _es_candidates(w: str) -> list[str]:
     for b in bases:
         for lemma in _ES_IRREG.get(b, ()):
             add(lemma)
+    # Direct verb lemmas before singularization; stem-mutated guesses after so plurals like grietas/sirenas resolve as nouns first.
     for b in bases:
-        for lemma in _verb_lemmas(b):
+        for lemma in _verb_lemmas(b, stem_change=False):
             add(lemma)
 
     sing = [w]
@@ -184,6 +193,9 @@ def _es_candidates(w: str) -> list[str]:
             add(s[:-1])  # -ona/-ora -> -on/-or
         if s.endswith("a"):
             add(s[:-1] + "o")
+    for b in bases:
+        for lemma in _verb_lemmas(b, stem_change=True):
+            add(lemma)
     if w.endswith("mente") and len(w) > 7:
         r = w[:-5]
         add(r)

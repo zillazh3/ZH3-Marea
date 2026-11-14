@@ -230,3 +230,44 @@ def test_scene_attach_wordfx_mismatched_lyrics_safe():
     other = Lyrics([_line("otro verso distinto", start=0)])
     sc.attach_wordfx(other, None)
     assert sc.matches_lyrics(other)
+
+
+def test_ambiguous_humbe_terms_and_literal_pos_guards(lib, rls):
+    fuego_amor = {m.lemma: m for m in _match(lib, rls, "fuego en tu piel y beso")}
+    assert fuego_amor["fuego"].categories == ("love", "fire")
+    assert fuego_amor["fuego"].note == "sense:fuego_pasion"
+
+    fuego_ruina = {m.lemma: m for m in _match(lib, rls, "el fuego dejo cenizas y ruina")}
+    assert fuego_ruina["fuego"].categories == ("loss", "fire")
+    assert fuego_ruina["ceniza"].categories == ("loss", "sadness")
+
+    ceniza_fenix = {m.lemma: m for m in _match(lib, rls, "como fenix de las cenizas")}
+    assert ceniza_fenix["ceniza"].categories == ("growth", "fire")
+    assert ceniza_fenix["ceniza"].note == "sense:ceniza_renacer"
+
+    marea_calma = {m.lemma: m for m in _match(lib, rls, "marea suave en la orilla")}
+    assert marea_calma["marea"].categories == ("calm", "water")
+    marea_alta_ms = {m.lemma: m for m in _match(lib, rls, "me ahoga esta marea")}
+    assert marea_alta_ms["marea"].categories == ("anguish", "water")
+
+    veneno_dulce = {m.lemma: m for m in _match(lib, rls, "dulce veneno en tus labios")}
+    assert veneno_dulce["veneno"].categories == ("love", "intoxication")
+    veneno_dano = {m.lemma: m for m in _match(lib, rls, "veneno lleno de traicion")}
+    assert veneno_dano["veneno"].categories == ("anger", "sadness")
+
+    sirena_mito = {m.lemma: m for m in _match(lib, rls, "canto de sirena en el mar")}
+    assert sirena_mito["sirena"].categories == ("longing", "water")
+    assert "calm" not in sirena_mito["sirena"].categories
+    sirena_alerta = {m.lemma: m for m in _match(lib, rls, "suena una sirena de policia")}
+    assert sirena_alerta["sirena"].categories == ("fear", "anguish")
+
+    # Literal POS guards suppress false emotion triggers
+    assert _match(lib, rls, "sacando pecho") == []
+    assert _match(lib, rls, "opened an old wooden chest") == []
+    assert _match(lib, rls, "una vena mineral") == []
+
+    # Poetic chest/vein contexts activate expected senses
+    pecho_dolor = {m.lemma: m for m in _match(lib, rls, "duele la herida en el pecho")}
+    assert pecho_dolor["pecho"].categories == ("anguish", "sadness")
+    vena_amor = {m.lemma: m for m in _match(lib, rls, "corres fuego por mis venas")}
+    assert vena_amor["vena"].categories == ("love", "fire")

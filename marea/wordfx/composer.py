@@ -233,6 +233,14 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
             # Kintsugi gold seam fading softly back toward cool memory slate
             meta["color_from"] = _mix(meta["color_from"], (230, 194, 122), 0.65)
             meta["color_to"] = _mix(meta["color_to"], (143, 168, 184), 0.50)
+        elif {"memory", "craft"} <= cats_set:
+            # Warm translucent amber resin preservation
+            meta["color_from"] = _mix(meta["color_from"], (228, 178, 96), 0.62)
+            meta["color_to"] = _mix(meta["color_to"], (192, 152, 108), 0.50)
+        elif {"celestial", "shadow"} <= cats_set:
+            # Restrained indigo-violet cosmic pull (kept legible over blurred cover art)
+            meta["color_from"] = _legible(_mix(meta["color_from"], (178, 166, 238), 0.58))
+            meta["color_to"] = _legible(_mix(meta["color_to"], (142, 132, 204), 0.62))
     if partner:  # mismo pipeline que color_from, con las categorías de la pareja
         pv = blend_categories(partner.categories, lib)
         pauth = _authored(partner.categories, lib)
@@ -322,6 +330,11 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     sig_axis = sig.axis
     sig_freq = sig.freq_range_hz[0] + (sig.freq_range_hz[1] - sig.freq_range_hz[0]) * aro
     sig_amp = (sig.amp_range_em[0] + (sig.amp_range_em[1] - sig.amp_range_em[0]) * max(aro, fra)) * min(1.5, intensity)
+    release_s = sig.release_ms / 1000.0
+    residue_level = sig.residue_level
+    zeta = sig.zeta
+    glow_spread = sig.glow_spread
+    glow_color = sig.glow_color
     cats_set = set(match.categories)
     if {"sadness", "water"} <= cats_set:
         p_kind = "tear"
@@ -341,9 +354,16 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         f["fracture"] = max(f.get("fracture", 0.0), 0.16 * min(1.2, intensity))
         if d_mode != "accent":
             f["sparkle"] = max(f.get("sparkle", 0), 4)
-    release_s = sig.release_ms / 1000.0
-    residue_level = sig.residue_level
-    zeta = sig.zeta
+    elif {"memory", "craft"} <= cats_set:
+        release_s = max(release_s, 0.92)
+        residue_level = max(residue_level, 0.28)
+        glow_color = (236, 194, 118)
+    elif {"celestial", "shadow"} <= cats_set:
+        sig_waveform = "orbit"
+        sig_axis = "xy"
+        f["spacing_em"] = _clamp(min(f.get("spacing_em", 0.0), -0.035 * min(1.3, intensity)), -LIMITS["spacing_em"], LIMITS["spacing_em"])
+        glow_spread = max(glow_spread, 0.35)
+        glow_color = (128, 116, 206)
     if d_mode == "accent":
         f["particles"] = 0
         f["sparkle"] = 0
@@ -369,8 +389,8 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         sig_amp_em=sig_amp,
         fill_tint=sig.fill_tint,
         fill_edge_softness=sig.fill_edge_softness,
-        glow_spread=sig.glow_spread,
-        glow_color=sig.glow_color,
+        glow_spread=glow_spread,
+        glow_color=glow_color,
         particle_kind=p_kind if p_kind in CUSTOM_PARTICLE_KINDS else "dust",
         sparkle_style=sig.sparkle_style,
         motif=sig.motif,

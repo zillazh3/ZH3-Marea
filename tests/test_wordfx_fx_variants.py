@@ -170,3 +170,33 @@ def test_wisp_velocity_hints_present(lib):
     xs = [i * 0.6 for i in range(5)]
     wisps = [q for dt in (0.3, 0.6, 0.9) for q in particles(fx.params, xs, [0.55] * 5, b0 + dt, b0, b1) if q.kind == "wisp"]
     assert wisps and all(abs(q.vx_em) + abs(q.vy_em) > 0.0 for q in wisps) and sum(q.vy_em for q in wisps) < 0.0
+
+
+def test_resin_and_black_hole_combo_fx_and_legibility(lib):
+    resin_line = _line("guardado en resina", start=1000, dur=1800)
+    hole_line = _line("como agujero negro", start=3200, dur=1800)
+    lyrics = Lyrics([resin_line, hole_line])
+    plan = build_plan(lyrics, lib, track_id="humbe_combos")
+
+    resin_fx = plan.get(0, 2)
+    assert resin_fx is not None
+    assert {"memory", "craft"} <= set(resin_fx.match.categories)
+    assert resin_fx.params.release_s >= 0.9
+    assert resin_fx.params.residue_level >= 0.28
+
+    hole_fx = plan.get(1, 2)
+    assert hole_fx is not None
+    assert {"celestial", "shadow"} <= set(hole_fx.match.categories)
+    assert hole_fx.params.waveform == "orbit" and hole_fx.params.sig_axis == "xy"
+    assert hole_fx.params.spacing_em < 0.0
+    r, g, b = hole_fx.params.color_from
+    luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+    assert luma >= 0.59
+
+    scene = Scene(lyrics, demo_cover(), (270, 480), style=Style(), wordfx=plan)
+    try:
+        for line in lyrics.lines:
+            img = scene.snapshot(line.start + (line.end - line.start) * 0.6)
+            assert img.toarray(colorType=skia.kRGBA_8888_ColorType).shape == (480, 270, 4)
+    finally:
+        scene.close()

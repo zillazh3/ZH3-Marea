@@ -117,3 +117,10 @@ def test_line_lang():
 def test_suponer_irregulars():
     for w in ("supongo", "supuse", "supones", "supusieron"):
         _es(w, "suponer")
+
+
+def test_es_plural_nouns_precede_stem_changed_verbs():
+    cands = lemma_candidates("grietas", "es")
+    assert cands.index("grieta") < cands.index("gritar")
+    sirenas = lemma_candidates("sirenas", "es")
+    assert sirenas.index("sirena") < sirenas.index("serenar")

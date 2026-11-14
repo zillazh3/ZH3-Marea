@@ -88,6 +88,64 @@ def test_artist_bilingual_lemmas_resolve(lib, text, word, cat):
     ("ready to set sail", "set sail", {"water", "longing"}),
     ("signos de guerra", "signos de guerra", {"anger", "sadness"}),
     ("old battle scars", "battle scars", {"anger", "sadness"}),
+    ("como un agujero negro", "agujero negro", {"celestial", "shadow", "fear"}),
+    ("inside a black hole", "black hole", {"celestial", "shadow", "fear"}),
+    ("resurgir de las cenizas", "resurgir de las cenizas", {"growth", "fire"}),
+    ("rise from the ashes", "rise from the ashes", {"growth", "fire"}),
 ])
 def test_artist_bilingual_phrases_resolve(lib, text, phrase, expected):
     assert set(cats(lib, text).get(phrase, ())) == expected
+
+
+@pytest.mark.parametrize("text,word,cat", [
+    ("guardado en RESINA", "RESINA", "memory"),
+    ("preserved in resin", "resin", "craft"),
+    ("suave evocación", "evocación", "memory"),
+    ("silencio y permanencia", "permanencia", "time"),
+    ("último vestigio", "vestigio", "memory"),
+    ("lento desvanecimiento", "desvanecimiento", "loss"),
+    ("dulce reminiscencia", "reminiscencia", "memory"),
+    ("paz y aceptación", "aceptación", "healing"),
+    ("fina sutura", "sutura", "healing"),
+    ("lenta restauración", "restauración", "healing"),
+    ("mi reconstrucción", "reconstrucción", "healing"),
+    ("lento resurgimiento", "resurgimiento", "healing"),
+    ("detrás de la barricada", "barricada", "fear"),
+    ("suave desnudez", "desnudez", "tenderness"),
+    ("fría desconfianza", "desconfianza", "fear"),
+    ("bajo el sauce", "sauce", "sadness"),
+    ("sentir pertenencia", "pertenencia", "love"),
+    ("firme arraigo", "arraigo", "earth"),
+    ("fuerte vínculo", "vínculo", "love"),
+    ("puro magnetismo", "magnetismo", "love"),
+    ("luz de fotosíntesis", "fotosíntesis", "growth"),
+    ("flores en el jardín", "jardín", "spring"),
+    ("nueva germinación", "germinación", "growth"),
+    ("en plena floración", "floración", "spring"),
+    ("fuerte oleaje", "oleaje", "water"),
+    ("profunda inmersión", "inmersión", "water"),
+    ("triste desbordamiento", "desbordamiento", "water"),
+    ("en una espiral", "espiral", "anguish"),
+    ("mismo bucle", "bucle", "memory"),
+    ("tanto agotamiento", "agotamiento", "numbness"),
+    ("otra recaída", "recaída", "sadness"),
+    ("sellamos un pacto", "pacto", "love"),
+    ("eres mi kryptonita", "kryptonita", "anguish"),
+    ("dulce tentación", "tentación", "love"),
+    ("canto de sirenas", "sirenas", "longing"),
+    ("aroma a vetiver", "vetiver", "calm"),
+    ("sabor a amaretto", "amaretto", "intoxication"),
+    ("olor a vainilla", "vainilla", "tenderness"),
+    ("brilla la turmalina", "turmalina", "healing"),
+    ("cerca del cuarzo", "cuarzo", "healing"),
+    ("abiertas las grietas", "grietas", "broken"),
+    ("a weeping willow", "willow", "sadness"),
+    ("protective tourmaline", "tourmaline", "healing"),
+])
+def test_humbe_expanded_vocabulary_resolves(lib, text, word, cat):
+    assert cat in cats(lib, text).get(word, ()), (text, word, cat)
+
+
+def test_generic_low_signal_candidates_stay_excluded(lib):
+    assert "latencia" not in cats(lib, "hay latencia en la red")
+    assert "repetición" not in cats(lib, "pura repetición diaria")

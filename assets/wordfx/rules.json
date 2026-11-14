@@ -1,258 +1,3502 @@
 {
   "_help": "Reglas de contexto. Solo vocabulario, nunca letras. Todo se normaliza (minúsculas, sin acentos). Categorías que no existan en la biblioteca se ignoran. Orden de aplicación: frases > guardas > reversión > negación > sentidos > contraste.",
-
   "_phrases": "Patrón sobre formas o lemas consecutivos; «*» = exactamente una palabra. Gana a las palabras sueltas y el efecto cae en la última palabra de la frase. Los lemas de varias palabras de la biblioteca también actúan como frases.",
   "phrases": [
-    { "pattern": "no te recuerdo", "lang": "es", "categories": ["loss", "numbness"] },
-    { "pattern": "dont remember you", "lang": "en", "categories": ["loss", "numbness"] },
-    { "pattern": "mundo acaba hoy", "lang": "es", "categories": ["broken", "fire"], "at": 1 },
-    { "pattern": "el mundo se acaba", "lang": "es", "categories": ["broken", "fire"], "at": 3 },
-    { "pattern": "se acaba el mundo", "lang": "es", "categories": ["broken", "fire"], "at": 3 },
-    { "pattern": "world ends today", "lang": "en", "categories": ["broken", "fire"], "at": 1 },
-    { "pattern": "el mundo te entrego", "lang": "es", "categories": ["love", "celestial"], "at": 1 },
-    { "pattern": "me duele", "lang": "es", "categories": ["anguish", "sadness"] },
-    { "pattern": "lo siento", "lang": "es", "categories": ["sadness"] },
-    { "pattern": "perder el tiempo contigo", "lang": "es", "categories": ["longing", "love"] },
-    { "pattern": "para siempre", "lang": "es", "categories": ["time", "tenderness"] },
-    { "pattern": "otra vez", "lang": "es", "categories": ["longing"] },
-    { "pattern": "for ever", "lang": "en", "categories": ["time", "tenderness"] },
-    { "pattern": "forever and ever", "lang": "en", "categories": ["time", "tenderness"] },
-    { "pattern": "let go", "lang": "en", "categories": ["loss"] },
-    { "pattern": "foto mental", "lang": "es", "categories": ["memory", "photo"] },
-    { "pattern": "mental picture", "lang": "en", "categories": ["memory", "photo"] },
-    { "pattern": "mental photo", "lang": "en", "categories": ["memory", "photo"] },
-    { "pattern": "en las nubes", "lang": "es", "categories": ["cloud", "dream"] },
-    { "pattern": "cabeza en las nubes", "lang": "es", "categories": ["cloud", "dream"] },
-    { "pattern": "cloud nine", "lang": "en", "categories": ["cloud", "joy"] },
-    { "pattern": "head in the clouds", "lang": "en", "categories": ["cloud", "dream"] },
-    { "pattern": "patadas de ahogado", "lang": "es", "categories": ["anguish", "water"] },
-    { "pattern": "treading water", "lang": "en", "categories": ["anguish", "water"] },
-    { "pattern": "signos de guerra", "lang": "es", "categories": ["anger", "sadness"] },
-    { "pattern": "battle scars", "lang": "en", "categories": ["anger", "sadness"] },
-    { "pattern": "caotica belleza", "lang": "es", "categories": ["growth", "anguish"] },
-    { "pattern": "chaotic beauty", "lang": "en", "categories": ["growth", "anguish"] },
-    { "pattern": "amor libre", "lang": "es", "categories": ["love", "growth"] },
-    { "pattern": "free love", "lang": "en", "categories": ["love", "growth"] },
-    { "pattern": "te alejas", "lang": "es", "categories": ["loss", "longing"] },
-    { "pattern": "drift apart", "lang": "en", "categories": ["loss", "longing"] },
-    { "pattern": "flor de papel", "lang": "es", "categories": ["craft", "loss"] },
-    { "pattern": "paper flower", "lang": "en", "categories": ["craft", "loss"] },
-    { "pattern": "diente de leon", "lang": "es", "categories": ["air", "growth"] },
-    { "pattern": "sin certeza", "lang": "es", "categories": ["fear", "anguish"] },
-    { "pattern": "no certainty", "lang": "en", "categories": ["fear", "anguish"] },
-    { "pattern": "set sail", "lang": "en", "categories": ["water", "longing"] },
-    { "pattern": "scar over", "lang": "en", "categories": ["healing", "sadness"] },
-    { "pattern": "amor de cine", "lang": "es", "categories": ["love", "photo"] },
-    { "pattern": "movie love", "lang": "en", "categories": ["love", "photo"] },
-    { "pattern": "cabeza fria", "lang": "es", "categories": ["calm", "winter"] },
-    { "pattern": "cool head", "lang": "en", "categories": ["calm", "winter"] },
-    { "pattern": "de cero", "lang": "es", "categories": ["growth", "healing"] },
-    { "pattern": "from scratch", "lang": "en", "categories": ["growth", "healing"] },
-    { "pattern": "bailar lento", "lang": "es", "categories": ["tenderness", "love"] },
-    { "pattern": "slow dance", "lang": "en", "categories": ["tenderness", "love"] },
-    { "pattern": "quemar los barcos", "lang": "es", "categories": ["fire", "growth"] },
-    { "pattern": "burn my ships", "lang": "en", "categories": ["fire", "growth"] },
-    { "pattern": "burning bridges", "lang": "en", "categories": ["fire", "loss"] },
-    { "pattern": "sueno de papel", "lang": "es", "categories": ["dream", "craft"] },
-    { "pattern": "paper dream", "lang": "en", "categories": ["dream", "craft"] },
-    { "pattern": "mirarse al espejo", "lang": "es", "categories": ["memory", "calm"] },
-    { "pattern": "in the mirror", "lang": "en", "categories": ["memory", "calm"] },
-    { "pattern": "en vez de huir", "lang": "es", "categories": ["growth", "healing"] },
-    { "pattern": "a pesar de todo", "lang": "es", "categories": ["growth", "tenderness"] },
-    { "pattern": "in spite of", "lang": "en", "categories": ["growth", "tenderness"] },
-    { "pattern": "valer la pena", "lang": "es", "categories": ["growth", "joy"] },
-    { "pattern": "contra viento y marea", "lang": "es", "categories": ["growth", "water", "air"] },
-    { "pattern": "against all odds", "lang": "en", "categories": ["growth", "healing"] },
-    { "pattern": "de carne y hueso", "lang": "es", "categories": ["tenderness", "earth"] },
-    { "pattern": "flesh and blood", "lang": "en", "categories": ["tenderness", "earth"] },
-    { "pattern": "morirse de ganas", "lang": "es", "categories": ["longing", "love"] },
-    { "pattern": "dying to", "lang": "en", "categories": ["longing", "love"] },
-    { "pattern": "buscar abrigo", "lang": "es", "categories": ["tenderness", "autumn"] },
-    { "pattern": "abrir la puerta", "lang": "es", "categories": ["healing", "growth"] },
-    { "pattern": "open the door", "lang": "en", "categories": ["healing", "growth"] },
-    { "pattern": "ya no quiero", "lang": "es", "categories": ["anguish", "loss"] },
-    { "pattern": "no pienso volver", "lang": "es", "categories": ["growth", "loss"] },
-    { "pattern": "cool down", "lang": "en", "categories": ["calm", "healing"] }
+    {
+      "pattern": "no te recuerdo",
+      "lang": "es",
+      "categories": [
+        "loss",
+        "numbness"
+      ]
+    },
+    {
+      "pattern": "dont remember you",
+      "lang": "en",
+      "categories": [
+        "loss",
+        "numbness"
+      ]
+    },
+    {
+      "pattern": "mundo acaba hoy",
+      "lang": "es",
+      "categories": [
+        "broken",
+        "fire"
+      ],
+      "at": 1
+    },
+    {
+      "pattern": "el mundo se acaba",
+      "lang": "es",
+      "categories": [
+        "broken",
+        "fire"
+      ],
+      "at": 3
+    },
+    {
+      "pattern": "se acaba el mundo",
+      "lang": "es",
+      "categories": [
+        "broken",
+        "fire"
+      ],
+      "at": 3
+    },
+    {
+      "pattern": "world ends today",
+      "lang": "en",
+      "categories": [
+        "broken",
+        "fire"
+      ],
+      "at": 1
+    },
+    {
+      "pattern": "el mundo te entrego",
+      "lang": "es",
+      "categories": [
+        "love",
+        "celestial"
+      ],
+      "at": 1
+    },
+    {
+      "pattern": "me duele",
+      "lang": "es",
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "lo siento",
+      "lang": "es",
+      "categories": [
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "perder el tiempo contigo",
+      "lang": "es",
+      "categories": [
+        "longing",
+        "love"
+      ]
+    },
+    {
+      "pattern": "para siempre",
+      "lang": "es",
+      "categories": [
+        "time",
+        "tenderness"
+      ]
+    },
+    {
+      "pattern": "otra vez",
+      "lang": "es",
+      "categories": [
+        "longing"
+      ]
+    },
+    {
+      "pattern": "for ever",
+      "lang": "en",
+      "categories": [
+        "time",
+        "tenderness"
+      ]
+    },
+    {
+      "pattern": "forever and ever",
+      "lang": "en",
+      "categories": [
+        "time",
+        "tenderness"
+      ]
+    },
+    {
+      "pattern": "let go",
+      "lang": "en",
+      "categories": [
+        "loss"
+      ]
+    },
+    {
+      "pattern": "foto mental",
+      "lang": "es",
+      "categories": [
+        "memory",
+        "photo"
+      ]
+    },
+    {
+      "pattern": "mental picture",
+      "lang": "en",
+      "categories": [
+        "memory",
+        "photo"
+      ]
+    },
+    {
+      "pattern": "mental photo",
+      "lang": "en",
+      "categories": [
+        "memory",
+        "photo"
+      ]
+    },
+    {
+      "pattern": "en las nubes",
+      "lang": "es",
+      "categories": [
+        "cloud",
+        "dream"
+      ]
+    },
+    {
+      "pattern": "cabeza en las nubes",
+      "lang": "es",
+      "categories": [
+        "cloud",
+        "dream"
+      ]
+    },
+    {
+      "pattern": "cloud nine",
+      "lang": "en",
+      "categories": [
+        "cloud",
+        "joy"
+      ]
+    },
+    {
+      "pattern": "head in the clouds",
+      "lang": "en",
+      "categories": [
+        "cloud",
+        "dream"
+      ]
+    },
+    {
+      "pattern": "patadas de ahogado",
+      "lang": "es",
+      "categories": [
+        "anguish",
+        "water"
+      ]
+    },
+    {
+      "pattern": "treading water",
+      "lang": "en",
+      "categories": [
+        "anguish",
+        "water"
+      ]
+    },
+    {
+      "pattern": "signos de guerra",
+      "lang": "es",
+      "categories": [
+        "anger",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "battle scars",
+      "lang": "en",
+      "categories": [
+        "anger",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "caotica belleza",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "chaotic beauty",
+      "lang": "en",
+      "categories": [
+        "growth",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "amor libre",
+      "lang": "es",
+      "categories": [
+        "love",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "free love",
+      "lang": "en",
+      "categories": [
+        "love",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "te alejas",
+      "lang": "es",
+      "categories": [
+        "loss",
+        "longing"
+      ]
+    },
+    {
+      "pattern": "drift apart",
+      "lang": "en",
+      "categories": [
+        "loss",
+        "longing"
+      ]
+    },
+    {
+      "pattern": "flor de papel",
+      "lang": "es",
+      "categories": [
+        "craft",
+        "loss"
+      ]
+    },
+    {
+      "pattern": "paper flower",
+      "lang": "en",
+      "categories": [
+        "craft",
+        "loss"
+      ]
+    },
+    {
+      "pattern": "diente de leon",
+      "lang": "es",
+      "categories": [
+        "air",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "sin certeza",
+      "lang": "es",
+      "categories": [
+        "fear",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "no certainty",
+      "lang": "en",
+      "categories": [
+        "fear",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "set sail",
+      "lang": "en",
+      "categories": [
+        "water",
+        "longing"
+      ]
+    },
+    {
+      "pattern": "scar over",
+      "lang": "en",
+      "categories": [
+        "healing",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "amor de cine",
+      "lang": "es",
+      "categories": [
+        "love",
+        "photo"
+      ]
+    },
+    {
+      "pattern": "movie love",
+      "lang": "en",
+      "categories": [
+        "love",
+        "photo"
+      ]
+    },
+    {
+      "pattern": "cabeza fria",
+      "lang": "es",
+      "categories": [
+        "calm",
+        "winter"
+      ]
+    },
+    {
+      "pattern": "cool head",
+      "lang": "en",
+      "categories": [
+        "calm",
+        "winter"
+      ]
+    },
+    {
+      "pattern": "de cero",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "pattern": "from scratch",
+      "lang": "en",
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "pattern": "bailar lento",
+      "lang": "es",
+      "categories": [
+        "tenderness",
+        "love"
+      ]
+    },
+    {
+      "pattern": "slow dance",
+      "lang": "en",
+      "categories": [
+        "tenderness",
+        "love"
+      ]
+    },
+    {
+      "pattern": "quemar los barcos",
+      "lang": "es",
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "burn my ships",
+      "lang": "en",
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "burning bridges",
+      "lang": "en",
+      "categories": [
+        "fire",
+        "loss"
+      ]
+    },
+    {
+      "pattern": "sueno de papel",
+      "lang": "es",
+      "categories": [
+        "dream",
+        "craft"
+      ]
+    },
+    {
+      "pattern": "paper dream",
+      "lang": "en",
+      "categories": [
+        "dream",
+        "craft"
+      ]
+    },
+    {
+      "pattern": "mirarse al espejo",
+      "lang": "es",
+      "categories": [
+        "memory",
+        "calm"
+      ]
+    },
+    {
+      "pattern": "in the mirror",
+      "lang": "en",
+      "categories": [
+        "memory",
+        "calm"
+      ]
+    },
+    {
+      "pattern": "en vez de huir",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "pattern": "a pesar de todo",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "tenderness"
+      ]
+    },
+    {
+      "pattern": "in spite of",
+      "lang": "en",
+      "categories": [
+        "growth",
+        "tenderness"
+      ]
+    },
+    {
+      "pattern": "valer la pena",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "joy"
+      ]
+    },
+    {
+      "pattern": "contra viento y marea",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "water",
+        "air"
+      ]
+    },
+    {
+      "pattern": "against all odds",
+      "lang": "en",
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "pattern": "de carne y hueso",
+      "lang": "es",
+      "categories": [
+        "tenderness",
+        "earth"
+      ]
+    },
+    {
+      "pattern": "flesh and blood",
+      "lang": "en",
+      "categories": [
+        "tenderness",
+        "earth"
+      ]
+    },
+    {
+      "pattern": "morirse de ganas",
+      "lang": "es",
+      "categories": [
+        "longing",
+        "love"
+      ]
+    },
+    {
+      "pattern": "dying to",
+      "lang": "en",
+      "categories": [
+        "longing",
+        "love"
+      ]
+    },
+    {
+      "pattern": "buscar abrigo",
+      "lang": "es",
+      "categories": [
+        "tenderness",
+        "autumn"
+      ]
+    },
+    {
+      "pattern": "abrir la puerta",
+      "lang": "es",
+      "categories": [
+        "healing",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "open the door",
+      "lang": "en",
+      "categories": [
+        "healing",
+        "growth"
+      ]
+    },
+    {
+      "pattern": "ya no quiero",
+      "lang": "es",
+      "categories": [
+        "anguish",
+        "loss"
+      ]
+    },
+    {
+      "pattern": "no pienso volver",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "loss"
+      ]
+    },
+    {
+      "pattern": "cool down",
+      "lang": "en",
+      "categories": [
+        "calm",
+        "healing"
+      ]
+    },
+    {
+      "pattern": "agujero negro",
+      "lang": "es",
+      "categories": [
+        "celestial",
+        "shadow",
+        "fear"
+      ]
+    },
+    {
+      "pattern": "black hole",
+      "lang": "en",
+      "categories": [
+        "celestial",
+        "shadow",
+        "fear"
+      ]
+    },
+    {
+      "pattern": "marea baja",
+      "lang": "es",
+      "categories": [
+        "water",
+        "calm",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "low tide",
+      "lang": "en",
+      "categories": [
+        "water",
+        "calm",
+        "sadness"
+      ]
+    },
+    {
+      "pattern": "marea alta",
+      "lang": "es",
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "high tide",
+      "lang": "en",
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "pattern": "jugar con fuego",
+      "lang": "es",
+      "categories": [
+        "fire",
+        "fear"
+      ]
+    },
+    {
+      "pattern": "play with fire",
+      "lang": "en",
+      "categories": [
+        "fire",
+        "fear"
+      ]
+    },
+    {
+      "pattern": "resurgir de las cenizas",
+      "lang": "es",
+      "categories": [
+        "growth",
+        "fire"
+      ]
+    },
+    {
+      "pattern": "rise from the ashes",
+      "lang": "en",
+      "categories": [
+        "growth",
+        "fire"
+      ]
+    }
   ],
-
   "_negators": "Un negador a ≤ 2 palabras ANTES de la palabra con efecto cambia o anula sus categorías (tabla «negation»).",
   "negators": {
-    "es": ["no", "ni", "nunca", "jamás", "sin", "nadie", "ningún", "ninguno", "ninguna", "tampoco", "nada"],
-    "en": ["no", "not", "never", "without", "nobody", "nothing", "none", "nor", "cannot", "don't", "dont", "can't", "cant", "won't", "wont",
-           "didn't", "doesn't", "couldn't", "wouldn't", "isn't", "aren't", "ain't"]
+    "es": [
+      "no",
+      "ni",
+      "nunca",
+      "jamás",
+      "sin",
+      "nadie",
+      "ningún",
+      "ninguno",
+      "ninguna",
+      "tampoco",
+      "nada"
+    ],
+    "en": [
+      "no",
+      "not",
+      "never",
+      "without",
+      "nobody",
+      "nothing",
+      "none",
+      "nor",
+      "cannot",
+      "don't",
+      "dont",
+      "can't",
+      "cant",
+      "won't",
+      "wont",
+      "didn't",
+      "doesn't",
+      "couldn't",
+      "wouldn't",
+      "isn't",
+      "aren't",
+      "ain't"
+    ]
   },
-
   "_negation": "categoría -> categorías que la sustituyen; [] = anula (sin efecto). Cancelar es lo prudente: solo se invierte donde el sentido es claro. Las categorías que no figuran aquí no cambian.",
   "negation": {
-    "sadness": [], "anguish": [], "numbness": [], "loss": [], "longing": [], "memory": [], "tenderness": [], "love": [],
-    "joy": [], "growth": [], "time": [], "anger": [], "intoxication": [], "dream": [], "shadow": [], "celestial": [],
-    "air": [], "cloud": [], "photo": [], "earth": [], "fire": [], "craft": [], "broken": [],
-    "fear": ["growth"],
-    "calm": ["anguish"],
-    "healing": ["anguish"],
-    "water": ["dryness"],
-    "dryness": ["water"]
+    "sadness": [],
+    "anguish": [],
+    "numbness": [],
+    "loss": [],
+    "longing": [],
+    "memory": [],
+    "tenderness": [],
+    "love": [],
+    "joy": [],
+    "growth": [],
+    "time": [],
+    "anger": [],
+    "intoxication": [],
+    "dream": [],
+    "shadow": [],
+    "celestial": [],
+    "air": [],
+    "cloud": [],
+    "photo": [],
+    "earth": [],
+    "fire": [],
+    "craft": [],
+    "broken": [],
+    "fear": [
+      "growth"
+    ],
+    "calm": [
+      "anguish"
+    ],
+    "healing": [
+      "anguish"
+    ],
+    "water": [
+      "dryness"
+    ],
+    "dryness": [
+      "water"
+    ]
   },
-
   "_reversals": "Construcciones de recuperación: lemas pegados a la palabra (side before, por defecto) o justo detrás (after). Si la palabra tiene una categoría de `map`, se sustituye y el disparador deja de contar como palabra suelta.",
   "reversals": [
-    { "trigger": ["volver", "a"], "lang": "es", "map": { "calm": ["healing"], "anguish": ["healing"], "sadness": ["healing"], "numbness": ["healing"] } },
-    { "trigger": ["finally"], "lang": "en", "map": { "calm": ["healing"], "anguish": ["healing"], "sadness": ["healing"], "numbness": ["healing"] } },
-    { "trigger": ["again"], "side": "after", "lang": "en", "map": { "calm": ["healing"] } }
+    {
+      "trigger": [
+        "volver",
+        "a"
+      ],
+      "lang": "es",
+      "map": {
+        "calm": [
+          "healing"
+        ],
+        "anguish": [
+          "healing"
+        ],
+        "sadness": [
+          "healing"
+        ],
+        "numbness": [
+          "healing"
+        ]
+      }
+    },
+    {
+      "trigger": [
+        "finally"
+      ],
+      "lang": "en",
+      "map": {
+        "calm": [
+          "healing"
+        ],
+        "anguish": [
+          "healing"
+        ],
+        "sadness": [
+          "healing"
+        ],
+        "numbness": [
+          "healing"
+        ]
+      }
+    },
+    {
+      "trigger": [
+        "again"
+      ],
+      "side": "after",
+      "lang": "en",
+      "map": {
+        "calm": [
+          "healing"
+        ]
+      }
+    }
   ],
-
   "_pos_guards": "Formas ambiguas sin etiquetador. La palabra (forma o lema) solo cuenta si ALGUNA condición de keep_if se cumple, y se descarta si ALGUNA de drop_if se cumple (drop_if gana). Condiciones: prev/next (forma o lema de la palabra vecina), line_end, line_start.",
   "pos_guards": [
-    { "_note": "creo que…: muletilla («creo que sí»), no fe.", "word": "creer", "lang": "es", "drop_if": { "next": ["que"] } },
-    { "_note": "solo: adverbio («solo quiero») vs. adjetivo «solitario» («estoy solo»).",
-      "word": "solo", "lang": "es",
-      "keep_if": { "prev": ["estar", "ser", "sentir", "quedar", "dejar", "me", "te", "se", "tan", "muy"], "line_end": true } },
-    { "_note": "vino: bebida («el vino») vs. pasado de venir («vino a verme»).",
-      "word": "vino", "lang": "es",
-      "keep_if": { "prev": ["el", "un", "mi", "tu", "su", "este", "ese", "de", "con", "otro", "buen", "tinto", "tomar", "beber"] },
-      "drop_if": { "next": ["a", "aqui", "hacia", "y"] } },
-    { "_note": "tomar: beber vs. coger («tomar mi mano»). Solo se bebe si sigue una bebida; «tomar un trago» queda fuera.",
-      "word": "tomar", "lang": "es",
-      "keep_if": { "next": ["vino", "trago", "copa", "cerveza", "tequila", "ron", "whisky", "botella", "shot", "alcohol", "hasta", "mucho", "demasiado"] } },
-    { "_note": "cura: el sacerdote («el cura») vs. remedio o verbo curar.",
-      "word": "cura", "lang": "es",
-      "drop_if": { "prev": ["el", "un", "del", "al", "este", "ese"] } },
-    { "_note": "still: adverbio («I still love») vs. «quieto» («I am still», «stand still»).",
-      "word": "still", "lang": "en",
-      "keep_if": { "prev": ["be"], "line_end": true } },
-    { "_note": "bandera: símbolo literal («bandera nacional») vs. metáfora emocional («bandera blanca/roja»).",
-      "word": "bandera", "lang": "es",
-      "drop_if": { "next": ["nacional", "tricolor", "azul", "verde", "oficial"] } },
-    { "_note": "spring: temporada vs. «spring break / cleaning».",
-      "word": "spring", "lang": "en",
-      "drop_if": { "next": ["break", "cleaning", "forward"] } },
-    { "_note": "presa: infraestructura literal vs. sentirse atrapada/presa del miedo.",
-      "word": "presa", "lang": "es",
-      "drop_if": { "next": ["hidraulica", "hidroelectrica", "seca"] } },
-    { "_note": "may: mes vs verbo modal en ingles.",
-      "word": "may", "lang": "en",
+    {
+      "_note": "creo que…: muletilla («creo que sí»), no fe.",
+      "word": "creer",
+      "lang": "es",
       "drop_if": {
-        "prev": ["i", "you", "he", "she", "it", "we", "they", "who", "what", "which", "that", "one", "someone", "anyone", "nobody", "nothing", "everything", "all", "or", "might", "as", "how", "where", "there"],
-        "next": ["be", "have", "not", "never", "seem", "well", "also", "just", "still", "only", "even", "already", "soon", "go", "come", "see", "know", "feel", "find", "fall", "fade", "need", "want", "try", "make", "take", "give", "keep", "stay", "leave", "lose", "love", "hate", "cry", "die", "live", "fly", "run", "walk", "turn", "get", "say", "tell", "think", "burn", "break", "hurt", "i", "you", "we", "they", "he", "she", "it", "there", "the"]
-      } },
-    { "_note": "march: mes vs verbo/sustantivo en ingles.",
-      "word": "march", "lang": "en",
+        "next": [
+          "que"
+        ]
+      }
+    },
+    {
+      "_note": "solo: adverbio («solo quiero») vs. adjetivo «solitario» («estoy solo»).",
+      "word": "solo",
+      "lang": "es",
+      "keep_if": {
+        "prev": [
+          "estar",
+          "ser",
+          "sentir",
+          "quedar",
+          "dejar",
+          "me",
+          "te",
+          "se",
+          "tan",
+          "muy"
+        ],
+        "line_end": true
+      }
+    },
+    {
+      "_note": "vino: bebida («el vino») vs. pasado de venir («vino a verme»).",
+      "word": "vino",
+      "lang": "es",
+      "keep_if": {
+        "prev": [
+          "el",
+          "un",
+          "mi",
+          "tu",
+          "su",
+          "este",
+          "ese",
+          "de",
+          "con",
+          "otro",
+          "buen",
+          "tinto",
+          "tomar",
+          "beber"
+        ]
+      },
       "drop_if": {
-        "prev": ["i", "you", "we", "they", "to", "will", "can", "could", "would", "should", "must", "dont", "did", "a", "the", "slow", "long", "death", "wedding", "funeral"],
-        "next": ["on", "forward", "through", "into", "out", "up", "down", "away", "together", "along", "slowly", "home", "back", "ahead"]
-      } },
-    { "_note": "julio: mes vs nombre propio en espanol.",
-      "word": "julio", "lang": "es",
-      "drop_if": { "prev": ["don", "san", "sr", "tio", "primo", "hermano", "amigo", "soy", "llamo", "llama", "llamas", "llamaba"] } },
-    { "_note": "abril: mes vs nombre propio en espanol.",
-      "word": "abril", "lang": "es",
-      "drop_if": { "prev": ["llamo", "llama", "llamas", "llamaba", "soy", "prima", "hermana", "amiga", "tia"] } }
+        "next": [
+          "a",
+          "aqui",
+          "hacia",
+          "y"
+        ]
+      }
+    },
+    {
+      "_note": "tomar: beber vs. coger («tomar mi mano»). Solo se bebe si sigue una bebida; «tomar un trago» queda fuera.",
+      "word": "tomar",
+      "lang": "es",
+      "keep_if": {
+        "next": [
+          "vino",
+          "trago",
+          "copa",
+          "cerveza",
+          "tequila",
+          "ron",
+          "whisky",
+          "botella",
+          "shot",
+          "alcohol",
+          "hasta",
+          "mucho",
+          "demasiado"
+        ]
+      }
+    },
+    {
+      "_note": "cura: el sacerdote («el cura») vs. remedio o verbo curar.",
+      "word": "cura",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "el",
+          "un",
+          "del",
+          "al",
+          "este",
+          "ese"
+        ]
+      }
+    },
+    {
+      "_note": "still: adverbio («I still love») vs. «quieto» («I am still», «stand still»).",
+      "word": "still",
+      "lang": "en",
+      "keep_if": {
+        "prev": [
+          "be"
+        ],
+        "line_end": true
+      }
+    },
+    {
+      "_note": "bandera: símbolo literal («bandera nacional») vs. metáfora emocional («bandera blanca/roja»).",
+      "word": "bandera",
+      "lang": "es",
+      "drop_if": {
+        "next": [
+          "nacional",
+          "tricolor",
+          "azul",
+          "verde",
+          "oficial"
+        ]
+      }
+    },
+    {
+      "_note": "spring: temporada vs. «spring break / cleaning».",
+      "word": "spring",
+      "lang": "en",
+      "drop_if": {
+        "next": [
+          "break",
+          "cleaning",
+          "forward"
+        ]
+      }
+    },
+    {
+      "_note": "presa: infraestructura literal vs. sentirse atrapada/presa del miedo.",
+      "word": "presa",
+      "lang": "es",
+      "drop_if": {
+        "next": [
+          "hidraulica",
+          "hidroelectrica",
+          "seca"
+        ]
+      }
+    },
+    {
+      "_note": "may: mes vs verbo modal en ingles.",
+      "word": "may",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "i",
+          "you",
+          "he",
+          "she",
+          "it",
+          "we",
+          "they",
+          "who",
+          "what",
+          "which",
+          "that",
+          "one",
+          "someone",
+          "anyone",
+          "nobody",
+          "nothing",
+          "everything",
+          "all",
+          "or",
+          "might",
+          "as",
+          "how",
+          "where",
+          "there"
+        ],
+        "next": [
+          "be",
+          "have",
+          "not",
+          "never",
+          "seem",
+          "well",
+          "also",
+          "just",
+          "still",
+          "only",
+          "even",
+          "already",
+          "soon",
+          "go",
+          "come",
+          "see",
+          "know",
+          "feel",
+          "find",
+          "fall",
+          "fade",
+          "need",
+          "want",
+          "try",
+          "make",
+          "take",
+          "give",
+          "keep",
+          "stay",
+          "leave",
+          "lose",
+          "love",
+          "hate",
+          "cry",
+          "die",
+          "live",
+          "fly",
+          "run",
+          "walk",
+          "turn",
+          "get",
+          "say",
+          "tell",
+          "think",
+          "burn",
+          "break",
+          "hurt",
+          "i",
+          "you",
+          "we",
+          "they",
+          "he",
+          "she",
+          "it",
+          "there",
+          "the"
+        ]
+      }
+    },
+    {
+      "_note": "march: mes vs verbo/sustantivo en ingles.",
+      "word": "march",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "i",
+          "you",
+          "we",
+          "they",
+          "to",
+          "will",
+          "can",
+          "could",
+          "would",
+          "should",
+          "must",
+          "dont",
+          "did",
+          "a",
+          "the",
+          "slow",
+          "long",
+          "death",
+          "wedding",
+          "funeral"
+        ],
+        "next": [
+          "on",
+          "forward",
+          "through",
+          "into",
+          "out",
+          "up",
+          "down",
+          "away",
+          "together",
+          "along",
+          "slowly",
+          "home",
+          "back",
+          "ahead"
+        ]
+      }
+    },
+    {
+      "_note": "julio: mes vs nombre propio en espanol.",
+      "word": "julio",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "don",
+          "san",
+          "sr",
+          "tio",
+          "primo",
+          "hermano",
+          "amigo",
+          "soy",
+          "llamo",
+          "llama",
+          "llamas",
+          "llamaba"
+        ]
+      }
+    },
+    {
+      "_note": "abril: mes vs nombre propio en espanol.",
+      "word": "abril",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "llamo",
+          "llama",
+          "llamas",
+          "llamaba",
+          "soy",
+          "prima",
+          "hermana",
+          "amiga",
+          "tia"
+        ]
+      }
+    },
+    {
+      "_note": "pecho: literal culinario o modismo («sacar pecho», «pecho de pollo»).",
+      "word": "pecho",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "sacar"
+        ],
+        "next": [
+          "pollo",
+          "pavo",
+          "res",
+          "cerdo"
+        ]
+      }
+    },
+    {
+      "_note": "chest: baul o mueble literal en ingles («treasure chest», «wooden chest»).",
+      "word": "chest",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "treasure",
+          "wooden",
+          "wood",
+          "ice",
+          "war",
+          "tool",
+          "pirate",
+          "cedar"
+        ],
+        "next": [
+          "drawer",
+          "drawers"
+        ]
+      }
+    },
+    {
+      "_note": "vena: uso medico o minero literal («suero en la vena», «vena mineral»).",
+      "word": "vena",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "suero",
+          "aguja",
+          "cateter",
+          "mineral"
+        ],
+        "next": [
+          "mineral",
+          "aguja",
+          "cateter"
+        ]
+      }
+    },
+    {
+      "_note": "vein: mineral or literal medical usage.",
+      "word": "vein",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "gold",
+          "ore",
+          "mineral",
+          "needle"
+        ],
+        "next": [
+          "ore",
+          "mineral"
+        ]
+      }
+    }
   ],
-
   "_senses": "Sentidos contextuales bilingües (es/en) para palabras polisémicas tras frases/guardas/reversión/negación. Se aplica la primera regla cuyas condiciones se cumplan.",
   "senses": [
-    { "word": "arder", "lang": "es", "label": "arder_pasion", "if": { "near": ["pecho", "piel", "beso", "labio", "amar", "cuerpo", "deseo", "frio"] }, "categories": ["fire", "love"] },
-    { "word": "arder", "lang": "es", "label": "arder_pasion", "if": { "co_cats": ["love", "tenderness"] }, "categories": ["fire", "love"] },
-    { "word": "arder", "lang": "es", "label": "arder_rabia", "if": { "near": ["rabia", "odio", "culpa", "culpar", "rencor", "guerra", "herida"] }, "categories": ["fire", "anger"] },
-    { "word": "arder", "lang": "es", "label": "arder_rabia", "if": { "co_cats": ["anger"] }, "categories": ["fire", "anger"] },
-    { "word": "arder", "lang": "es", "label": "arder_angustia", "if": { "near": ["mar", "cielo", "apagar", "ceniza", "evaporar", "todo"] }, "categories": ["fire", "anguish"] },
-    { "word": "arder", "lang": "es", "label": "arder_angustia", "if": { "co_cats": ["anguish", "loss"] }, "categories": ["fire", "anguish"] },
-
-    { "word": "burn", "lang": "en", "label": "burn_passion", "if": { "near": ["skin", "kiss", "heart", "love", "chest", "lip", "cold", "desire"] }, "categories": ["fire", "love"] },
-    { "word": "burn", "lang": "en", "label": "burn_passion", "if": { "co_cats": ["love", "tenderness"] }, "categories": ["fire", "love"] },
-    { "word": "burn", "lang": "en", "label": "burn_anger", "if": { "near": ["rage", "hate", "guilt", "blame", "war", "wound", "anger"] }, "categories": ["fire", "anger"] },
-    { "word": "burn", "lang": "en", "label": "burn_anger", "if": { "co_cats": ["anger"] }, "categories": ["fire", "anger"] },
-    { "word": "burn", "lang": "en", "label": "burn_anguish", "if": { "near": ["sea", "sky", "ash", "extinguish", "everything", "away"] }, "categories": ["fire", "anguish"] },
-    { "word": "burn", "lang": "en", "label": "burn_anguish", "if": { "co_cats": ["anguish", "loss"] }, "categories": ["fire", "anguish"] },
-
-    { "word": "caer", "lang": "es", "label": "caer_resiliencia", "if": { "near": ["levantar", "pie", "luchar", "aprender", "equivocar"] }, "categories": ["growth", "healing"] },
-    { "word": "caer", "lang": "es", "label": "caer_resiliencia", "if": { "co_cats": ["growth", "healing"] }, "categories": ["growth", "healing"] },
-    { "word": "caer", "lang": "es", "label": "caer_naturaleza", "if": { "near": ["hoja", "lluvia", "tarde", "despacio", "flor", "petalo", "nieve"] }, "categories": ["calm", "autumn"] },
-    { "word": "caer", "lang": "es", "label": "caer_naturaleza", "if": { "co_cats": ["autumn", "calm"] }, "categories": ["calm", "autumn"] },
-    { "word": "caer", "lang": "es", "label": "caer_duelo", "if": { "near": ["abismo", "llanto", "noche", "solo", "silencio", "barrera", "vacio"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "fall", "lang": "en", "label": "fall_asleep", "if": { "next": ["asleep"] }, "categories": ["dream", "calm"] },
-    { "word": "fall", "lang": "en", "label": "fall_apart", "if": { "next": ["apart"] }, "categories": ["broken", "loss"] },
-    { "word": "fall", "lang": "en", "label": "fall_resilience", "if": { "near": ["rise", "stand", "fight", "learn", "again"] }, "categories": ["growth", "healing"] },
-    { "word": "fall", "lang": "en", "label": "fall_resilience", "if": { "co_cats": ["growth", "healing"] }, "categories": ["growth", "healing"] },
-    { "word": "fall", "lang": "en", "label": "fall_nature", "if": { "near": ["leaf", "rain", "evening", "petal", "snow", "slow", "autumn"] }, "categories": ["calm", "autumn"] },
-    { "word": "fall", "lang": "en", "label": "fall_nature", "if": { "co_cats": ["autumn", "calm"] }, "categories": ["calm", "autumn"] },
-    { "word": "fall", "lang": "en", "label": "fall_grief", "if": { "near": ["abyss", "tear", "night", "alone", "silence", "darkness"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "vacío", "lang": "es", "label": "vacio_entumecimiento", "if": { "near": ["pausa", "eco", "quieto", "nada", "calma", "mente"] }, "categories": ["numbness", "calm"] },
-    { "word": "vacío", "lang": "es", "label": "vacio_entumecimiento", "if": { "co_cats": ["numbness", "calm"] }, "categories": ["numbness", "calm"] },
-    { "word": "vacío", "lang": "es", "label": "vacio_anhelo", "if": { "near": ["llenar", "dentro", "pecho", "curar", "carrusel"] }, "categories": ["longing", "anguish"] },
-    { "word": "vacío", "lang": "es", "label": "vacio_anhelo", "if": { "co_cats": ["longing", "anguish"] }, "categories": ["longing", "anguish"] },
-    { "word": "vacío", "lang": "es", "label": "vacio_ausencia", "if": { "near": ["ausencia", "silencio", "noche", "cama", "fantasma"] }, "categories": ["loss", "sadness"] },
-    { "word": "vacío", "lang": "es", "label": "vacio_ausencia", "if": { "co_cats": ["loss"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "empty", "lang": "en", "label": "empty_numbness", "if": { "near": ["pause", "echo", "still", "nothing", "calm", "mind", "numb"] }, "categories": ["numbness", "calm"] },
-    { "word": "empty", "lang": "en", "label": "empty_numbness", "if": { "co_cats": ["numbness", "calm"] }, "categories": ["numbness", "calm"] },
-    { "word": "empty", "lang": "en", "label": "empty_longing", "if": { "near": ["fill", "inside", "chest", "heal"] }, "categories": ["longing", "anguish"] },
-    { "word": "empty", "lang": "en", "label": "empty_longing", "if": { "co_cats": ["longing", "anguish"] }, "categories": ["longing", "anguish"] },
-    { "word": "empty", "lang": "en", "label": "empty_absence", "if": { "near": ["absence", "silence", "night", "bed", "room", "ghost"] }, "categories": ["loss", "sadness"] },
-    { "word": "empty", "lang": "en", "label": "empty_absence", "if": { "co_cats": ["loss"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "volver", "lang": "es", "label": "volver_sanacion", "if": { "near": ["empezar", "casa", "abrazar", "luz", "vida", "paz", "pie"] }, "categories": ["healing", "longing"] },
-    { "word": "volver", "lang": "es", "label": "volver_sanacion", "if": { "co_cats": ["healing", "tenderness"] }, "categories": ["healing", "longing"] },
-    { "word": "volver", "lang": "es", "label": "volver_recuerdo", "if": { "near": ["ayer", "pasado", "espejo", "recuerdo", "tiempo"] }, "categories": ["longing", "memory"] },
-    { "word": "volver", "lang": "es", "label": "volver_recuerdo", "if": { "co_cats": ["memory"] }, "categories": ["longing", "memory"] },
-    { "word": "volver", "lang": "es", "label": "volver_recaida", "if": { "near": ["quemar", "error", "herida", "doler", "caer", "romper"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "return", "lang": "en", "label": "return_healing", "if": { "near": ["start", "home", "hold", "light", "life", "peace"] }, "categories": ["healing", "longing"] },
-    { "word": "return", "lang": "en", "label": "return_healing", "if": { "co_cats": ["healing", "tenderness"] }, "categories": ["healing", "longing"] },
-    { "word": "return", "lang": "en", "label": "return_memory", "if": { "near": ["yesterday", "past", "mirror", "memory", "time"] }, "categories": ["longing", "memory"] },
-    { "word": "return", "lang": "en", "label": "return_memory", "if": { "co_cats": ["memory"] }, "categories": ["longing", "memory"] },
-    { "word": "return", "lang": "en", "label": "return_relapse", "if": { "near": ["burn", "mistake", "wound", "hurt", "fall", "break"] }, "categories": ["loss", "sadness"] },
-
-    { "word": "sombra", "lang": "es", "label": "sombra_abrigo", "if": { "near": ["luz", "sol", "calma", "arbol", "descanso"] }, "categories": ["shadow", "calm"] },
-    { "word": "sombra", "lang": "es", "label": "sombra_recuerdo", "if": { "co_cats": ["memory"] }, "categories": ["shadow", "memory"] },
-    { "word": "sombra", "lang": "es", "label": "sombra_miedo", "if": { "co_cats": ["fear", "anguish"] }, "categories": ["shadow", "fear"] },
-    { "word": "shadow", "lang": "en", "label": "shadow_shelter", "if": { "near": ["light", "sun", "calm", "tree", "rest"] }, "categories": ["shadow", "calm"] },
-    { "word": "shadow", "lang": "en", "label": "shadow_memory", "if": { "co_cats": ["memory"] }, "categories": ["shadow", "memory"] },
-    { "word": "shadow", "lang": "en", "label": "shadow_fear", "if": { "co_cats": ["fear", "anguish"] }, "categories": ["shadow", "fear"] },
-
-    { "word": "hundir", "lang": "es", "label": "hundir_mar", "if": { "near": ["mar", "oceano", "agua", "ola", "abismo"] }, "categories": ["water", "sadness"] },
-    { "word": "hundir", "lang": "es", "label": "hundir_angustia", "if": { "co_cats": ["fear", "anguish"] }, "categories": ["anguish", "fear"] },
-    { "word": "sink", "lang": "en", "label": "sink_sea", "if": { "near": ["sea", "ocean", "water", "wave", "abyss"] }, "categories": ["water", "sadness"] },
-    { "word": "sink", "lang": "en", "label": "sink_anguish", "if": { "co_cats": ["fear", "anguish"] }, "categories": ["anguish", "fear"] },
-
-    { "word": "apagar", "lang": "es", "label": "apagar_calma", "if": { "near": ["mente", "ruido", "calma", "silencio", "descansar"] }, "categories": ["calm", "numbness"] },
-    { "word": "apagar", "lang": "es", "label": "apagar_perdida", "if": { "near": ["luz", "sol", "estrella", "fuego", "alma"] }, "categories": ["sadness", "loss"] },
-    { "word": "extinguish", "lang": "en", "label": "extinguish_calm", "if": { "near": ["mind", "noise", "calm", "silence", "rest"] }, "categories": ["calm", "numbness"] },
-    { "word": "extinguish", "lang": "en", "label": "extinguish_loss", "if": { "near": ["light", "sun", "star", "fire", "soul"] }, "categories": ["sadness", "loss"] },
-
-    { "word": "dormir", "lang": "es", "label": "dormir_ternura", "if": { "near": ["junto", "contigo", "abrazar", "paz", "suave"] }, "categories": ["tenderness", "dream"] },
-    { "word": "dormir", "lang": "es", "label": "dormir_ternura", "if": { "co_cats": ["tenderness", "love"] }, "categories": ["tenderness", "dream"] },
-    { "word": "dormir", "lang": "es", "label": "dormir_angustia", "if": { "co_cats": ["anguish", "sadness"] }, "categories": ["anguish", "sadness"] },
-    { "word": "sleep", "lang": "en", "label": "sleep_tenderness", "if": { "near": ["together", "hold", "peace", "soft", "beside"] }, "categories": ["tenderness", "dream"] },
-    { "word": "sleep", "lang": "en", "label": "sleep_tenderness", "if": { "co_cats": ["tenderness", "love"] }, "categories": ["tenderness", "dream"] },
-    { "word": "sleep", "lang": "en", "label": "sleep_anguish", "if": { "co_cats": ["anguish", "sadness"] }, "categories": ["anguish", "sadness"] },
-
-    { "word": "bailar", "lang": "es", "label": "bailar_triste", "if": { "near": ["solo", "triste", "llorar", "ausencia", "lento"] }, "categories": ["sadness", "longing"] },
-    { "word": "bailar", "lang": "es", "label": "bailar_amor", "if": { "near": ["contigo", "junto", "beso", "tu", "noche"] }, "categories": ["love", "joy"] },
-    { "word": "dance", "lang": "en", "label": "dance_sad", "if": { "near": ["alone", "sad", "cry", "absence", "slow"] }, "categories": ["sadness", "longing"] },
-    { "word": "dance", "lang": "en", "label": "dance_love", "if": { "near": ["you", "together", "kiss", "night", "hold"] }, "categories": ["love", "joy"] },
-
-    { "word": "encender", "lang": "es", "label": "encender_amor", "if": { "near": ["pecho", "corazon", "mirada", "beso", "alma"] }, "categories": ["fire", "love"] },
-    { "word": "encender", "lang": "es", "label": "encender_rabia", "if": { "co_cats": ["anger"] }, "categories": ["fire", "anger"] },
-    { "word": "ignite", "lang": "en", "label": "ignite_love", "if": { "near": ["chest", "heart", "kiss", "soul", "spark"] }, "categories": ["fire", "love"] },
-    { "word": "ignite", "lang": "en", "label": "ignite_anger", "if": { "co_cats": ["anger"] }, "categories": ["fire", "anger"] },
-
-    { "word": "mar", "lang": "es", "label": "mar_calma", "if": { "near": ["calma", "cielo", "brisa", "arena", "orilla"] }, "categories": ["water", "calm"] },
-    { "word": "mar", "lang": "es", "label": "mar_tormenta", "if": { "near": ["tormenta", "ahogar", "miedo", "ola", "abismo"] }, "categories": ["water", "anguish"] },
-    { "word": "sea", "lang": "en", "label": "sea_calm", "if": { "near": ["calm", "sky", "breeze", "sand", "shore"] }, "categories": ["water", "calm"] },
-    { "word": "sea", "lang": "en", "label": "sea_storm", "if": { "near": ["storm", "drown", "fear", "wave", "abyss"] }, "categories": ["water", "anguish"] },
-
-    { "word": "tierra", "lang": "es", "label": "tierra_vida", "if": { "near": ["raiz", "flor", "crecer", "semilla", "brote"] }, "categories": ["earth", "growth"] },
-    { "word": "tierra", "lang": "es", "label": "tierra_ceniza", "if": { "near": ["polvo", "ceniza", "tumba", "seco", "vacio"] }, "categories": ["earth", "loss"] },
-    { "word": "earth", "lang": "en", "label": "earth_growth", "if": { "near": ["root", "flower", "grow", "seed", "bloom"] }, "categories": ["earth", "growth"] },
-    { "word": "earth", "lang": "en", "label": "earth_loss", "if": { "near": ["dust", "ash", "grave", "dry", "empty"] }, "categories": ["earth", "loss"] }
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_pasion",
+      "if": {
+        "near": [
+          "pecho",
+          "piel",
+          "beso",
+          "labio",
+          "amar",
+          "cuerpo",
+          "deseo",
+          "frio"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_pasion",
+      "if": {
+        "co_cats": [
+          "love",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_rabia",
+      "if": {
+        "near": [
+          "rabia",
+          "odio",
+          "culpa",
+          "culpar",
+          "rencor",
+          "guerra",
+          "herida"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_rabia",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_angustia",
+      "if": {
+        "near": [
+          "mar",
+          "cielo",
+          "apagar",
+          "ceniza",
+          "evaporar",
+          "todo"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anguish"
+      ]
+    },
+    {
+      "word": "arder",
+      "lang": "es",
+      "label": "arder_angustia",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "loss"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anguish"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_passion",
+      "if": {
+        "near": [
+          "skin",
+          "kiss",
+          "heart",
+          "love",
+          "chest",
+          "lip",
+          "cold",
+          "desire"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_passion",
+      "if": {
+        "co_cats": [
+          "love",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_anger",
+      "if": {
+        "near": [
+          "rage",
+          "hate",
+          "guilt",
+          "blame",
+          "war",
+          "wound",
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_anger",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_anguish",
+      "if": {
+        "near": [
+          "sea",
+          "sky",
+          "ash",
+          "extinguish",
+          "everything",
+          "away"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anguish"
+      ]
+    },
+    {
+      "word": "burn",
+      "lang": "en",
+      "label": "burn_anguish",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "loss"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anguish"
+      ]
+    },
+    {
+      "word": "caer",
+      "lang": "es",
+      "label": "caer_resiliencia",
+      "if": {
+        "near": [
+          "levantar",
+          "pie",
+          "luchar",
+          "aprender",
+          "equivocar"
+        ]
+      },
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "word": "caer",
+      "lang": "es",
+      "label": "caer_resiliencia",
+      "if": {
+        "co_cats": [
+          "growth",
+          "healing"
+        ]
+      },
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "word": "caer",
+      "lang": "es",
+      "label": "caer_naturaleza",
+      "if": {
+        "near": [
+          "hoja",
+          "lluvia",
+          "tarde",
+          "despacio",
+          "flor",
+          "petalo",
+          "nieve"
+        ]
+      },
+      "categories": [
+        "calm",
+        "autumn"
+      ]
+    },
+    {
+      "word": "caer",
+      "lang": "es",
+      "label": "caer_naturaleza",
+      "if": {
+        "co_cats": [
+          "autumn",
+          "calm"
+        ]
+      },
+      "categories": [
+        "calm",
+        "autumn"
+      ]
+    },
+    {
+      "word": "caer",
+      "lang": "es",
+      "label": "caer_duelo",
+      "if": {
+        "near": [
+          "abismo",
+          "llanto",
+          "noche",
+          "solo",
+          "silencio",
+          "barrera",
+          "vacio"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_asleep",
+      "if": {
+        "next": [
+          "asleep"
+        ]
+      },
+      "categories": [
+        "dream",
+        "calm"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_apart",
+      "if": {
+        "next": [
+          "apart"
+        ]
+      },
+      "categories": [
+        "broken",
+        "loss"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_resilience",
+      "if": {
+        "near": [
+          "rise",
+          "stand",
+          "fight",
+          "learn",
+          "again"
+        ]
+      },
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_resilience",
+      "if": {
+        "co_cats": [
+          "growth",
+          "healing"
+        ]
+      },
+      "categories": [
+        "growth",
+        "healing"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_nature",
+      "if": {
+        "near": [
+          "leaf",
+          "rain",
+          "evening",
+          "petal",
+          "snow",
+          "slow",
+          "autumn"
+        ]
+      },
+      "categories": [
+        "calm",
+        "autumn"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_nature",
+      "if": {
+        "co_cats": [
+          "autumn",
+          "calm"
+        ]
+      },
+      "categories": [
+        "calm",
+        "autumn"
+      ]
+    },
+    {
+      "word": "fall",
+      "lang": "en",
+      "label": "fall_grief",
+      "if": {
+        "near": [
+          "abyss",
+          "tear",
+          "night",
+          "alone",
+          "silence",
+          "darkness"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_entumecimiento",
+      "if": {
+        "near": [
+          "pausa",
+          "eco",
+          "quieto",
+          "nada",
+          "calma",
+          "mente"
+        ]
+      },
+      "categories": [
+        "numbness",
+        "calm"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_entumecimiento",
+      "if": {
+        "co_cats": [
+          "numbness",
+          "calm"
+        ]
+      },
+      "categories": [
+        "numbness",
+        "calm"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_anhelo",
+      "if": {
+        "near": [
+          "llenar",
+          "dentro",
+          "pecho",
+          "curar",
+          "carrusel"
+        ]
+      },
+      "categories": [
+        "longing",
+        "anguish"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_anhelo",
+      "if": {
+        "co_cats": [
+          "longing",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "longing",
+        "anguish"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_ausencia",
+      "if": {
+        "near": [
+          "ausencia",
+          "silencio",
+          "noche",
+          "cama",
+          "fantasma"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "vacío",
+      "lang": "es",
+      "label": "vacio_ausencia",
+      "if": {
+        "co_cats": [
+          "loss"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_numbness",
+      "if": {
+        "near": [
+          "pause",
+          "echo",
+          "still",
+          "nothing",
+          "calm",
+          "mind",
+          "numb"
+        ]
+      },
+      "categories": [
+        "numbness",
+        "calm"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_numbness",
+      "if": {
+        "co_cats": [
+          "numbness",
+          "calm"
+        ]
+      },
+      "categories": [
+        "numbness",
+        "calm"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_longing",
+      "if": {
+        "near": [
+          "fill",
+          "inside",
+          "chest",
+          "heal"
+        ]
+      },
+      "categories": [
+        "longing",
+        "anguish"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_longing",
+      "if": {
+        "co_cats": [
+          "longing",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "longing",
+        "anguish"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_absence",
+      "if": {
+        "near": [
+          "absence",
+          "silence",
+          "night",
+          "bed",
+          "room",
+          "ghost"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "empty",
+      "lang": "en",
+      "label": "empty_absence",
+      "if": {
+        "co_cats": [
+          "loss"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "volver",
+      "lang": "es",
+      "label": "volver_sanacion",
+      "if": {
+        "near": [
+          "empezar",
+          "casa",
+          "abrazar",
+          "luz",
+          "vida",
+          "paz",
+          "pie"
+        ]
+      },
+      "categories": [
+        "healing",
+        "longing"
+      ]
+    },
+    {
+      "word": "volver",
+      "lang": "es",
+      "label": "volver_sanacion",
+      "if": {
+        "co_cats": [
+          "healing",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "healing",
+        "longing"
+      ]
+    },
+    {
+      "word": "volver",
+      "lang": "es",
+      "label": "volver_recuerdo",
+      "if": {
+        "near": [
+          "ayer",
+          "pasado",
+          "espejo",
+          "recuerdo",
+          "tiempo"
+        ]
+      },
+      "categories": [
+        "longing",
+        "memory"
+      ]
+    },
+    {
+      "word": "volver",
+      "lang": "es",
+      "label": "volver_recuerdo",
+      "if": {
+        "co_cats": [
+          "memory"
+        ]
+      },
+      "categories": [
+        "longing",
+        "memory"
+      ]
+    },
+    {
+      "word": "volver",
+      "lang": "es",
+      "label": "volver_recaida",
+      "if": {
+        "near": [
+          "quemar",
+          "error",
+          "herida",
+          "doler",
+          "caer",
+          "romper"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "return",
+      "lang": "en",
+      "label": "return_healing",
+      "if": {
+        "near": [
+          "start",
+          "home",
+          "hold",
+          "light",
+          "life",
+          "peace"
+        ]
+      },
+      "categories": [
+        "healing",
+        "longing"
+      ]
+    },
+    {
+      "word": "return",
+      "lang": "en",
+      "label": "return_healing",
+      "if": {
+        "co_cats": [
+          "healing",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "healing",
+        "longing"
+      ]
+    },
+    {
+      "word": "return",
+      "lang": "en",
+      "label": "return_memory",
+      "if": {
+        "near": [
+          "yesterday",
+          "past",
+          "mirror",
+          "memory",
+          "time"
+        ]
+      },
+      "categories": [
+        "longing",
+        "memory"
+      ]
+    },
+    {
+      "word": "return",
+      "lang": "en",
+      "label": "return_memory",
+      "if": {
+        "co_cats": [
+          "memory"
+        ]
+      },
+      "categories": [
+        "longing",
+        "memory"
+      ]
+    },
+    {
+      "word": "return",
+      "lang": "en",
+      "label": "return_relapse",
+      "if": {
+        "near": [
+          "burn",
+          "mistake",
+          "wound",
+          "hurt",
+          "fall",
+          "break"
+        ]
+      },
+      "categories": [
+        "loss",
+        "sadness"
+      ]
+    },
+    {
+      "word": "sombra",
+      "lang": "es",
+      "label": "sombra_abrigo",
+      "if": {
+        "near": [
+          "luz",
+          "sol",
+          "calma",
+          "arbol",
+          "descanso"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "calm"
+      ]
+    },
+    {
+      "word": "sombra",
+      "lang": "es",
+      "label": "sombra_recuerdo",
+      "if": {
+        "co_cats": [
+          "memory"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "memory"
+      ]
+    },
+    {
+      "word": "sombra",
+      "lang": "es",
+      "label": "sombra_miedo",
+      "if": {
+        "co_cats": [
+          "fear",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "fear"
+      ]
+    },
+    {
+      "word": "shadow",
+      "lang": "en",
+      "label": "shadow_shelter",
+      "if": {
+        "near": [
+          "light",
+          "sun",
+          "calm",
+          "tree",
+          "rest"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "calm"
+      ]
+    },
+    {
+      "word": "shadow",
+      "lang": "en",
+      "label": "shadow_memory",
+      "if": {
+        "co_cats": [
+          "memory"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "memory"
+      ]
+    },
+    {
+      "word": "shadow",
+      "lang": "en",
+      "label": "shadow_fear",
+      "if": {
+        "co_cats": [
+          "fear",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "shadow",
+        "fear"
+      ]
+    },
+    {
+      "word": "hundir",
+      "lang": "es",
+      "label": "hundir_mar",
+      "if": {
+        "near": [
+          "mar",
+          "oceano",
+          "agua",
+          "ola",
+          "abismo"
+        ]
+      },
+      "categories": [
+        "water",
+        "sadness"
+      ]
+    },
+    {
+      "word": "hundir",
+      "lang": "es",
+      "label": "hundir_angustia",
+      "if": {
+        "co_cats": [
+          "fear",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "fear"
+      ]
+    },
+    {
+      "word": "sink",
+      "lang": "en",
+      "label": "sink_sea",
+      "if": {
+        "near": [
+          "sea",
+          "ocean",
+          "water",
+          "wave",
+          "abyss"
+        ]
+      },
+      "categories": [
+        "water",
+        "sadness"
+      ]
+    },
+    {
+      "word": "sink",
+      "lang": "en",
+      "label": "sink_anguish",
+      "if": {
+        "co_cats": [
+          "fear",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "fear"
+      ]
+    },
+    {
+      "word": "apagar",
+      "lang": "es",
+      "label": "apagar_calma",
+      "if": {
+        "near": [
+          "mente",
+          "ruido",
+          "calma",
+          "silencio",
+          "descansar"
+        ]
+      },
+      "categories": [
+        "calm",
+        "numbness"
+      ]
+    },
+    {
+      "word": "apagar",
+      "lang": "es",
+      "label": "apagar_perdida",
+      "if": {
+        "near": [
+          "luz",
+          "sol",
+          "estrella",
+          "fuego",
+          "alma"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "loss"
+      ]
+    },
+    {
+      "word": "extinguish",
+      "lang": "en",
+      "label": "extinguish_calm",
+      "if": {
+        "near": [
+          "mind",
+          "noise",
+          "calm",
+          "silence",
+          "rest"
+        ]
+      },
+      "categories": [
+        "calm",
+        "numbness"
+      ]
+    },
+    {
+      "word": "extinguish",
+      "lang": "en",
+      "label": "extinguish_loss",
+      "if": {
+        "near": [
+          "light",
+          "sun",
+          "star",
+          "fire",
+          "soul"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "loss"
+      ]
+    },
+    {
+      "word": "dormir",
+      "lang": "es",
+      "label": "dormir_ternura",
+      "if": {
+        "near": [
+          "junto",
+          "contigo",
+          "abrazar",
+          "paz",
+          "suave"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "dream"
+      ]
+    },
+    {
+      "word": "dormir",
+      "lang": "es",
+      "label": "dormir_ternura",
+      "if": {
+        "co_cats": [
+          "tenderness",
+          "love"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "dream"
+      ]
+    },
+    {
+      "word": "dormir",
+      "lang": "es",
+      "label": "dormir_angustia",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "sadness"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "sleep",
+      "lang": "en",
+      "label": "sleep_tenderness",
+      "if": {
+        "near": [
+          "together",
+          "hold",
+          "peace",
+          "soft",
+          "beside"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "dream"
+      ]
+    },
+    {
+      "word": "sleep",
+      "lang": "en",
+      "label": "sleep_tenderness",
+      "if": {
+        "co_cats": [
+          "tenderness",
+          "love"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "dream"
+      ]
+    },
+    {
+      "word": "sleep",
+      "lang": "en",
+      "label": "sleep_anguish",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "sadness"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "bailar",
+      "lang": "es",
+      "label": "bailar_triste",
+      "if": {
+        "near": [
+          "solo",
+          "triste",
+          "llorar",
+          "ausencia",
+          "lento"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "longing"
+      ]
+    },
+    {
+      "word": "bailar",
+      "lang": "es",
+      "label": "bailar_amor",
+      "if": {
+        "near": [
+          "contigo",
+          "junto",
+          "beso",
+          "tu",
+          "noche"
+        ]
+      },
+      "categories": [
+        "love",
+        "joy"
+      ]
+    },
+    {
+      "word": "dance",
+      "lang": "en",
+      "label": "dance_sad",
+      "if": {
+        "near": [
+          "alone",
+          "sad",
+          "cry",
+          "absence",
+          "slow"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "longing"
+      ]
+    },
+    {
+      "word": "dance",
+      "lang": "en",
+      "label": "dance_love",
+      "if": {
+        "near": [
+          "you",
+          "together",
+          "kiss",
+          "night",
+          "hold"
+        ]
+      },
+      "categories": [
+        "love",
+        "joy"
+      ]
+    },
+    {
+      "word": "encender",
+      "lang": "es",
+      "label": "encender_amor",
+      "if": {
+        "near": [
+          "pecho",
+          "corazon",
+          "mirada",
+          "beso",
+          "alma"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "encender",
+      "lang": "es",
+      "label": "encender_rabia",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "ignite",
+      "lang": "en",
+      "label": "ignite_love",
+      "if": {
+        "near": [
+          "chest",
+          "heart",
+          "kiss",
+          "soul",
+          "spark"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "ignite",
+      "lang": "en",
+      "label": "ignite_anger",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "mar",
+      "lang": "es",
+      "label": "mar_calma",
+      "if": {
+        "near": [
+          "calma",
+          "cielo",
+          "brisa",
+          "arena",
+          "orilla"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "mar",
+      "lang": "es",
+      "label": "mar_tormenta",
+      "if": {
+        "near": [
+          "tormenta",
+          "ahogar",
+          "miedo",
+          "ola",
+          "abismo"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "sea",
+      "lang": "en",
+      "label": "sea_calm",
+      "if": {
+        "near": [
+          "calm",
+          "sky",
+          "breeze",
+          "sand",
+          "shore"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "sea",
+      "lang": "en",
+      "label": "sea_storm",
+      "if": {
+        "near": [
+          "storm",
+          "drown",
+          "fear",
+          "wave",
+          "abyss"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "tierra",
+      "lang": "es",
+      "label": "tierra_vida",
+      "if": {
+        "near": [
+          "raiz",
+          "flor",
+          "crecer",
+          "semilla",
+          "brote"
+        ]
+      },
+      "categories": [
+        "earth",
+        "growth"
+      ]
+    },
+    {
+      "word": "tierra",
+      "lang": "es",
+      "label": "tierra_ceniza",
+      "if": {
+        "near": [
+          "polvo",
+          "ceniza",
+          "tumba",
+          "seco",
+          "vacio"
+        ]
+      },
+      "categories": [
+        "earth",
+        "loss"
+      ]
+    },
+    {
+      "word": "earth",
+      "lang": "en",
+      "label": "earth_growth",
+      "if": {
+        "near": [
+          "root",
+          "flower",
+          "grow",
+          "seed",
+          "bloom"
+        ]
+      },
+      "categories": [
+        "earth",
+        "growth"
+      ]
+    },
+    {
+      "word": "earth",
+      "lang": "en",
+      "label": "earth_loss",
+      "if": {
+        "near": [
+          "dust",
+          "ash",
+          "grave",
+          "dry",
+          "empty"
+        ]
+      },
+      "categories": [
+        "earth",
+        "loss"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_pasion",
+      "if": {
+        "near": [
+          "amor",
+          "amar",
+          "piel",
+          "beso",
+          "labio",
+          "deseo",
+          "cuerpo",
+          "caricia",
+          "mirada",
+          "pecho"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_pasion",
+      "if": {
+        "co_cats": [
+          "love",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_rabia",
+      "if": {
+        "near": [
+          "rabia",
+          "odio",
+          "guerra",
+          "rencor",
+          "culpa",
+          "ira",
+          "herida"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_rabia",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_ruina",
+      "if": {
+        "near": [
+          "ceniza",
+          "ruina",
+          "destruir",
+          "todo",
+          "consumir",
+          "hogar"
+        ]
+      },
+      "categories": [
+        "fire",
+        "loss"
+      ]
+    },
+    {
+      "word": "fuego",
+      "lang": "es",
+      "label": "fuego_ruina",
+      "if": {
+        "co_cats": [
+          "loss",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "fire",
+        "loss"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_passion",
+      "if": {
+        "near": [
+          "love",
+          "skin",
+          "kiss",
+          "lip",
+          "desire",
+          "body",
+          "touch",
+          "gaze",
+          "chest"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_passion",
+      "if": {
+        "co_cats": [
+          "love",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "fire",
+        "love"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_anger",
+      "if": {
+        "near": [
+          "rage",
+          "hate",
+          "war",
+          "wrath",
+          "guilt",
+          "wound"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_anger",
+      "if": {
+        "co_cats": [
+          "anger"
+        ]
+      },
+      "categories": [
+        "fire",
+        "anger"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_ruin",
+      "if": {
+        "near": [
+          "ash",
+          "ruin",
+          "destroy",
+          "everything",
+          "consume",
+          "home"
+        ]
+      },
+      "categories": [
+        "fire",
+        "loss"
+      ]
+    },
+    {
+      "word": "fire",
+      "lang": "en",
+      "label": "fire_ruin",
+      "if": {
+        "co_cats": [
+          "loss",
+          "anguish"
+        ]
+      },
+      "categories": [
+        "fire",
+        "loss"
+      ]
+    },
+    {
+      "word": "ceniza",
+      "lang": "es",
+      "label": "ceniza_renacer",
+      "if": {
+        "near": [
+          "fenix",
+          "renacer",
+          "resurgir",
+          "resurgimiento",
+          "nacer",
+          "volar",
+          "levantar",
+          "brotar",
+          "florecer"
+        ]
+      },
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "word": "ceniza",
+      "lang": "es",
+      "label": "ceniza_renacer",
+      "if": {
+        "co_cats": [
+          "growth",
+          "healing"
+        ]
+      },
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "word": "ceniza",
+      "lang": "es",
+      "label": "ceniza_duelo",
+      "if": {
+        "near": [
+          "polvo",
+          "sombra",
+          "ruina",
+          "olvido",
+          "vacio",
+          "fuego",
+          "quemar"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "loss"
+      ]
+    },
+    {
+      "word": "ash",
+      "lang": "en",
+      "label": "ash_rebirth",
+      "if": {
+        "near": [
+          "phoenix",
+          "reborn",
+          "resurgence",
+          "rise",
+          "fly",
+          "bloom"
+        ]
+      },
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "word": "ash",
+      "lang": "en",
+      "label": "ash_rebirth",
+      "if": {
+        "co_cats": [
+          "growth",
+          "healing"
+        ]
+      },
+      "categories": [
+        "fire",
+        "growth"
+      ]
+    },
+    {
+      "word": "ash",
+      "lang": "en",
+      "label": "ash_grief",
+      "if": {
+        "near": [
+          "dust",
+          "shadow",
+          "ruin",
+          "oblivion",
+          "empty",
+          "fire",
+          "burn"
+        ]
+      },
+      "categories": [
+        "sadness",
+        "loss"
+      ]
+    },
+    {
+      "word": "marea",
+      "lang": "es",
+      "label": "marea_desborde",
+      "if": {
+        "near": [
+          "ahogar",
+          "hundir",
+          "pecho",
+          "tormenta",
+          "abismo",
+          "desbordamiento",
+          "naufragar"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "marea",
+      "lang": "es",
+      "label": "marea_desborde",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "fear"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "marea",
+      "lang": "es",
+      "label": "marea_calma",
+      "if": {
+        "near": [
+          "calma",
+          "orilla",
+          "luna",
+          "brisa",
+          "suave",
+          "dormir",
+          "paz"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "marea",
+      "lang": "es",
+      "label": "marea_calma",
+      "if": {
+        "co_cats": [
+          "calm",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "tide",
+      "lang": "en",
+      "label": "tide_overflow",
+      "if": {
+        "near": [
+          "drown",
+          "sink",
+          "chest",
+          "storm",
+          "abyss",
+          "overflow",
+          "shipwreck"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "tide",
+      "lang": "en",
+      "label": "tide_overflow",
+      "if": {
+        "co_cats": [
+          "anguish",
+          "fear"
+        ]
+      },
+      "categories": [
+        "water",
+        "anguish"
+      ]
+    },
+    {
+      "word": "tide",
+      "lang": "en",
+      "label": "tide_calm",
+      "if": {
+        "near": [
+          "calm",
+          "shore",
+          "moon",
+          "breeze",
+          "soft",
+          "sleep",
+          "peace"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "tide",
+      "lang": "en",
+      "label": "tide_calm",
+      "if": {
+        "co_cats": [
+          "calm",
+          "tenderness"
+        ]
+      },
+      "categories": [
+        "water",
+        "calm"
+      ]
+    },
+    {
+      "word": "veneno",
+      "lang": "es",
+      "label": "veneno_tentacion",
+      "if": {
+        "near": [
+          "dulce",
+          "miel",
+          "beso",
+          "labio",
+          "amor",
+          "tentacion",
+          "probar",
+          "amaretto",
+          "vino"
+        ]
+      },
+      "categories": [
+        "intoxication",
+        "love"
+      ]
+    },
+    {
+      "word": "veneno",
+      "lang": "es",
+      "label": "veneno_dano",
+      "if": {
+        "near": [
+          "odio",
+          "traicion",
+          "mentira",
+          "rabia",
+          "herida",
+          "culpa",
+          "matar"
+        ]
+      },
+      "categories": [
+        "anger",
+        "sadness"
+      ]
+    },
+    {
+      "word": "poison",
+      "lang": "en",
+      "label": "poison_temptation",
+      "if": {
+        "near": [
+          "sweet",
+          "honey",
+          "kiss",
+          "lip",
+          "love",
+          "temptation",
+          "taste",
+          "amaretto",
+          "wine"
+        ]
+      },
+      "categories": [
+        "intoxication",
+        "love"
+      ]
+    },
+    {
+      "word": "poison",
+      "lang": "en",
+      "label": "poison_harm",
+      "if": {
+        "near": [
+          "hate",
+          "betrayal",
+          "lie",
+          "rage",
+          "wound",
+          "guilt",
+          "kill"
+        ]
+      },
+      "categories": [
+        "anger",
+        "sadness"
+      ]
+    },
+    {
+      "word": "sirena",
+      "lang": "es",
+      "label": "sirena_alerta",
+      "if": {
+        "near": [
+          "policia",
+          "ambulancia",
+          "alarma",
+          "calle",
+          "noche",
+          "rojo",
+          "peligro"
+        ]
+      },
+      "categories": [
+        "fear",
+        "anguish"
+      ]
+    },
+    {
+      "word": "sirena",
+      "lang": "es",
+      "label": "sirena_mito",
+      "if": {
+        "near": [
+          "mar",
+          "ola",
+          "oceano",
+          "canto",
+          "voz",
+          "cantar"
+        ]
+      },
+      "categories": [
+        "longing",
+        "water"
+      ]
+    },
+    {
+      "word": "sirena",
+      "lang": "es",
+      "label": "sirena_mito",
+      "if": {
+        "co_cats": [
+          "water",
+          "dream"
+        ]
+      },
+      "categories": [
+        "longing",
+        "water"
+      ]
+    },
+    {
+      "word": "siren",
+      "lang": "en",
+      "label": "siren_alarm",
+      "if": {
+        "near": [
+          "police",
+          "ambulance",
+          "alarm",
+          "street",
+          "night",
+          "red",
+          "danger"
+        ]
+      },
+      "categories": [
+        "fear",
+        "anguish"
+      ]
+    },
+    {
+      "word": "siren",
+      "lang": "en",
+      "label": "siren_myth",
+      "if": {
+        "near": [
+          "sea",
+          "wave",
+          "ocean",
+          "song",
+          "voice",
+          "sing"
+        ]
+      },
+      "categories": [
+        "longing",
+        "water"
+      ]
+    },
+    {
+      "word": "siren",
+      "lang": "en",
+      "label": "siren_myth",
+      "if": {
+        "co_cats": [
+          "water",
+          "dream"
+        ]
+      },
+      "categories": [
+        "longing",
+        "water"
+      ]
+    },
+    {
+      "word": "vena",
+      "lang": "es",
+      "label": "vena_dolor",
+      "if": {
+        "near": [
+          "sangre",
+          "cortar",
+          "doler",
+          "frio",
+          "veneno",
+          "morir",
+          "herida"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "vena",
+      "lang": "es",
+      "label": "vena_pasion",
+      "if": {
+        "near": [
+          "correr",
+          "latir",
+          "fuego",
+          "arder",
+          "calor",
+          "pasion",
+          "amor",
+          "alma"
+        ]
+      },
+      "categories": [
+        "love",
+        "fire"
+      ]
+    },
+    {
+      "word": "vein",
+      "lang": "en",
+      "label": "vein_pain",
+      "if": {
+        "near": [
+          "blood",
+          "cut",
+          "hurt",
+          "cold",
+          "poison",
+          "die",
+          "wound"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "vein",
+      "lang": "en",
+      "label": "vein_passion",
+      "if": {
+        "near": [
+          "run",
+          "beat",
+          "fire",
+          "burn",
+          "warm",
+          "passion",
+          "love",
+          "soul"
+        ]
+      },
+      "categories": [
+        "love",
+        "fire"
+      ]
+    },
+    {
+      "word": "pecho",
+      "lang": "es",
+      "label": "pecho_dolor",
+      "if": {
+        "near": [
+          "doler",
+          "vacio",
+          "frio",
+          "hielo",
+          "romper",
+          "herida",
+          "oprimir",
+          "clavar"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "pecho",
+      "lang": "es",
+      "label": "pecho_abrigo",
+      "if": {
+        "near": [
+          "abrazar",
+          "dormir",
+          "refugio",
+          "hogar",
+          "calor",
+          "guardar",
+          "latir",
+          "arder",
+          "amor"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "love"
+      ]
+    },
+    {
+      "word": "chest",
+      "lang": "en",
+      "label": "chest_pain",
+      "if": {
+        "near": [
+          "ache",
+          "hurt",
+          "empty",
+          "cold",
+          "ice",
+          "break",
+          "wound"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "sadness"
+      ]
+    },
+    {
+      "word": "chest",
+      "lang": "en",
+      "label": "chest_shelter",
+      "if": {
+        "near": [
+          "hold",
+          "sleep",
+          "shelter",
+          "home",
+          "warm",
+          "keep",
+          "beat",
+          "burn",
+          "love"
+        ]
+      },
+      "categories": [
+        "tenderness",
+        "love"
+      ]
+    },
+    {
+      "word": "bucle",
+      "lang": "es",
+      "label": "bucle_espiral",
+      "if": {
+        "near": [
+          "caer",
+          "atrapar",
+          "cansar",
+          "agotamiento",
+          "miedo",
+          "eterno",
+          "infinito"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "time"
+      ]
+    },
+    {
+      "word": "loop",
+      "lang": "en",
+      "label": "loop_spiral",
+      "if": {
+        "near": [
+          "fall",
+          "trap",
+          "tired",
+          "exhaustion",
+          "fear",
+          "endless",
+          "infinite"
+        ]
+      },
+      "categories": [
+        "anguish",
+        "time"
+      ]
+    }
   ],
-
   "_contrast": "Dos palabras opuestas en el mismo verso = tensión: ambas se conservan (ocupan los dos huecos) y se emparejan. `words` compara lemas, `categories` compara categorías.",
   "contrast": {
-    "categories": [["healing", "anger"], ["joy", "sadness"], ["calm", "anguish"], ["love", "anger"], ["growth", "loss"]],
-    "words": [["cura", "veneno"], ["rápido", "lento"], ["sanidad", "devoción"], ["cura", "matar"], ["cure", "poison"], ["sueño", "realidad"], ["suposición", "realidad"], ["dream", "reality"], ["fast", "slow"]]
+    "categories": [
+      [
+        "healing",
+        "anger"
+      ],
+      [
+        "joy",
+        "sadness"
+      ],
+      [
+        "calm",
+        "anguish"
+      ],
+      [
+        "love",
+        "anger"
+      ],
+      [
+        "growth",
+        "loss"
+      ]
+    ],
+    "words": [
+      [
+        "cura",
+        "veneno"
+      ],
+      [
+        "rápido",
+        "lento"
+      ],
+      [
+        "sanidad",
+        "devoción"
+      ],
+      [
+        "cura",
+        "matar"
+      ],
+      [
+        "cure",
+        "poison"
+      ],
+      [
+        "sueño",
+        "realidad"
+      ],
+      [
+        "suposición",
+        "realidad"
+      ],
+      [
+        "dream",
+        "reality"
+      ],
+      [
+        "fast",
+        "slow"
+      ]
+    ]
   }
 }
