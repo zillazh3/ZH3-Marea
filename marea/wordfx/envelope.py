@@ -9,9 +9,13 @@ Phases:
 6. fade (line becomes inactive): fades with base line dim/blur, leaving ~5% past-line tint
 """
 import math
+from collections import OrderedDict
 from dataclasses import dataclass
 
-from marea.wordfx.springs import eval_spring_240hz
+from marea.wordfx.springs import CachedSpringCurve
+
+_ENVELOPE_CURVES: OrderedDict[tuple, CachedSpringCurve] = OrderedDict()
+_MAX_ENVELOPE_CURVES = 4096
 
 ACCENT_MAX_S = 0.25
 HELD_MIN_S = 0.70
@@ -26,7 +30,7 @@ MAX_RESIDUE = 0.25
 PAST_LINE_TINT = 0.05
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EnvelopeSample:
     """Evaluated envelope state at time `t`."""
     phase: str  # idle | anticipation | attack | sustain | release | residue | fade
@@ -47,12 +51,15 @@ def duration_mode(dur_s: float) -> tuple[str, float]:
 
 
 def _smooth01(x: float) -> float:
-    u = min(1.0, max(0.0, x))
-    return u * u * (3.0 - 2.0 * u)
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    return x * x * (3.0 - 2.0 * x)
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
+    return lo if x < lo else (hi if x > hi else x)
 
 
 def _raw_target(
@@ -115,23 +122,49 @@ def sample_envelope(
     dur = max(0.05, b1 - b0)
     b1_eff = b0 + dur
     mode, peak = duration_mode(dur)
-    on_t = b0 if letter_on_t is None else _clamp(letter_on_t, b0, b1_eff)
-    rel_s = _clamp(release_s, MIN_RELEASE_S, MAX_RELEASE_S)
-    res = _clamp(residue_level, MIN_RESIDUE, MAX_RESIDUE)
-    anti_s = _clamp(anticipation_s, 0.15, 0.25) if is_hero else 0.0
-    l_end = (b1_eff + rel_s + 1.5) if line_end_s is None else max(b1_eff, line_end_s)
+    on_t = b0 if letter_on_t is None else (b0 if letter_on_t < b0 else (b1_eff if letter_on_t > b1_eff else letter_on_t))
+    rel_s = MIN_RELEASE_S if release_s < MIN_RELEASE_S else (MAX_RELEASE_S if release_s > MAX_RELEASE_S else release_s)
+    res = MIN_RESIDUE if residue_level < MIN_RESIDUE else (MAX_RESIDUE if residue_level > MAX_RESIDUE else residue_level)
+    anti_s = (0.15 if anticipation_s < 0.15 else (0.25 if anticipation_s > 0.25 else anticipation_s)) if is_hero else 0.0
+    l_end = (b1_eff + rel_s + 1.5) if line_end_s is None else (b1_eff if line_end_s < b1_eff else line_end_s)
 
     t_origin = b0 - anti_s - 0.05
     if t <= t_origin:
         return EnvelopeSample("idle", 0.0, 0.0, mode, peak if mode == "held" else 1.0)
 
-    def target_fn(tau: float) -> float:
-        return _raw_target(tau, b0, b1_eff, on_t, peak, is_hero, anti_s, rel_s, res, l_end, fade_s)
-
     if reduce:
-        amp = max(0.0, target_fn(t))
+        amp = max(0.0, _raw_target(t, b0, b1_eff, on_t, peak, is_hero, anti_s, rel_s, res, l_end, fade_s))
     else:
-        amp, _ = eval_spring_240hz(target_fn, t, t_origin, initial=0.0, freq_hz=freq_hz, zeta=zeta)
+        rel_on = round(on_t - b0, 3)
+        rel_l_end = round(l_end - b0, 2)
+        q_dur = round(dur, 3)
+        q_peak = round(peak, 3)
+        # Shift to relative time (t - b0) and quantize metric slots so spring curves are shared across matching durations
+        key = (q_dur, rel_on, q_peak, is_hero, anti_s, rel_s, res, rel_l_end, fade_s, zeta, freq_hz)
+        curve = _ENVELOPE_CURVES.get(key)
+        if curve is None:
+            def target_fn(
+                tau: float,
+                _b1=q_dur, _on=rel_on, _pk=q_peak, _hero=is_hero,
+                _anti=anti_s, _rel=rel_s, _res=res, _le=rel_l_end, _fs=fade_s,
+            ) -> float:
+                return _raw_target(tau, 0.0, _b1, _on, _pk, _hero, _anti, _rel, _res, _le, _fs)
+
+            curve = CachedSpringCurve(
+                target_fn,
+                -anti_s - 0.05,
+                initial=0.0,
+                freq_hz=freq_hz,
+                zeta=zeta,
+                steady_after=rel_l_end + max(0.05, fade_s),
+                steady_value=0.0,
+            )
+            _ENVELOPE_CURVES[key] = curve
+            if len(_ENVELOPE_CURVES) > _MAX_ENVELOPE_CURVES:
+                _ENVELOPE_CURVES.popitem(last=False)
+        elif len(_ENVELOPE_CURVES) >= _MAX_ENVELOPE_CURVES // 2:
+            _ENVELOPE_CURVES.move_to_end(key)
+        amp, _ = curve.eval(t - b0)
         amp = max(0.0, amp)
 
     # Phase label for debugging and inspection
@@ -156,7 +189,7 @@ def sample_envelope(
     elif line_act is not None and t > b1_eff + rel_s:
         act = _clamp(line_act, 0.0, 1.0)
         amp *= act
-        tint = max(PAST_LINE_TINT * act + PAST_LINE_TINT * (1.0 - act), amp)
+        tint = max(PAST_LINE_TINT, amp)
     else:
         tint = amp
 

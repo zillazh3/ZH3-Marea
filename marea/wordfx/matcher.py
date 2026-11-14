@@ -9,11 +9,38 @@ from marea.model.lyrics import Line, Lyrics, Syllable
 from marea.wordfx import rules as rules_mod
 from marea.wordfx.lexicon import guess_lang, lemma_candidates, line_lang, normalize
 from marea.wordfx.library import Library
-from marea.wordfx.rules import Cond, Phrase, Rules
+from marea.wordfx.rules import Cond, Phrase, Rules, SenseCond, SenseRule
 
 MAX_PER_LINE = 2
 NEGATION_WINDOW = 2  # palabras por delante en las que un negador afecta
 HOLD_CAP_S = 3.0  # una nota larguísima no debe ganar siempre al de mayor prioridad
+_NEG_CLITICS = {
+    "es": frozenset({"me", "te", "se", "nos", "os", "lo", "la", "los", "las", "le", "les", "siquiera"}),
+    "en": frozenset({"me", "you", "him", "her", "us", "them", "even", "ever", "to"}),
+}
+_NEG_BRIDGES = {
+    "es": frozenset({
+        "me", "te", "se", "nos", "os", "lo", "la", "los", "las", "le", "les", "a", "de", "en",
+        "dejes", "dejas", "deja", "dejen", "hagas", "hace", "hacen",
+        "puedo", "puedes", "puede", "podemos", "pueden", "pude", "podia",
+        "quiero", "quieres", "quiere", "queremos", "quieren", "quise",
+        "vuelvo", "vuelves", "vuelve", "vuelven", "vas", "va", "van", "voy", "vayas", "vaya",
+        "siento", "sientes", "siente", "sentimos", "sienten", "veo", "ves", "ve", "vi",
+        "tengo", "tienes", "tiene", "estoy", "estas", "esta", "soy", "eres", "es", "pido", "pide",
+    }),
+    "en": frozenset({
+        "to", "be", "feel", "seem", "want", "need", "try", "get", "go", "stay",
+        "even", "ever", "me", "you", "him", "her", "us", "them",
+    }),
+}
+_LOWERCASE_GUARDED_MONTHS = frozenset({"may", "march"})
+_EN_MONTH_CUES = frozenset({
+    "in", "on", "of", "since", "from", "until", "till", "by", "before", "after", "through", "during",
+    "every", "each", "next", "last", "this", "mid", "early", "late", "between", "into",
+    "month", "day", "night", "morning", "evening", "rain", "wind", "breeze", "sun", "sky",
+    "flower", "bloom", "moon", "light", "air", "sweet", "warm", "cold",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+})
 
 
 @dataclass(frozen=True)
@@ -29,6 +56,7 @@ class Match:
     score: float = 0.0
     pair: int = -1  # índice de palabra de su pareja de contraste en el mismo verso (-1 = ninguna)
     note: str = ""  # regla que decidió las categorías («neg:sin», «phrase:para siempre»…), solo depuración
+    ambiguity: float = 0.0  # 0.0 = inequívoca; >0 = polisémica o multicategoría sin desambiguar
 
 
 def word_groups(syllables: list[Syllable]) -> list[list[Syllable]]:
@@ -97,6 +125,13 @@ def phrase_table(lib: Library, rules: Rules) -> list[Phrase]:
     return sorted(out, key=lambda p: -len(p.tokens))
 
 
+def _phrase_buckets(table: list[Phrase]) -> dict[str, list[tuple[int, Phrase]]]:
+    buckets: dict[str, list[tuple[int, Phrase]]] = {}
+    for idx, p in enumerate(table):
+        buckets.setdefault(p.tokens[0], []).append((idx, p))
+    return buckets
+
+
 def _fits(toks: list[_Tok], i: int, ph: Phrase) -> bool:
     if i + len(ph.tokens) > len(toks):
         return False
@@ -123,6 +158,20 @@ def _guarded(rules: Rules, toks: list[_Tok], k: int) -> bool:
     return False
 
 
+def _month_allowed(lib: Library, toks: list[_Tok], k: int, cand: str, cat: str) -> bool:
+    """Months require exact normalized surface match (no inflection stems) and temporal cues for lowercase may/march."""
+    if lib.categories[cat].kind != "month":
+        return True
+    tok = toks[k]
+    if cand != tok.norm:
+        return False
+    if tok.lang == "en" and tok.norm in _LOWERCASE_GUARDED_MONTHS and tok.text.islower():
+        has_prev = k > 0 and _has(toks[k - 1], _EN_MONTH_CUES, "en")
+        has_next = k + 1 < len(toks) and _has(toks[k + 1], _EN_MONTH_CUES, "en")
+        return has_prev or has_next
+    return True
+
+
 def _reversal(lib, rules, toks, consumed, k, cats):
     """(categorías, índices del disparador, etiqueta) si la palabra es una recuperación («volví a respirar»)."""
     lang = toks[k].lang
@@ -140,10 +189,73 @@ def _reversal(lib, rules, toks, consumed, k, cats):
 
 
 def _negator(rules: Rules, toks: list[_Tok], consumed: set[int], k: int) -> str | None:
+    lang = toks[k].lang
+    negs = rules.negators.get(lang, ())
+    if not negs:
+        return None
     for j in range(k - 1, max(k - 1 - NEGATION_WINDOW, -1), -1):
-        if j not in consumed and toks[j].norm in rules.negators.get(toks[k].lang, ()):
+        if j not in consumed and toks[j].norm in negs:
+            return toks[j].norm
+    # Allow a 3-token span only across clitic + grammatical bridge (e.g. "no me dejes caer", "never want to fall"),
+    # keeping arbitrary intervening words like "no puedo ya respirar" or "no me perro amor" unnegated.
+    j = k - 3
+    if j >= 0 and j not in consumed and (k - 2) not in consumed and (k - 1) not in consumed and toks[j].norm in negs:
+        if toks[k - 2].norm in _NEG_CLITICS.get(lang, ()) and toks[k - 1].norm in _NEG_BRIDGES.get(lang, ()):
             return toks[j].norm
     return None
+
+
+def _sense_holds(sc: SenseCond, toks: list[_Tok], line_cats: dict[int, tuple[str, ...]], k: int, lang: str,
+                 neg_deleted: set[int] | frozenset[int] = frozenset()) -> bool:
+    n = len(toks)
+    if sc.prev and not (k > 0 and _has(toks[k - 1], sc.prev, lang)):
+        return False
+    if sc.next and not (k + 1 < n and _has(toks[k + 1], sc.next, lang)):
+        return False
+    if sc.line_end and k != n - 1:
+        return False
+    if sc.line_start and k != 0:
+        return False
+    if sc.near and not any(m != k and m not in neg_deleted and _has(toks[m], sc.near, lang) for m in range(n)):
+        return False
+    if sc.co_cats and not any(m != k and any(c in sc.co_cats for c in cats) for m, cats in line_cats.items()):
+        return False
+    return True
+
+
+def _senses_for(rules: Rules, tok: _Tok, lemma: str) -> list[SenseRule]:
+    out: list[SenseRule] = []
+    seen: set[int] = set()
+    keys = (lemma, *(c for c in tok.cands() if c != lemma))
+    for key in keys:
+        for sr in rules.senses.get((tok.lang, key), ()):
+            if id(sr) not in seen:
+                seen.add(id(sr))
+                out.append(sr)
+    return out
+
+
+def _sense(lib: Library, rules: Rules, toks: list[_Tok], line_cats: dict[int, tuple[str, ...]],
+           k: int, lemma: str, neg_deleted: set[int] | frozenset[int] = frozenset()) -> tuple[tuple[str, ...], str, bool]:
+    tok = toks[k]
+    srules = _senses_for(rules, tok, lemma)
+    for sr in srules:
+        if _sense_holds(sr.cond, toks, line_cats, k, tok.lang, neg_deleted):
+            if cats := _order(lib, sr.categories):
+                lbl = sr.label or ",".join(cats)
+                return cats, f"sense:{lbl}", True
+    return (), "", bool(srules)
+
+
+def _ambiguity(cats: tuple[str, ...], note: str, has_senses: bool) -> float:
+    resolved = note.startswith(("phrase:", "rev:", "sense:"))
+    if resolved:
+        return 0.15 if (has_senses or len(cats) >= 2) else 0.0
+    if has_senses:
+        return round(min(1.0, 0.45 + 0.2 * max(len(cats) - 1, 0)), 2)
+    if len(cats) >= 2:
+        return round(min(1.0, 0.25 * (len(cats) - 1)), 2)
+    return 0.0
 
 
 def _contrast(rules: Rules, a: _Hit, b: _Hit) -> bool:
@@ -156,14 +268,35 @@ def _note(m: Match, extra: str) -> str:
     return f"{m.note}; {extra}" if m.note else extra
 
 
-def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rules, table: list[Phrase]) -> list[Match]:
+def _pick_phrase(toks: list[_Tok], i: int, table: list[Phrase], buckets: dict[str, list[tuple[int, Phrase]]] | None) -> Phrase | None:
+    if buckets is None:
+        return next((p for p in table if _fits(toks, i, p)), None)
+    seen: set[int] = set()
+    cands: list[tuple[int, Phrase]] = []
+    keys = dict.fromkeys((*toks[i].cands("es"), *toks[i].cands("en"), rules_mod.WILDCARD))
+    for key in keys:
+        if bucket := buckets.get(key):
+            for idx, p in bucket:
+                if idx not in seen:
+                    seen.add(idx)
+                    cands.append((idx, p))
+    if not cands:
+        return None
+    if len(cands) > 1:
+        cands.sort(key=lambda item: item[0])
+    return next((p for _, p in cands if _fits(toks, i, p)), None)
+
+
+def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rules, table: list[Phrase],
+                buckets: dict[str, list[tuple[int, Phrase]]] | None = None) -> list[Match]:
     toks = _tokens(line, lib.known)
     # 1. frases (multipalabra) ganan a las palabras sueltas; consumen sus tokens
     hits: list[_Hit] = []
     consumed: set[int] = set()
+    line_cats: dict[int, tuple[str, ...]] = {}
     i = 0
     while i < len(toks):
-        ph = next((p for p in table if _fits(toks, i, p)), None)
+        ph = _pick_phrase(toks, i, table, buckets)
         if not ph:
             i += 1
             continue
@@ -173,8 +306,11 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
         b0, b1 = (key.begin, key.end) if ph.at >= 0 else (first.begin, last.end)
         # shortcut: la frase aplica su efecto solo a la palabra clave, porque el plan reparte efectos por (verso, palabra)
         m = Match(line_idx, key.word, " ".join(t.text for t in toks[i:j]), ph.label, ph.lang, ph.categories, b0, b1,
-                  _score(lib, ph.categories, b1 - b0), note=f"phrase:{ph.label}")
+                  _score(lib, ph.categories, b1 - b0), note=f"phrase:{ph.label}",
+                  ambiguity=0.15 if len(ph.categories) >= 2 else 0.0)
         hits.append(_Hit(m, frozenset(key.cands(ph.lang)) | {ph.label}))
+        for c_idx in range(i, j):
+            line_cats[c_idx] = ph.categories
         consumed.update(range(i, j))
         i = j
     # 2. palabras sueltas: guardas de categoría gramatical, luego lema
@@ -183,28 +319,84 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
         if k in consumed or _guarded(rules, toks, k):
             continue
         # shortcut: una palabra con guion se prueba entera; partirla en piezas si aparecen compuestos en la letra
-        hit = next(((c, lib.index[tok.lang][c]) for c in tok.cands() if c in lib.index[tok.lang]), None)
+        hit = next(
+            (
+                (c, cats)
+                for c in tok.cands()
+                if c in lib.index[tok.lang]
+                and (cats := tuple(cat for cat in lib.index[tok.lang][c] if _month_allowed(lib, toks, k, c, cat)))
+            ),
+            None,
+        )
         if hit:
-            singles[k] = (hit[0], tuple(hit[1]), "")
-    # 3. reversión («volver a respirar») y negación («sin miedo»); la reversión consume su disparador
+            cats_t = tuple(hit[1])
+            singles[k] = (hit[0], cats_t, "")
+            line_cats[k] = cats_t
+    # 3a. Reversión («volver a respirar») primero, actualizando `line_cats`.
+    neg_deleted: set[int] = set()
     for k in sorted(singles):
         if k not in singles:
             continue
         lemma, cats, _ = singles[k]
         if rev := _reversal(lib, rules, toks, consumed, k, cats):
             singles[k] = (lemma, rev[0], f"rev:{rev[2]}")
+            line_cats[k] = rev[0]
             for j in rev[1]:
                 singles.pop(j, None)
-        elif (neg := _negator(rules, toks, consumed, k)) and any(c in rules.negation for c in cats):
-            new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
-            if new:
-                singles[k] = (lemma, new, f"neg:{neg}")
-            else:
-                del singles[k]
+                line_cats.pop(j, None)
+                neg_deleted.add(j)
+    # 3b. Pre-negación en palabras sin sentidos contextuales para actualizar `line_cats` y `neg_deleted` antes de desambiguar.
+    neg_hits: dict[int, str] = {}
+    for k in sorted(singles):
+        lemma, cats, note = singles[k]
+        if note.startswith("rev:"):
+            continue
+        if (neg := _negator(rules, toks, consumed, k)) and any(c in rules.negation for c in cats):
+            neg_hits[k] = neg
+            if not (rules.senses and _senses_for(rules, toks[k], lemma)):
+                new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
+                if new:
+                    singles[k] = (lemma, new, f"neg:{neg}")
+                    line_cats[k] = new
+                    neg_deleted.add(k)
+                else:
+                    del singles[k]
+                    line_cats.pop(k, None)
+                    neg_deleted.add(k)
+    # 3c. Sentidos contextuales sobre categorías activas del verso (también sobre palabras polisémicas aún por negar).
+    sense_flags: dict[int, bool] = {}
+    if rules.senses:
+        for k in sorted(singles):
+            lemma, cats, note = singles[k]
+            if note.startswith(("rev:", "neg:")):
+                continue
+            scats, snote, has_s = _sense(lib, rules, toks, line_cats, k, lemma, neg_deleted)
+            sense_flags[k] = has_s
+            if scats:
+                singles[k] = (lemma, scats, snote)
+                line_cats[k] = scats
+    # 3d. Negación final sobre palabras polisémicas ya desambiguadas (p.ej. «no arder de rabia»).
+    for k, neg in neg_hits.items():
+        if k not in singles:
+            continue
+        lemma, cats, note = singles[k]
+        if note.startswith("neg:") or not any(c in rules.negation for c in cats):
+            continue
+        new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
+        if new:
+            singles[k] = (lemma, new, f"neg:{neg}")
+            line_cats[k] = new
+            neg_deleted.add(k)
+        else:
+            del singles[k]
+            line_cats.pop(k, None)
+            neg_deleted.add(k)
     for k, (lemma, cats, note) in singles.items():
         tok = toks[k]
+        has_s = sense_flags.get(k, bool(rules.senses and _senses_for(rules, tok, lemma)))
         hits.append(_Hit(Match(line_idx, tok.word, tok.text, lemma, tok.lang, cats, tok.begin, tok.end,
-                               _score(lib, cats, tok.end - tok.begin), note=note), frozenset(tok.cands()) | {lemma}))
+                               _score(lib, cats, tok.end - tok.begin), note=note,
+                               ambiguity=_ambiguity(cats, note, has_s)), frozenset(tok.cands()) | {lemma}))
     hits.sort(key=lambda h: h.match.word)
     # 4. contraste: las parejas ocupan los huecos antes que cualquier otra palabra; mejor puntuación combinada primero
     chosen: list[Match] = []
@@ -227,14 +419,16 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
 def match_line(line: Line, line_idx: int, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> list[Match]:
     """`rules=None` carga las reglas del usuario o las incluidas; pasa `Rules()` para desactivarlas."""
     rules = rules if rules is not None else rules_mod.load()
-    return _match_line(line, line_idx, lib, max_fx, rules, phrase_table(lib, rules))
+    table = phrase_table(lib, rules)
+    return _match_line(line, line_idx, lib, max_fx, rules, table, _phrase_buckets(table))
 
 
 def match_lyrics(lyrics: Lyrics, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> dict[tuple[int, int], Match]:
     rules = rules if rules is not None else rules_mod.load()
     table = phrase_table(lib, rules)
+    buckets = _phrase_buckets(table)
     out = {}
     for li, line in enumerate(lyrics.lines):
-        for m in _match_line(line, li, lib, max_fx, rules, table):
+        for m in _match_line(line, li, lib, max_fx, rules, table, buckets):
             out[(m.line, m.word)] = m
     return out

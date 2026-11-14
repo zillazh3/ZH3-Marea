@@ -10,6 +10,8 @@ EMOTIONS = {"sadness", "anguish", "numbness", "loss", "longing", "memory", "tend
             "calm", "fear", "anger", "intoxication", "growth"}
 ELEMENTS = {"time", "celestial", "air", "cloud", "photo", "earth", "water", "fire", "dryness", "dream", "shadow", "craft", "broken",
             "spring", "summer", "autumn", "winter"}
+MONTHS = {"january", "february", "march", "april", "may", "june",
+          "july", "august", "september", "october", "november", "december"}
 
 LEGACY = {  # kind, vector, primitives, priority: must never change
     "time": ("element", {"valence": -0.1, "arousal": 0.35, "gravity": 0.1, "temperature": 0.0, "fragility": 0.4, "blur": 0.3},
@@ -32,16 +34,17 @@ def lib():
 
 
 def test_all_categories_present_with_kind(lib):
-    assert set(lib.categories) == EMOTIONS | ELEMENTS
+    assert set(lib.categories) == EMOTIONS | ELEMENTS | MONTHS
     for name, c in lib.categories.items():
-        assert c.kind == ("emotion" if name in EMOTIONS else "element"), name
+        expected_kind = "emotion" if name in EMOTIONS else ("month" if name in MONTHS else "element")
+        assert c.kind == expected_kind, name
         assert (6 <= c.priority <= 9) if c.kind == "emotion" else (3 <= c.priority <= 5), name
         assert 3 <= len(c.primitives) <= 6, name
 
 
 def test_lemma_counts(lib):
     for name, c in lib.categories.items():
-        need = 35 if name in EMOTIONS else 20
+        need = 35 if name in EMOTIONS else (1 if name in MONTHS else 20)
         for lang in library.LANGS:
             assert len(c.lemmas.get(lang, ())) >= need, (name, lang, len(c.lemmas.get(lang, ())))
 

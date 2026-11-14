@@ -5,6 +5,7 @@ and a fixed-timestep 240 Hz evaluator anchored to a fixed origin time so seeking
 produces bit-identical results to linear playback at any frame rate.
 """
 import math
+from array import array
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -114,3 +115,100 @@ def eval_spring_240hz(
     if rem > 1e-9:
         p, v = step_spring(p, v, target_fn(t), freq_hz, zeta, rem)
     return p, v
+
+
+def _decay_rate(freq_hz: float, zeta: float) -> float:
+    """Effective exponential decay rate (1/s) when driven by a constant target."""
+    w = 2.0 * math.pi * max(1e-4, freq_hz)
+    if zeta <= 1.0:
+        return w * max(0.01, zeta)
+    return w * max(0.01, zeta - math.sqrt(zeta * zeta - 1.0))
+
+
+class CachedSpringCurve:
+    """Incrementally cached 240 Hz spring trajectory anchored at `t_origin`.
+
+    Produces bit-identical `(p, v)` outputs to `eval_spring_240hz` for both linear playback
+    and arbitrary seeks while memoizing previously computed ticks in O(1) array slots.
+    """
+
+    __slots__ = (
+        "target_fn",
+        "t_origin",
+        "initial",
+        "freq_hz",
+        "zeta",
+        "max_ticks",
+        "steady_after",
+        "steady_value",
+        "_steady_done_t",
+        "_p",
+        "_v",
+        "_settled_tick",
+    )
+
+    def __init__(
+        self,
+        target_fn: Callable[[float], float],
+        t_origin: float,
+        initial: float = 0.0,
+        freq_hz: float = DEFAULT_FREQ_HZ,
+        zeta: float = DEFAULT_ZETA,
+        max_ticks: int = 2400,
+        steady_after: float | None = None,
+        steady_value: float = 0.0,
+    ) -> None:
+        self.target_fn = target_fn
+        self.t_origin = t_origin
+        self.initial = initial
+        self.freq_hz = freq_hz
+        self.zeta = zeta
+        self.max_ticks = max_ticks
+        self.steady_after = steady_after
+        self.steady_value = steady_value
+        self._steady_done_t = (
+            steady_after + 40.0 / _decay_rate(freq_hz, zeta) if steady_after is not None else None
+        )
+        self._p = array("d", (initial,))
+        self._v = array("d", (0.0,))
+        self._settled_tick: int | None = None
+
+    def eval(self, t: float) -> tuple[float, float]:
+        if t <= self.t_origin:
+            return self.initial, 0.0
+        if self._steady_done_t is not None and t >= self._steady_done_t:
+            return self.steady_value, 0.0
+        elapsed = t - self.t_origin
+        n_ticks = int(math.floor(elapsed * SIM_HZ))
+        if n_ticks > self.max_ticks:
+            return eval_spring_240hz(
+                self.target_fn, t, self.t_origin, self.initial, self.freq_hz, self.zeta, self.max_ticks
+            )
+        if self._settled_tick is not None and n_ticks >= self._settled_tick:
+            return self.steady_value, 0.0
+        p_arr = self._p
+        v_arr = self._v
+        cached = len(p_arr) - 1
+        if cached < n_ticks:
+            p = p_arr[cached]
+            v = v_arr[cached]
+            target_fn = self.target_fn
+            t_origin = self.t_origin
+            freq_hz = self.freq_hz
+            zeta = self.zeta
+            steady_after = self.steady_after
+            steady_value = self.steady_value
+            for k in range(cached, n_ticks):
+                tick_t = t_origin + (k + 0.5) * SIM_DT
+                g = target_fn(tick_t)
+                p, v = step_spring(p, v, g, freq_hz, zeta, SIM_DT)
+                p_arr.append(p)
+                v_arr.append(v)
+                if steady_after is not None and tick_t >= steady_after and p == steady_value and v == 0.0:
+                    self._settled_tick = k + 1
+                    return steady_value, 0.0
+        p, v = p_arr[n_ticks], v_arr[n_ticks]
+        rem = elapsed - n_ticks * SIM_DT
+        if rem > 1e-9:
+            p, v = step_spring(p, v, self.target_fn(t), self.freq_hz, self.zeta, rem)
+        return p, v

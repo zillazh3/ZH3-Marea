@@ -6,11 +6,13 @@ No genera flexiones: dado una forma de superficie devuelve posibles lemas
 
 from __future__ import annotations
 
+from functools import lru_cache
 import unicodedata
 
 _MAX_CANDIDATES = 29
 
 
+@lru_cache(maxsize=16384)
 def normalize(s: str) -> str:
     """Minusculas sin acentos; conserva letras, digitos y apostrofes."""
     s = s.lower().replace("’", "'").replace("‘", "'")
@@ -37,39 +39,48 @@ _ES_IRREG = _invert({
     "tener": "tengo tienes tiene tenemos tienen tuve tuvo tuvieron tenia tenias tenian",
     "poder": "puedo puedes puede podemos pueden pude pudo pudieron podia podias podria",
     "querer": "quiero quieres quiere queremos quieren quise quiso queria querias querria",
-    "volver": "vuelvo vuelves vuelve vuelven volvi volvio vuelto",
-    "perder": "pierdo pierdes pierde pierden",
-    "sentir": "siento sientes siente sienten senti sintio",
-    "dormir": "duermo duermes duerme durmio durmieron",
-    "morir": "muero mueres muere murio muerto",
+    "volver": "vuelvo vuelves vuelve vuelven vuelvas vuelva vuelvan volvi volvio vuelto",
+    "perder": "pierdo pierdes pierde pierden pierda pierdas pierdan perdio",
+    "sentir": "siento sientes siente sienten sienta sientas sientan sintamos senti sintio sintieron sintiendo",
+    "dormir": "duermo duermes duerme duermen duerma duermas duerman durmamos durmio durmieron durmiendo",
+    "morir": "muero mueres muere mueren muera mueras mueran muramos murio murieron muriendo muerto",
+    "pedir": "pido pides pide piden pida pidas pidan pidamos pidio pidieron pidiendo",
+    "seguir": "sigo sigues sigue siguen siga sigas sigan sigamos siguio siguieron siguiendo",
+    "mentir": "miento mientes miente mienten mienta mientas mientan mintio mintieron mintiendo",
+    "reir": "rio ries rie rien ria rias rian riamos rio rieron riendo",
+    "huir": "huyo huyes huye huyen huya huyas huyan huyamos huyo huyeron huyendo",
+    "soltar": "suelto sueltas suelta sueltan suelte sueltes suelten",
     "decir": "digo dices dice dijo dije dijeron dicho di",
     "hacer": "hago hace haces hizo hice hecho haz",
+    "deshacer": "deshago deshace deshacen deshice deshizo deshecho deshaz",
+    "sostener": "sostengo sostienes sostiene sostienen sostuve sostuvo sostenido sosten",
+    "mantener": "mantengo mantienes mantiene mantienen mantuve mantuvo mantenido manten",
     "ver": "veo ves ve vi vio visto veia",
     "dar": "doy da das di dio dieron",
     "saber": "se sabe sabes supo supe sepa",
     "venir": "vengo vienes viene vino vine vienen ven",
     "poner": "pongo pones pone puso puse puesto pon",
     "suponer": "supongo supones supone suponemos suponen supuse supuso supusieron suponia",
-    "caer": "caigo cae caes cayo cayeron",
+    "caer": "caigo cae caes caiga caigas caigan caemos cayo cayeron",
     "oir": "oigo oye oyes oyo oido",
     "traer": "traigo trae traes trajo traje traido",
     "salir": "salgo sal",
     "conocer": "conozco",
-    "romper": "roto",
-    "abrir": "abierto",
+    "romper": "roto rompa rompas rompan",
+    "abrir": "abierto abra abras abran",
     "escribir": "escrito",
-    "volar": "vuelo vuelas vuela vuelan",
+    "volar": "vuelo vuelas vuela vuelan vuele vueles vuelen",
     "contar": "cuento cuentas cuenta",
-    "sonar": "sueno suenas suena",
-    "recordar": "recuerdo recuerdas recuerda",
-    "encontrar": "encuentro encuentras encuentra",
-    "pensar": "pienso piensas piensa",
-    "empezar": "empiezo empiezas empieza empece",
-    "cerrar": "cierro cierras cierra",
-    "morder": "muerdo muerde",
-    "doler": "duele dueles duelen dolia dolio dolera",
-    "llover": "llueve",
-    "arder": "ardo arde",
+    "sonar": "sueno suenas suena suene suenes suenen",
+    "recordar": "recuerdo recuerdas recuerda recuerde recuerdes recuerden",
+    "encontrar": "encuentro encuentras encuentra encuentre encuentres encuentren",
+    "pensar": "pienso piensas piensa piense pienses piensen",
+    "empezar": "empiezo empiezas empieza empece empiece empieces empecemos",
+    "cerrar": "cierro cierras cierra cierre cierres cierren",
+    "morder": "muerdo muerde muerda muerdas",
+    "doler": "duele dueles duelen duela duelas dolia dolio dolera",
+    "llover": "llueve llueva",
+    "arder": "ardo arde arda ardas ardan ardio ardieron ardiendo",
 })
 
 _CLITICS = ("nos", "les", "los", "las", "me", "te", "se", "lo", "la", "le")
@@ -121,6 +132,17 @@ def _verb_lemmas(b: str) -> list[str]:
             continue
         stem = b[: -len(end)]
         stems = [stem] + (_stem_variants(stem) if end in _STEM_CHANGE_END else [])
+        # Orthographic Spanish stem restorations (crezco->crec, abrace->abraz, busque->busc, apague->apag)
+        if end in ("o", "a", "as", "an", "amos") and stem.endswith("zc"):
+            stems.append(stem[:-2] + "c")
+        elif end in ("e", "es", "en", "emos"):
+            for base_s in list(stems):
+                if base_s.endswith("c"):
+                    stems.append(base_s[:-1] + "z")
+                elif base_s.endswith("qu"):
+                    stems.append(base_s[:-2] + "c")
+                elif base_s.endswith("gu"):
+                    stems.append(base_s[:-1])
         res += [s + inf for s in stems for inf in _VERB_END[end]]
     return res
 
@@ -151,8 +173,9 @@ def _es_candidates(w: str) -> list[str]:
         sing.append(w[:-2])
     if w.endswith("s") and len(w) > 2:
         sing.append(w[:-1])
-    for s in list(sing):  # diminutivos: gatito->gato, corazoncito->corazon
-        for suf, reps in (("cito", ("", "e")), ("cita", ("", "a", "e")), ("ito", ("o",)), ("ita", ("a",))):
+    for s in list(sing):  # diminutivos y superlativos: gatito->gato, corazoncito->corazon, tristisimo->triste
+        for suf, reps in (("cito", ("", "e")), ("cita", ("", "a", "e")), ("ito", ("o",)), ("ita", ("a",)),
+                          ("isimo", ("o", "e", "")), ("isima", ("o", "a", "e", ""))):
             if s.endswith(suf) and len(s) - len(suf) >= 2:
                 sing += [s[: -len(suf)] + r for r in reps]
     for s in sing:
@@ -214,6 +237,14 @@ _EN_IRREG = _invert({
     "fight": "fought",
     "bleed": "bled",
     "shine": "shone",
+    "sink": "sank sunk",
+    "freeze": "froze frozen",
+    "bind": "bound",
+    "cling": "clung",
+    "sow": "sown",
+    "blow": "blew blown",
+    "throw": "threw thrown",
+    "draw": "drew drawn",
     "wolf": "wolves",
     "life": "lives",
     "knife": "knives",
@@ -236,14 +267,14 @@ def _en_candidates(w: str) -> list[str]:
         if len(x) >= 2 and x not in out:
             out.append(x)
 
-    for lemma in _EN_IRREG.get(w, ()):
-        add(lemma)
     if w.endswith("'s"):
         w = w[:-2]
     elif w.endswith("in'") and len(w) > 4:
         w = w[:-1] + "g"  # dancin' -> dancing
     if w != out[0]:
         add(w)
+    for lemma in _EN_IRREG.get(w, ()):
+        add(lemma)
     if w.endswith("ies"):
         add(w[:-3] + "y")
     if w.endswith("ves"):
@@ -281,18 +312,23 @@ def _en_candidates(w: str) -> list[str]:
     return out
 
 
-def lemma_candidates(word: str, lang: str) -> list[str]:
-    """Lemas posibles de `word` ('es'|'en'); el primero es siempre la forma normalizada."""
-    w = normalize(word)
-    if not w:
-        return []
+@lru_cache(maxsize=16384)
+def _lemma_candidates_cached(w: str, lang: str) -> tuple[str, ...]:
     if lang == "es":
         out = _es_candidates(w)
     elif lang == "en":
         out = _en_candidates(w)
     else:
         raise ValueError(f"unsupported lang: {lang!r}")
-    return out[:_MAX_CANDIDATES]
+    return tuple(out[:_MAX_CANDIDATES])
+
+
+def lemma_candidates(word: str, lang: str) -> list[str]:
+    """Lemas posibles de `word` ('es'|'en'); el primero es siempre la forma normalizada."""
+    w = normalize(word)
+    if not w:
+        return []
+    return list(_lemma_candidates_cached(w, lang))
 
 
 # --- Idioma ----------------------------------------------------------------

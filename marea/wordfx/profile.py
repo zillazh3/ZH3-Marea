@@ -39,6 +39,11 @@ CATEGORY_MOODS: dict[str, dict[str, float]] = {
     "time": {"nostalgic": 0.15}, "celestial": {"hopeful": 0.15}, "air": {"hopeful": 0.15}, "cloud": {"nostalgic": 0.2}, "photo": {"nostalgic": 0.5},
     "water": {"sad": 0.2}, "dream": {"nostalgic": 0.25}, "shadow": {"sad": 0.2}, "dryness": {"sad": 0.2}, "craft": {"tender": 0.15},
     "broken": {"anguished": 0.4, "sad": 0.2}, "intoxication": {"numb": 0.2}, "fire": {"anguished": 0.1},
+    "january": {"hopeful": 0.2}, "february": {"tender": 0.2}, "march": {"hopeful": 0.2},
+    "april": {"hopeful": 0.15, "tender": 0.1}, "may": {"joyful": 0.2}, "june": {"joyful": 0.2},
+    "july": {"joyful": 0.2}, "august": {"calm": 0.15, "hopeful": 0.1}, "september": {"nostalgic": 0.2},
+    "october": {"nostalgic": 0.15, "longing": 0.1}, "november": {"nostalgic": 0.25},
+    "december": {"nostalgic": 0.2, "calm": 0.1},
 }  # shortcut: categorías propias del usuario no puntúan ánimo (solo arousal); upgrade: derivar el ánimo de su vector
 EXTRA_CAT_WEIGHT = 0.5  # la 2ª, 3ª… categoría de una misma palabra pesa la mitad
 TAG_MIN_SHARE = 0.15  # cuota mínima (tras sesgos) para ser etiqueta; la mayor entra con >= TOP_MIN_SHARE

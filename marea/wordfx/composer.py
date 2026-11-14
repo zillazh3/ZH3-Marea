@@ -314,6 +314,10 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     sig = signature_for(match.categories, vec)
     p_kind = sig.particle_kind
     p_max = sig.particle_max
+    amb = min(1.0, max(0.0, getattr(match, "ambiguity", 0.0)))
+    # Restrain bursts on low-arousal/calm or unresolved-ambiguous detections so gentle lyrics stay clean
+    calm_damp = 0.72 + 0.28 * _clamp(aro / 0.35, 0.0, 1.0)
+    amb_damp = 1.0 - 0.15 * amb
     sig_waveform = sig.waveform
     sig_axis = sig.axis
     sig_freq = sig.freq_range_hz[0] + (sig.freq_range_hz[1] - sig.freq_range_hz[0]) * aro
@@ -344,7 +348,8 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         f["particles"] = 0
         f["sparkle"] = 0
     elif "particles" in on and p_kind in CUSTOM_PARTICLE_KINDS and intensity > 0.0:
-        f["particles"] = round(_clamp(max(f.get("particles", 0), p_max * min(1.5, intensity)), 0, 28))
+        scaled_pmax = p_max * min(1.5, intensity) * calm_damp * amb_damp
+        f["particles"] = round(_clamp(max(f.get("particles", 0) * amb_damp, scaled_pmax), 0, 28))
     donor_b0 = (strongest_donor.begin_ms / 1000.0) if strongest_donor is not None else -1.0
     donor_b1 = (strongest_donor.end_ms / 1000.0) if strongest_donor is not None else -1.0
     f.update(
@@ -365,7 +370,10 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         fill_tint=sig.fill_tint,
         fill_edge_softness=sig.fill_edge_softness,
         glow_spread=sig.glow_spread,
+        glow_color=sig.glow_color,
         particle_kind=p_kind if p_kind in CUSTOM_PARTICLE_KINDS else "dust",
+        sparkle_style=sig.sparkle_style,
+        motif=sig.motif,
     )
     return FxParams(primitives=tuple(prims), **meta, **f)
 

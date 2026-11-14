@@ -12,7 +12,7 @@ from marea.wordfx.lexicon import normalize
 
 BUNDLED = Path(__file__).resolve().parent.parent.parent / "assets" / "wordfx" / "library.json"
 LANGS = ("es", "en")
-KINDS = ("emotion", "element")  # las emociones pesan más que los elementos al mezclar categorías
+KINDS = ("emotion", "element", "month")  # las emociones pesan más que los elementos y meses al mezclar categorías
 PRIMITIVES = frozenset({
     "displacement", "letter_offset", "scale", "rotation", "opacity", "blur", "letter_spacing", "gravity_drift", "jitter",
     "wave", "glow", "hue_shift", "desaturate", "chromatic", "grain", "particles", "mask_reveal", "erode", "fracture",

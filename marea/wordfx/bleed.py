@@ -1,8 +1,12 @@
 """Spatial bleed kernel, cross-line bleed, and continuous line-handoff helpers."""
+from collections import OrderedDict
 from typing import Sequence
 
 from marea.wordfx.matcher import Match
-from marea.wordfx.springs import eval_spring_240hz
+from marea.wordfx.springs import CachedSpringCurve
+
+_BLEED_CURVES: OrderedDict[tuple[float, float, float], CachedSpringCurve] = OrderedDict()
+_MAX_BLEED_CURVES = 512
 
 BLEED_KERNEL: dict[int, float] = {1: 0.35, 2: 0.12}
 CROSS_LINE_MAX_GAP_S = 2.5
@@ -45,19 +49,36 @@ def spring_bleed_arrival(t_s: float, donor_begin_s: float, donor_end_s: float, f
     anti_s = donor_begin_s - 0.12
     if t_s <= anti_s:
         return 0.0
-    tail_end = donor_end_s + 0.70
+    key = (donor_begin_s, donor_end_s, freq_hz)
+    curve = _BLEED_CURVES.get(key)
+    if curve is None:
+        tail_end = donor_end_s + 0.70
 
-    def _target(x: float) -> float:
-        if x < donor_begin_s:
-            return 0.0
-        if x <= donor_end_s:
-            return 1.0
-        if x <= tail_end:
-            u = (x - donor_end_s) / max(0.05, tail_end - donor_end_s)
-            return 1.0 - u * 0.75
-        return 0.25
+        def _target(x: float, _b=donor_begin_s, _e=donor_end_s, _te=tail_end) -> float:
+            if x < _b:
+                return 0.0
+            if x <= _e:
+                return 1.0
+            if x <= _te:
+                u = (x - _e) / max(0.05, _te - _e)
+                return 1.0 - u * 0.75
+            return 0.25
 
-    val, _ = eval_spring_240hz(_target, t_s, anti_s - 0.05, freq_hz=freq_hz, zeta=1.0)
+        curve = CachedSpringCurve(
+            _target,
+            anti_s - 0.05,
+            initial=0.0,
+            freq_hz=freq_hz,
+            zeta=1.0,
+            steady_after=tail_end,
+            steady_value=0.25,
+        )
+        _BLEED_CURVES[key] = curve
+        if len(_BLEED_CURVES) > _MAX_BLEED_CURVES:
+            _BLEED_CURVES.popitem(last=False)
+    else:
+        _BLEED_CURVES.move_to_end(key)
+    val, _ = curve.eval(t_s)
     return max(0.0, min(1.0, val))
 
 

@@ -41,7 +41,15 @@
         "cada día",
         "a diario",
         "atemporal",
-        "fugacidad"
+        "fugacidad",
+        "arruga",
+        "carrusel",
+        "encallar",
+        "procrastinar",
+        "efímero",
+        "longevo",
+        "tic tac",
+        "eternizar"
       ],
       "en": [
         "time",
@@ -80,7 +88,14 @@
         "everyday",
         "every day",
         "timeless",
-        "fleetingness"
+        "fleetingness",
+        "wrinkle",
+        "carousel",
+        "stranded",
+        "procrastinate",
+        "ephemeral",
+        "tic tac",
+        "perpetuate"
       ]
     },
     "vector": {
@@ -147,7 +162,12 @@
         "desconocido",
         "deshacer",
         "extraño",
-        "fallido"
+        "fallido",
+        "ahogado",
+        "evaporar",
+        "muralla",
+        "destierro",
+        "irreparable"
       ],
       "en": [
         "lose",
@@ -187,7 +207,12 @@
         "withdraw",
         "stranger",
         "unravel",
-        "unmade"
+        "unmade",
+        "drowned",
+        "rampart",
+        "banishment",
+        "irreparable",
+        "extinguish"
       ]
     },
     "vector": {
@@ -267,7 +292,14 @@
         "favorito",
         "fusionar",
         "ritual",
-        "sensorial"
+        "sensorial",
+        "confesar",
+        "dulzura",
+        "tibio",
+        "amuleto",
+        "idilio",
+        "embelesar",
+        "entregado"
       ],
       "en": [
         "love",
@@ -319,7 +351,14 @@
         "fuse",
         "ritual",
         "scent",
-        "sensual"
+        "sensual",
+        "confess",
+        "sweetness",
+        "lukewarm",
+        "infatuated",
+        "idyll",
+        "adore",
+        "devoted"
       ]
     },
     "vector": {
@@ -406,7 +445,13 @@
         "pesar",
         "sangrar",
         "sangre",
-        "desangrar"
+        "desangrar",
+        "malherido",
+        "muralla",
+        "desconsuelo",
+        "desamparo",
+        "aflicción",
+        "pesadumbre"
       ],
       "en": [
         "cry",
@@ -465,7 +510,12 @@
         "isolate",
         "isolation",
         "sorrowful",
-        "blood"
+        "blood",
+        "wounded",
+        "fortress",
+        "griefstricken",
+        "helplessness",
+        "affliction"
       ]
     },
     "vector": {
@@ -543,7 +593,14 @@
         "encrucijada",
         "espina",
         "remordimiento",
-        "zozobra"
+        "zozobra",
+        "ahogado",
+        "amarrar",
+        "carrusel",
+        "desahuciado",
+        "torbellino",
+        "presa",
+        "atadura"
       ],
       "en": [
         "drown",
@@ -590,7 +647,15 @@
         "guilty",
         "remorse",
         "thorn",
-        "turmoil"
+        "turmoil",
+        "drowned",
+        "bind",
+        "carousel",
+        "hopeless",
+        "whirlwind",
+        "captive",
+        "despair",
+        "shackle"
       ]
     },
     "vector": {
@@ -657,7 +722,11 @@
         "mudo",
         "barrera",
         "desapego",
-        "robotizado"
+        "robotizado",
+        "encallar",
+        "procrastinar",
+        "morfina",
+        "anestesia"
       ],
       "en": [
         "numb",
@@ -701,7 +770,14 @@
         "go through the motions",
         "barrier",
         "mechanized",
-        "unfeeling"
+        "unfeeling",
+        "stranded",
+        "procrastinate",
+        "morphine",
+        "anesthesia",
+        "lethargy",
+        "numbed",
+        "unmoved"
       ]
     },
     "vector": {
@@ -772,7 +848,14 @@
         "mapa",
         "norte",
         "peregrino",
-        "viajero"
+        "viajero",
+        "amuleto",
+        "anclar",
+        "asomar",
+        "alma",
+        "desvelo",
+        "nostálgico",
+        "suspirar"
       ],
       "en": [
         "miss",
@@ -816,7 +899,14 @@
         "suitcase",
         "traveler",
         "wanderer",
-        "yearning"
+        "yearning",
+        "amulet",
+        "anchor",
+        "soul",
+        "sleeplessness",
+        "wistful",
+        "sigh",
+        "long for"
       ]
     },
     "vector": {
@@ -884,7 +974,13 @@
         "recuento",
         "reliquia",
         "tatuado",
-        "tatuar"
+        "tatuar",
+        "amuleto",
+        "arruga",
+        "plasmar",
+        "remembranza",
+        "antiguo",
+        "revivir"
       ],
       "en": [
         "memory",
@@ -926,7 +1022,13 @@
         "engraved",
         "keepsake",
         "museum",
-        "tattoo"
+        "tattoo",
+        "amulet",
+        "wrinkle",
+        "immortalize",
+        "remembrance",
+        "relive",
+        "vestige"
       ]
     },
     "vector": {
@@ -1017,7 +1119,14 @@
         "honrado",
         "moraleja",
         "resguardar",
-        "sagrado"
+        "sagrado",
+        "arrimar",
+        "asomar",
+        "confesar",
+        "dulzura",
+        "tibio",
+        "alma",
+        "cobijo"
       ],
       "en": [
         "promise",
@@ -1075,7 +1184,12 @@
         "complicity",
         "sacred",
         "safeguard",
-        "solace"
+        "solace",
+        "nestle",
+        "confess",
+        "sweetness",
+        "lukewarm",
+        "soul"
       ]
     },
     "vector": {
@@ -1154,7 +1268,13 @@
         "deslumbrar",
         "discoteca",
         "gozar",
-        "radiante"
+        "radiante",
+        "contento",
+        "serotonina",
+        "júbilo",
+        "plenitud",
+        "risueño",
+        "embeleso"
       ],
       "en": [
         "happy",
@@ -1205,7 +1325,13 @@
         "dazzling",
         "disco",
         "radiant",
-        "relish"
+        "relish",
+        "content",
+        "serotonin",
+        "jubilation",
+        "blissful",
+        "smiling",
+        "rapture"
       ]
     },
     "vector": {
@@ -1277,7 +1403,9 @@
         "bugambilia",
         "cicatrizar",
         "elixir",
-        "cicatriz"
+        "cicatriz",
+        "compasión",
+        "sereno"
       ],
       "en": [
         "heal",
@@ -1327,7 +1455,9 @@
         "remission",
         "salve",
         "scar",
-        "scarred"
+        "scarred",
+        "compassion",
+        "mended"
       ]
     },
     "vector": {
@@ -1399,7 +1529,12 @@
         "contemplar",
         "fluir",
         "ligero",
-        "paciencia"
+        "paciencia",
+        "arrimar",
+        "contento",
+        "pasto",
+        "manso",
+        "sosegado"
       ],
       "en": [
         "peace",
@@ -1443,7 +1578,11 @@
         "contemplate",
         "flow",
         "lightweight",
-        "patience"
+        "patience",
+        "nestle",
+        "content",
+        "meadow",
+        "unhurried"
       ]
     },
     "vector": {
@@ -1513,7 +1652,10 @@
         "buitre",
         "incertidumbre",
         "inquietud",
-        "presentimiento"
+        "presentimiento",
+        "amarrar",
+        "bandera",
+        "presa"
       ],
       "en": [
         "fear",
@@ -1560,7 +1702,12 @@
         "omen",
         "uncertainty",
         "unease",
-        "vulture"
+        "vulture",
+        "bind",
+        "red flag",
+        "prey",
+        "jolt",
+        "chill"
       ]
     },
     "vector": {
@@ -1663,7 +1810,12 @@
         "llaga",
         "lesión",
         "sangrar",
-        "desangrar"
+        "desangrar",
+        "impotencia",
+        "estallar",
+        "desgarrar",
+        "rebeldía",
+        "cólera"
       ],
       "en": [
         "war",
@@ -1730,7 +1882,12 @@
         "hurt",
         "bleed",
         "injure",
-        "injury"
+        "injury",
+        "helpless rage",
+        "erupt",
+        "tear apart",
+        "defiance",
+        "wrath"
       ]
     },
     "vector": {
@@ -1803,7 +1960,13 @@
         "champán",
         "embriagador",
         "nicotina",
-        "tabaco"
+        "tabaco",
+        "morfina",
+        "vertiginoso",
+        "hechizo",
+        "fiebre",
+        "éxtasis",
+        "venenoso"
       ],
       "en": [
         "bottle",
@@ -1850,7 +2013,13 @@
         "heady",
         "intoxicating",
         "nicotine",
-        "tobacco"
+        "tobacco",
+        "morphine",
+        "dizzying",
+        "spellbound",
+        "fever",
+        "ecstasy",
+        "venomous"
       ]
     },
     "vector": {
@@ -1937,7 +2106,12 @@
         "improvisar",
         "jacaranda",
         "madurez",
-        "trébol"
+        "trébol",
+        "exprimir",
+        "hiedra",
+        "sembrar",
+        "germinar",
+        "brote"
       ],
       "en": [
         "grow",
@@ -1999,7 +2173,11 @@
         "improvise",
         "jacaranda",
         "maturity",
-        "sunflower"
+        "sunflower",
+        "squeeze",
+        "ivy",
+        "sow",
+        "germinate"
       ]
     },
     "vector": {
@@ -2072,7 +2250,8 @@
         "destellar",
         "inmortal",
         "paralelo",
-        "resplandor"
+        "resplandor",
+        "luciérnaga"
       ],
       "en": [
         "star",
@@ -2192,7 +2371,11 @@
         "soplar",
         "soplo",
         "vagar",
-        "volátil"
+        "volátil",
+        "esfumar",
+        "evaporar",
+        "torbellino",
+        "vendaval"
       ],
       "en": [
         "fly",
@@ -2236,7 +2419,11 @@
         "adrift",
         "dandelion",
         "drift",
-        "waft"
+        "waft",
+        "vanish",
+        "evaporate",
+        "gale",
+        "breath"
       ]
     },
     "vector": {
@@ -2297,7 +2484,10 @@
         "nube gris",
         "espeso",
         "neblinoso",
-        "tenue"
+        "tenue",
+        "esfumar",
+        "calima",
+        "penumbra"
       ],
       "en": [
         "cloud",
@@ -2334,7 +2524,10 @@
         "thundercloud",
         "dimmed",
         "mistbound",
-        "wispy"
+        "wispy",
+        "vanish",
+        "cloudscape",
+        "veil"
       ]
     },
     "vector": {
@@ -2410,7 +2603,13 @@
         "crucero",
         "marinero",
         "tempestad",
-        "zarpar"
+        "zarpar",
+        "ahogado",
+        "anclar",
+        "encallar",
+        "evaporar",
+        "marejada",
+        "remolino"
       ],
       "en": [
         "water",
@@ -2457,7 +2656,12 @@
         "cruise",
         "mariner",
         "sailor",
-        "tempest"
+        "tempest",
+        "drowned",
+        "run aground",
+        "evaporate",
+        "swell",
+        "whirlpool"
       ]
     },
     "vector": {
@@ -2533,7 +2737,9 @@
         "chispazo",
         "destello",
         "ignición",
-        "resplandecer"
+        "resplandecer",
+        "tibio",
+        "incendiario"
       ],
       "en": [
         "fire",
@@ -2586,7 +2792,8 @@
         "lighter",
         "glowing",
         "ignition",
-        "radiate"
+        "radiate",
+        "hearth"
       ]
     },
     "vector": {
@@ -2643,7 +2850,10 @@
         "sin agua",
         "cactus",
         "deshidratado",
-        "resequedad"
+        "resequedad",
+        "agrietado",
+        "estiaje",
+        "ceniciento"
       ],
       "en": [
         "drought",
@@ -2673,7 +2883,9 @@
         "cactus",
         "cracked",
         "parched",
-        "sunbaked"
+        "sunbaked",
+        "dry spell",
+        "ashen"
       ]
     },
     "vector": {
@@ -2745,7 +2957,10 @@
         "disimular",
         "ensoñación",
         "irrealidad",
-        "quimera"
+        "quimera",
+        "onironauta",
+        "vigilia",
+        "lúcido"
       ],
       "en": [
         "dream",
@@ -2793,7 +3008,10 @@
         "chimera",
         "daydreaming",
         "reverie",
-        "unreality"
+        "unreality",
+        "lucid dreamer",
+        "sleepwalker",
+        "waking"
       ]
     },
     "vector": {
@@ -2865,7 +3083,11 @@
         "fingir",
         "disimular",
         "maquillar",
-        "vampiro"
+        "vampiro",
+        "arrimar",
+        "eclipsar",
+        "escondite",
+        "clandestino"
       ],
       "en": [
         "shadow",
@@ -2912,7 +3134,13 @@
         "concealed",
         "masked",
         "shroud",
-        "vampire"
+        "vampire",
+        "nestle",
+        "penumbra",
+        "eclipse",
+        "shadowy",
+        "hideout",
+        "clandestine"
       ]
     },
     "vector": {
@@ -2987,7 +3215,15 @@
         "artesano",
         "dorado",
         "filigrana",
-        "quilate"
+        "quilate",
+        "exprimir",
+        "plasmar",
+        "sembrar",
+        "kintsugi",
+        "hilvanar",
+        "cincel",
+        "taller",
+        "bosquejo"
       ],
       "en": [
         "origami",
@@ -3038,7 +3274,14 @@
         "artisan",
         "filigree",
         "gilded",
-        "karat"
+        "karat",
+        "squeeze",
+        "capture in ink",
+        "sow",
+        "kintsugi",
+        "brushstroke",
+        "chisel",
+        "workshop"
       ]
     },
     "vector": {
@@ -3109,7 +3352,9 @@
         "retratarte",
         "cuadro",
         "marco",
-        "viñeta"
+        "viñeta",
+        "negativo",
+        "destello"
       ],
       "en": [
         "photo",
@@ -3150,7 +3395,8 @@
         "closeup",
         "frame",
         "still frame",
-        "vignette"
+        "vignette",
+        "focus"
       ]
     },
     "vector": {
@@ -3203,7 +3449,14 @@
         "flor",
         "hoja",
         "pétalo",
-        "rama"
+        "rama",
+        "hiedra",
+        "muralla",
+        "pasto",
+        "sembrar",
+        "barro",
+        "acantilado",
+        "corteza"
       ],
       "en": [
         "earth",
@@ -3230,7 +3483,14 @@
         "branch",
         "flower",
         "leaf",
-        "petal"
+        "petal",
+        "ivy",
+        "rampart",
+        "lawn",
+        "sow",
+        "mud",
+        "cliff",
+        "bark"
       ]
     },
     "vector": {
@@ -3301,7 +3561,12 @@
         "aplastar",
         "desperfecto",
         "entropía",
-        "parche"
+        "parche",
+        "carrusel",
+        "desahuciado",
+        "malherido",
+        "bandera",
+        "quiebre"
       ],
       "en": [
         "break",
@@ -3339,7 +3604,13 @@
         "blemish",
         "defect",
         "entropy",
-        "fray"
+        "fray",
+        "carousel",
+        "hopeless",
+        "wounded",
+        "red flag",
+        "fissure",
+        "rupture"
       ]
     },
     "vector": {
@@ -3387,7 +3658,12 @@
         "clavel",
         "amapola",
         "margarita",
-        "golondrina"
+        "golondrina",
+        "hiedra",
+        "pasto",
+        "florecer",
+        "jacaranda",
+        "bugambilia"
       ],
       "en": [
         "spring",
@@ -3411,7 +3687,13 @@
         "poppy",
         "daisy",
         "bluebell",
-        "bumblebee"
+        "bumblebee",
+        "ivy",
+        "meadow",
+        "blossom",
+        "jacaranda",
+        "bougainvillea",
+        "sprout"
       ]
     },
     "vector": {
@@ -3460,7 +3742,10 @@
         "chicharra",
         "cigarra",
         "arenal",
-        "tórrido"
+        "tórrido",
+        "canicular",
+        "tostado",
+        "crepitar"
       ],
       "en": [
         "summer",
@@ -3484,7 +3769,9 @@
         "balmy",
         "dog days",
         "cicada",
-        "sunbeam"
+        "sunbeam",
+        "sunbaked",
+        "crackle"
       ]
     },
     "vector": {
@@ -3533,7 +3820,11 @@
         "llovizna",
         "templanza",
         "rojizo",
-        "calabaza"
+        "calabaza",
+        "marchito",
+        "ocaso",
+        "dorado",
+        "ambarino"
       ],
       "en": [
         "autumn",
@@ -3557,7 +3848,11 @@
         "crunch",
         "sienna",
         "russet",
-        "pumpkin"
+        "pumpkin",
+        "fallen leaves",
+        "sunset",
+        "golden",
+        "shedding"
       ]
     },
     "vector": {
@@ -3606,7 +3901,11 @@
         "aguanieve",
         "polar",
         "trineo",
-        "muérdago"
+        "muérdago",
+        "helado",
+        "nevasca",
+        "congelado",
+        "abrigo"
       ],
       "en": [
         "winter",
@@ -3630,7 +3929,12 @@
         "snowstorm",
         "sleigh",
         "mistletoe",
-        "snowdrift"
+        "snowdrift",
+        "frost",
+        "icy",
+        "shiver",
+        "frozen",
+        "overcoat"
       ]
     },
     "vector": {
@@ -3651,6 +3955,379 @@
     "color": [
       "#AEE6FF",
       "#EAF8FF"
+    ],
+    "priority": 5
+  },
+  "january": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "enero"
+      ],
+      "en": [
+        "january"
+      ]
+    },
+    "vector": {
+      "valence": 0.25,
+      "arousal": 0.28,
+      "gravity": -0.25,
+      "temperature": -0.65,
+      "fragility": 0.55,
+      "blur": 0.15
+    },
+    "primitives": [
+      "glow",
+      "mask_reveal",
+      "letter_offset",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#B8E4FF",
+      "#FFF4D6"
+    ],
+    "priority": 5
+  },
+  "february": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "febrero"
+      ],
+      "en": [
+        "february"
+      ]
+    },
+    "vector": {
+      "valence": 0.45,
+      "arousal": 0.32,
+      "gravity": -0.15,
+      "temperature": 0.2,
+      "fragility": 0.6,
+      "blur": 0.25
+    },
+    "primitives": [
+      "glow",
+      "scale",
+      "hue_shift",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#F4B8D4",
+      "#FFE0C8"
+    ],
+    "priority": 5
+  },
+  "march": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "marzo"
+      ],
+      "en": [
+        "march"
+      ]
+    },
+    "vector": {
+      "valence": 0.6,
+      "arousal": 0.58,
+      "gravity": -0.45,
+      "temperature": 0.15,
+      "fragility": 0.5,
+      "blur": 0.1
+    },
+    "primitives": [
+      "glow",
+      "displacement",
+      "letter_spacing",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#7CE8B5",
+      "#C6F578"
+    ],
+    "priority": 5
+  },
+  "april": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "abril"
+      ],
+      "en": [
+        "april"
+      ]
+    },
+    "vector": {
+      "valence": 0.65,
+      "arousal": 0.38,
+      "gravity": -0.3,
+      "temperature": 0.2,
+      "fragility": 0.65,
+      "blur": 0.2
+    },
+    "primitives": [
+      "glow",
+      "wave",
+      "scale",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#A6DCFF",
+      "#FFC2DC"
+    ],
+    "priority": 5
+  },
+  "may": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "mayo"
+      ],
+      "en": [
+        "may"
+      ]
+    },
+    "vector": {
+      "valence": 0.85,
+      "arousal": 0.55,
+      "gravity": -0.45,
+      "temperature": 0.45,
+      "fragility": 0.55,
+      "blur": 0.1
+    },
+    "primitives": [
+      "glow",
+      "scale",
+      "hue_shift",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#B7F07A",
+      "#FFD97D"
+    ],
+    "priority": 5
+  },
+  "june": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "junio"
+      ],
+      "en": [
+        "june"
+      ]
+    },
+    "vector": {
+      "valence": 0.9,
+      "arousal": 0.5,
+      "gravity": -0.35,
+      "temperature": 0.75,
+      "fragility": 0.45,
+      "blur": 0.1
+    },
+    "primitives": [
+      "glow",
+      "scale",
+      "hue_shift",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#FFF1A8",
+      "#FFB570"
+    ],
+    "priority": 5
+  },
+  "july": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "julio"
+      ],
+      "en": [
+        "july"
+      ]
+    },
+    "vector": {
+      "valence": 0.8,
+      "arousal": 0.78,
+      "gravity": -0.4,
+      "temperature": 0.9,
+      "fragility": 0.5,
+      "blur": 0.05
+    },
+    "primitives": [
+      "glow",
+      "hue_shift",
+      "wave",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#FFE05C",
+      "#FF7A59"
+    ],
+    "priority": 5
+  },
+  "august": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "agosto"
+      ],
+      "en": [
+        "august"
+      ]
+    },
+    "vector": {
+      "valence": 0.55,
+      "arousal": 0.42,
+      "gravity": 0.15,
+      "temperature": 0.7,
+      "fragility": 0.5,
+      "blur": 0.15
+    },
+    "primitives": [
+      "glow",
+      "hue_shift",
+      "displacement",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#F7CF6B",
+      "#E39448"
+    ],
+    "priority": 5
+  },
+  "september": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "septiembre",
+        "setiembre"
+      ],
+      "en": [
+        "september"
+      ]
+    },
+    "vector": {
+      "valence": 0.1,
+      "arousal": 0.3,
+      "gravity": 0.2,
+      "temperature": 0.05,
+      "fragility": 0.6,
+      "blur": 0.2
+    },
+    "primitives": [
+      "glow",
+      "rotation",
+      "letter_spacing",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#9CC7B8",
+      "#D99B66"
+    ],
+    "priority": 5
+  },
+  "october": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "octubre"
+      ],
+      "en": [
+        "october"
+      ]
+    },
+    "vector": {
+      "valence": -0.15,
+      "arousal": 0.42,
+      "gravity": 0.35,
+      "temperature": -0.1,
+      "fragility": 0.65,
+      "blur": 0.25
+    },
+    "primitives": [
+      "glow",
+      "trail",
+      "hue_shift",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#B794F4",
+      "#E88B5A"
+    ],
+    "priority": 5
+  },
+  "november": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "noviembre"
+      ],
+      "en": [
+        "november"
+      ]
+    },
+    "vector": {
+      "valence": -0.2,
+      "arousal": 0.25,
+      "gravity": -0.2,
+      "temperature": 0.25,
+      "fragility": 0.65,
+      "blur": 0.25
+    },
+    "primitives": [
+      "glow",
+      "hue_shift",
+      "displacement",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#FFB347",
+      "#9DB4D9"
+    ],
+    "priority": 5
+  },
+  "december": {
+    "kind": "month",
+    "lemmas": {
+      "es": [
+        "diciembre"
+      ],
+      "en": [
+        "december"
+      ]
+    },
+    "vector": {
+      "valence": 0.15,
+      "arousal": 0.18,
+      "gravity": 0.35,
+      "temperature": -0.85,
+      "fragility": 0.7,
+      "blur": 0.3
+    },
+    "primitives": [
+      "glow",
+      "blur",
+      "rotation",
+      "particles",
+      "sparkle"
+    ],
+    "color": [
+      "#C2E5FF",
+      "#FFF0C9"
     ],
     "priority": 5
   }

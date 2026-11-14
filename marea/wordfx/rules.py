@@ -14,7 +14,7 @@ from marea.wordfx.library import LANGS
 BUNDLED = Path(__file__).resolve().parent.parent.parent / "assets" / "wordfx" / "rules.json"
 WILDCARD = "*"
 SIDES = ("before", "after")
-_TOP = {"phrases", "negators", "negation", "reversals", "pos_guards", "contrast"}
+_TOP = {"phrases", "negators", "negation", "reversals", "pos_guards", "contrast", "senses"}
 
 
 class RulesError(ValueError):
@@ -53,6 +53,25 @@ class Reversal:
 
 
 @dataclass(frozen=True)
+class SenseCond:
+    prev: frozenset[str] = frozenset()
+    next: frozenset[str] = frozenset()
+    near: frozenset[str] = frozenset()  # forma o lema en cualquier otro token del mismo verso
+    co_cats: frozenset[str] = frozenset()  # categoría presente en otro token del mismo verso
+    line_end: bool = False
+    line_start: bool = False
+
+
+@dataclass(frozen=True)
+class SenseRule:
+    word: str
+    lang: str
+    cond: SenseCond
+    categories: tuple[str, ...]
+    label: str = ""
+
+
+@dataclass(frozen=True)
 class Rules:
     phrases: tuple[Phrase, ...] = ()
     negators: dict[str, frozenset[str]] = field(default_factory=dict)  # lang -> palabras
@@ -61,6 +80,7 @@ class Rules:
     guards: dict[tuple[str, str], tuple[Guard, ...]] = field(default_factory=dict)  # (lang, palabra) -> guardas
     contrast_categories: frozenset[frozenset[str]] = frozenset()
     contrast_words: tuple[tuple[str, str], ...] = ()
+    senses: dict[tuple[str, str], tuple[SenseRule, ...]] = field(default_factory=dict)  # (lang, lema/forma) -> sentidos
 
 
 def _fail(where: str, msg: str):
@@ -135,6 +155,24 @@ def _cond(where: str, v) -> Cond | None:
     return c
 
 
+def _sense_cond(where: str, v) -> SenseCond:
+    d = _obj(where, v, {"prev", "next", "near", "co_cats", "line_end", "line_start"})
+    for k in ("line_end", "line_start"):
+        if not isinstance(d.get(k, False), bool):
+            _fail(where, f"`{k}` debe ser true o false.")
+    sc = SenseCond(
+        _words(f"{where}.prev", d.get("prev", [])),
+        _words(f"{where}.next", d.get("next", [])),
+        _words(f"{where}.near", d.get("near", [])),
+        frozenset(_cats(f"{where}.co_cats", d.get("co_cats", []), allow_empty=True)),
+        d.get("line_end", False),
+        d.get("line_start", False),
+    )
+    if not (sc.prev or sc.next or sc.near or sc.co_cats or sc.line_end or sc.line_start):
+        _fail(where, "no tiene ninguna condición (prev, next, near, co_cats, line_end, line_start).")
+    return sc
+
+
 def _pairs(where: str, v, item) -> list:
     out = []
     for i, p in enumerate(_list(where, v)):
@@ -184,8 +222,21 @@ def parse(raw: dict) -> Rules:
     cpairs = _pairs("contrast.categories", ct.get("categories", []),
                     lambda w, v: _cats(w, [v])[0])
     wpairs = _pairs("contrast.words", ct.get("words", []), _word)
+    senses: dict[tuple[str, str], list[SenseRule]] = {}
+    for i, s in enumerate(_list("senses", d.get("senses", []))):
+        w = f"senses[{i}]"
+        s = _obj(w, s, {"word", "lang", "if", "categories", "label"})
+        word = _word(f"{w}.word", s.get("word"))
+        lang = _lang(w, s.get("lang"))
+        cond = _sense_cond(f"{w}.if", s.get("if"))
+        cats = _cats(f"{w}.categories", s.get("categories"))
+        lbl = s.get("label", "")
+        if not isinstance(lbl, str):
+            _fail(f"{w}.label", "debe ser texto.")
+        senses.setdefault((lang, word), []).append(SenseRule(word, lang, cond, cats, lbl.strip()))
     return Rules(tuple(phrases), negators, negation, tuple(reversals), {k: tuple(v) for k, v in guards.items()},
-                 frozenset(frozenset(p) for p in cpairs), tuple(wpairs))
+                 frozenset(frozenset(p) for p in cpairs), tuple(wpairs),
+                 {k: tuple(v) for k, v in senses.items()})
 
 
 def user_path() -> Path:

@@ -13,7 +13,7 @@ RGB = tuple[int, int, int]
 AXES = ("valence", "arousal", "gravity", "temperature", "fragility", "blur")  # orden de FxParams.vector
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FxParams:
     seed: int  # estable: sha1(track_id:verso:palabra); toda la aleatoriedad del render sale de aquí
     vector: tuple[float, ...]  # vector final de emoción, en el orden de AXES
@@ -77,10 +77,13 @@ class FxParams:
     fill_tint: float = 0.42  # 0.25..0.60 category color mix on sung fill
     fill_edge_softness: float = 1.0  # FW multiplier
     glow_spread: float = 0.25
-    particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | tear | crimson | bubble | mist | shard | wisp | seed
+    glow_color: RGB | None = None  # optional glow tint override; None inherits letter color
+    particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | tear | crimson | bubble | mist | shard | wisp | seed | spark | ...
+    sparkle_style: str = "star"  # star | celestial | ember | buoyant | bokeh | flare
+    motif: str = ""  # optional subtle word-level atmospheric motif (e.g. threshold | gust | corona | equinox | vigil)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CarrierLetter:
     """Read-only base renderer carrier state for a single character."""
     fill_p: float = 0.0  # 0..1 wipe progress at this letter
@@ -91,7 +94,7 @@ class CarrierLetter:
     glow_r: float = 0.0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CarrierWord:
     """Read-only base renderer carrier state for a word and its parent line."""
     letters: tuple[CarrierLetter, ...] = ()
@@ -105,7 +108,7 @@ class CarrierWord:
     is_bg: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FxWord:
     match: Match
     params: FxParams

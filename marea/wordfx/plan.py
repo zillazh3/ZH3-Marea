@@ -9,12 +9,12 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from marea.model.lyrics import Line, Lyrics
-from marea.wordfx import library, songs
+from marea.wordfx import library, rules as rules_mod, songs
 from marea.wordfx.bleed import handoff_overlap_s, line_bleed_donors
 from marea.wordfx.composer import blend_categories, compose, compose_ambient
 from marea.wordfx.fxtypes import RGB, FxWord
 from marea.wordfx.lexicon import normalize
-from marea.wordfx.matcher import Match, match_lyrics, word_groups
+from marea.wordfx.matcher import MAX_PER_LINE, Match, _match_line, _phrase_buckets, match_lyrics, phrase_table, word_groups
 from marea.wordfx.momentum import MomentumCurve, build_momentum
 from marea.wordfx.profile import vector_at
 
@@ -77,15 +77,24 @@ def _line_key(text: str) -> str:
 
 def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: float = 1.0, *, track_id: str = "",
                palette: tuple[RGB, ...] = (), analysis=None, overrides: list[songs.Override] | None = None,
-               profile=None, audio_stats=None, adapt_bg: bool = True) -> FxPlan:
+               profile=None, audio_stats=None, adapt_bg: bool = True,
+               rules: rules_mod.Rules | None = None,
+               matches: dict[tuple[int, int], Match] | None = None) -> FxPlan:
     """analysis: `marea.model.cinematic.AudioAnalysis` del audio local (RMS y pulso) o None.
     profile: `marea.wordfx.profile.SongProfile` (ánimo de la canción: línea base por tramo del arco y raw_vocals) o None.
     audio_stats: `fxtypes.AudioStats` (aporta la curva de tensión vocal) o None.
-    overrides: de la canción; None = leer `songs/<pista>.json` (así un archivo editado entra en el siguiente armado)."""
+    overrides: de la canción; None = leer `songs/<pista>.json` (así un archivo editado entra en el siguiente armado).
+    rules / matches: caches opcionales para evitar reparsear `rules.json` o rehacer `match_lyrics` al mover sliders."""
     lib = lib or library.load()
+    rls = rules if rules is not None else rules_mod.load()
     track = track_key(lyrics, track_id)
-    matches, vec_over, mult = songs.apply(match_lyrics(lyrics, lib), lyrics, lib,
+    raw_matches = matches if matches is not None else match_lyrics(lyrics, lib, rules=rls)
+    matches, vec_over, mult = songs.apply(raw_matches, lyrics, lib,
                                           songs.load(track) if overrides is None else overrides)
+    has_bg = any(line.bg for line in lyrics.lines)
+    ptable = phrase_table(lib, rls) if has_bg else None
+    pbuckets = _phrase_buckets(ptable) if ptable is not None else None
+    main_groups_by_line = [word_groups(l.syllables) for l in lyrics.lines]
     by_line: dict[int, list[Match]] = {}
     for m in matches.values():
         by_line.setdefault(m.line, []).append(m)
@@ -125,13 +134,13 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         prev_last_hero = ms[-1] if ms else None
 
         # Match background vocals / ad-libs at 40% amplitude (after main words in L.words order)
-        main_groups = word_groups(line.syllables)
+        main_groups = main_groups_by_line[li]
         wi_offset = len(main_groups)
         for bg_line in line.bg:
             bg_as_line = Line(bg_line.start, bg_line.end, syllables=bg_line.syllables)
             bg_groups = word_groups(bg_line.syllables)
-            bg_matches = match_lyrics(Lyrics([bg_as_line]), lib)
-            bg_by_w = {bm.word: bm for bm in bg_matches.values()}
+            bg_matches = _match_line(bg_as_line, 0, lib, MAX_PER_LINE, rls, ptable, pbuckets)
+            bg_by_w = {bm.word: bm for bm in bg_matches}
             for bi, grp in enumerate(bg_groups):
                 b_key = (li, wi_offset + bi)
                 bm = bg_by_w.get(bi)
@@ -155,7 +164,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         ms = by_line.get(li, [])
         nxt_start = lyrics.lines[li + 1].start if li + 1 < len(lyrics.lines) else None
         overlap_s = handoff_overlap_s(line.end, nxt_start)
-        main_groups = word_groups(line.syllables)
+        main_groups = main_groups_by_line[li]
         for wi, grp in enumerate(main_groups):
             key = (li, wi)
             if key in words:

@@ -8,7 +8,7 @@ from marea.render.text import Fonts
 from marea.wordfx.anim import echoes, hash01, letter_state, noise1, particles
 from marea.wordfx.fxtypes import FxParams, FxWord
 from marea.wordfx.matcher import Match
-from marea.wordfx.render import Letter, draw_word_fx, letters_for
+from marea.wordfx.render import Letter, draw_word_fx, draw_word_particles, letters_for
 
 B, E = 1.0, 2.0  # intervalo cantado (s)
 
@@ -326,3 +326,37 @@ def test_eroded_letters_wait_for_the_next_verse_and_vanish_in_a_second():
     assert letter_state(p, 0, 1, 5.0, B, E).alpha == 1.0 and letter_state(p, 0, 1, 6.05, B, E).alpha < 0.01
     assert not [q for q in particles(p, [0.0], [0.6], 4.9, B, E) if q.kind == "dust"]  # nada de polvo antes
     assert [q for q in particles(p, [0.0], [0.6], 5.5, B, E) if q.kind == "dust"]
+
+
+def test_seek_out_of_order_determinism():
+    p = P(particle_kind="ember", particles=12, sparkle=6, sparkle_style="ember", glow=0.8)
+    xs, ws = [0.0, 0.55, 1.1, 1.65], [0.5] * 4
+    pts_a = particles(p, xs, ws, 1.65, B, E)
+    st_a = [letter_state(p, i, 4, 1.65, B, E) for i in range(4)]
+    # Jump backward/forward across unrelated timestamps then return to 1.65
+    particles(p, xs, ws, 1.15, B, E)
+    letter_state(p, 2, 4, 1.95, B, E)
+    pts_b = particles(p, xs, ws, 1.65, B, E)
+    st_b = [letter_state(p, i, 4, 1.65, B, E) for i in range(4)]
+    assert pts_a == pts_b and st_a == st_b
+
+
+def test_glow_spread_scales_halo(fonts):
+    narrow = word(glow=0.9, glow_spread=0.1)
+    wide = word(glow=0.9, glow_spread=0.9)
+    letters = letters_for(fonts, "arde", 48)
+    s_n, s_w = skia.Surface(280, 180), skia.Surface(280, 180)
+    draw_word_fx(s_n.getCanvas(), fonts, narrow, letters, 40, 110, 48, 1.4, backdrop=(10, 10, 20))
+    draw_word_fx(s_w.getCanvas(), fonts, wide, letters, 40, 110, 48, 1.4, backdrop=(10, 10, 20))
+    assert s_n.makeImageSnapshot().tobytes() != s_w.makeImageSnapshot().tobytes()
+
+
+def test_split_text_and_particle_passes_match_combined(fonts):
+    fx = word(glow=0.6, particle_kind="ember", particles=10, sparkle=6, sparkle_style="ember")
+    letters = letters_for(fonts, "arde", 48)
+    s_comb = skia.Surface(280, 180)
+    draw_word_fx(s_comb.getCanvas(), fonts, fx, letters, 40, 110, 48, 1.5, backdrop=(16, 16, 24))
+    s_split = skia.Surface(280, 180)
+    draw_word_fx(s_split.getCanvas(), fonts, fx, letters, 40, 110, 48, 1.5, backdrop=(16, 16, 24), include_particles=False)
+    draw_word_particles(s_split.getCanvas(), fx, letters, 40, 110, 48, 1.5, backdrop=(16, 16, 24))
+    assert s_comb.makeImageSnapshot().tobytes() == s_split.makeImageSnapshot().tobytes()

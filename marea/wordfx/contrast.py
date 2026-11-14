@@ -4,6 +4,7 @@ Funciones puras (sin skia ni estado): el mismo (color, fondo) da siempre el mism
 Sobre fondo oscuro la palabra se aclara (hacia blanco, como siempre); sobre fondo claro se oscurece conservando tono y saturación.
 """
 from dataclasses import replace
+from functools import lru_cache
 
 from marea.wordfx.fxtypes import RGB, FxParams
 
@@ -36,6 +37,7 @@ def _smooth(a: float, b: float, x: float) -> float:
     return u * u * (3.0 - 2.0 * u)
 
 
+@lru_cache(maxsize=4096)
 def adapt(rgb: RGB, bg: RGB) -> RGB:
     """`rgb` corregido hacia `TARGET` frente a `bg`, de forma continua (sin saltos al variar el fondo).
 
@@ -61,4 +63,9 @@ def adapt_params(p: FxParams, bg: RGB | None) -> FxParams:
     """Parámetros con los tres colores de la palabra adaptados al fondo (de ellos derivan letras, glow, polvo y destellos)."""
     if bg is None:
         return p
-    return replace(p, color_from=adapt(p.color_from, bg), color_to=adapt(p.color_to, bg), osc_color=adapt(p.osc_color, bg))
+    cf = adapt(p.color_from, bg)
+    ct = adapt(p.color_to, bg)
+    co = adapt(p.osc_color, bg)
+    if cf == p.color_from and ct == p.color_to and co == p.osc_color:
+        return p
+    return replace(p, color_from=cf, color_to=ct, osc_color=co)
