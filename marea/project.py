@@ -220,10 +220,13 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
     td = d.get("track")
     track = None
     if isinstance(td, dict) and td.get("id"):
+        raw_artists = td.get("artists")
+        if raw_artists is not None and not isinstance(raw_artists, list):
+            raise ProjectError("El campo 'track.artists' debe ser una lista.")
         track = Track(
             id=str(td["id"]),
             title=str(td.get("title", "")),
-            artists=[str(a) for a in (td.get("artists") or [])],
+            artists=[str(a) for a in (raw_artists or [])],
             album=str(td.get("album", "")),
             duration_ms=int(_num(td.get("duration_ms", 0), "track.duration_ms")),
             cover_url=td.get("cover_url"),
@@ -257,10 +260,22 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
 
 
 def save_project(project: ClipProject, path: str | Path, editor_state: dict | None = None) -> Path:
+    import os
+    import tempfile
+
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = project_to_dict(project, editor_state=editor_state)
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    data = json.dumps(payload, ensure_ascii=False, indent=2)
+    fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.stem}_", suffix=".tmp")
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+        os.replace(tmp_path, out)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     project.project_path = out
     return out
 

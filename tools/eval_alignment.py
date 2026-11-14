@@ -17,9 +17,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from marea.export.ffmpeg import find_ffmpeg  # noqa: E402
 from marea.lab import env  # noqa: E402
 from marea.lab.metrics import word_errors  # noqa: E402
+from marea.sysutil import find_ffmpeg, kill_tree  # noqa: E402
 
 
 class Worker:
@@ -56,7 +56,7 @@ class Worker:
             self.p.wait(timeout=30)
             return round(time.perf_counter() - t0, 1)
         except subprocess.TimeoutExpired:
-            subprocess.run(["taskkill", "/PID", str(self.p.pid), "/T", "/F"], capture_output=True)
+            kill_tree(self.p.pid)
             return None
 
 

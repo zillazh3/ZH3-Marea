@@ -322,7 +322,6 @@ def add_line_pauses(al: Alignment, min_ms: int = 150) -> Alignment:
         for line in lines:
             line.pauses = [p for p in line.pauses if p.kind != "between_lines"]
         for a, b in zip(lines, lines[1:]):
-            a.pauses = [p for p in a.pauses if p.kind != "between_lines"]
             last = a.leaves[-1] if a.leaves else None
             if last is not None and not last.approximate and b.start - a.end >= min_ms:
                 a.pauses.append(Pause(a.end, b.start, "between_lines"))

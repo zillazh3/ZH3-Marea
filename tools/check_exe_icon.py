@@ -21,8 +21,10 @@ u32.GetDC.argtypes, u32.GetDC.restype = [V], V
 u32.ReleaseDC.argtypes = [V, V]
 u32.SendMessageTimeoutW.restype = V
 u32.LoadImageW.argtypes, u32.LoadImageW.restype = [V, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT], V
+u32.DestroyIcon.argtypes = [V]
 g32.GetObjectW.argtypes = [V, ctypes.c_int, V]
 g32.GetDIBits.argtypes = [V, V, wintypes.UINT, wintypes.UINT, V, V, wintypes.UINT]
+g32.DeleteObject.argtypes = [V]
 sh.ExtractIconExW.argtypes = [wintypes.LPCWSTR, ctypes.c_int, ctypes.POINTER(V), ctypes.POINTER(V), wintypes.UINT]
 sh.ExtractIconExW.restype = wintypes.UINT
 
@@ -40,17 +42,25 @@ def icon_pixels(hicon) -> tuple[int, int, tuple[int, int, int]]:
     """(lado, % de píxeles con alfa alto, color medio RGB) de un HICON."""
     info = ICONINFO()
     u32.GetIconInfo(hicon, ctypes.byref(info))
-    bm = (ctypes.c_byte * 32)()
-    g32.GetObjectW(info.hbmColor, 32, bm)
-    w, h = struct.unpack_from("ii", bytes(bm), 4)
-    buf = (ctypes.c_ubyte * (w * h * 4))()
-    dc = u32.GetDC(None)
-    g32.GetDIBits(dc, info.hbmColor, 0, h, buf, ctypes.byref(BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0)), 0)
-    u32.ReleaseDC(None, dc)
-    d = bytes(buf)
-    px = [(d[i + 2], d[i + 1], d[i]) for i in range(0, len(d), 4) if d[i + 3] > 200]
-    mean = tuple(round(sum(p[k] for p in px) / len(px)) if px else 0 for k in range(3))
-    return w, round(100 * len(px) / (w * h)), mean
+    try:
+        bm = (ctypes.c_byte * 32)()
+        g32.GetObjectW(info.hbmColor, 32, bm)
+        w, h = struct.unpack_from("ii", bytes(bm), 4)
+        buf = (ctypes.c_ubyte * (w * h * 4))()
+        dc = u32.GetDC(None)
+        try:
+            g32.GetDIBits(dc, info.hbmColor, 0, h, buf, ctypes.byref(BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0)), 0)
+        finally:
+            u32.ReleaseDC(None, dc)
+        d = bytes(buf)
+        px = [(d[i + 2], d[i + 1], d[i]) for i in range(0, len(d), 4) if d[i + 3] > 200]
+        mean = tuple(round(sum(p[k] for p in px) / len(px)) if px else 0 for k in range(3))
+        return w, round(100 * len(px) / (w * h)), mean
+    finally:
+        if info.hbmColor:
+            g32.DeleteObject(info.hbmColor)
+        if info.hbmMask:
+            g32.DeleteObject(info.hbmMask)
 
 
 def visible_windows(pids: set[int]) -> list[tuple[int, str]]:
@@ -94,9 +104,15 @@ def check(exe: Path, ico: Path) -> list[str]:
     else:
         sh.ExtractIconExW(str(exe), 0, ctypes.byref(large), None, 1)
         ref = u32.LoadImageW(None, str(ico), 1, 32, 32, 0x10)
-        embedded, expected = icon_pixels(large)[2], icon_pixels(ref)[2]
-        if max(abs(a - b) for a, b in zip(embedded, expected)) > 6:
-            problems.append(f"el ícono embebido {embedded} no coincide con {ico.name} {expected}")
+        try:
+            embedded, expected = icon_pixels(large)[2], icon_pixels(ref)[2]
+            if max(abs(a - b) for a, b in zip(embedded, expected)) > 6:
+                problems.append(f"el ícono embebido {embedded} no coincide con {ico.name} {expected}")
+        finally:
+            if large.value:
+                u32.DestroyIcon(large)
+            if ref:
+                u32.DestroyIcon(ref)
     # 2) la ventana en ejecución tiene ícono visible, desde el primer instante en que aparece
     p = subprocess.Popen([str(exe)], cwd=exe.parent)
     try:

@@ -168,6 +168,21 @@ def link_secondary_lines(lines: list[Line]) -> list[Line]:
     return lines
 
 
+def assign_unit_ids(line: Line) -> None:
+    """Assign hierarchical word and syllable IDs within a line."""
+    for n, w in enumerate(line.words):
+        w.id = f"{line.id}.W{n}"
+        for k, s in enumerate(w.syllables):
+            s.id = f"{w.id}.S{k}"
+
+
+def recompute_line_stats(line: Line) -> None:
+    """Update line confidence and approximate flag from its words."""
+    ws = [w.confidence for w in line.words]
+    line.confidence = sum(ws) / len(ws) if ws else 0.0
+    line.approximate = any(w.approximate for w in line.words)
+
+
 def from_text_result(data: dict, kind: str = "text") -> Alignment:
     """Modo B: Alignment nuevo a partir del resultado del sidecar (sin TTML de origen: enlaza capas secundarias independientes)."""
     lines = []
@@ -179,12 +194,8 @@ def from_text_result(data: dict, kind: str = "text") -> Alignment:
             ref["standalone"] = True
         clean = {k: v for k, v in r.items() if k not in ("parent", "standalone")}
         line = line_from_dict({**clean, "ref": ref, "source": "ctc"})
-        for n, w in enumerate(line.words):
-            w.id = f"{line.id}.W{n}"
-            for k, s in enumerate(w.syllables):
-                s.id = f"{w.id}.S{k}"
-        ws = [w.confidence for w in line.words]
-        line.confidence, line.approximate = (sum(ws) / len(ws) if ws else 0.0), any(w.approximate for w in line.words)
+        assign_unit_ids(line)
+        recompute_line_stats(line)
         lines.append(line)
     link_secondary_lines(lines)
     al = Alignment(data["duration_ms"], lines, data["language"], data["audio_sha256"], {"kind": kind},

@@ -11,6 +11,7 @@ INTRO_MS = 1200  # la intro muestra los puntos desde aquí (como Apple Music); l
 
 TT = "{http://www.w3.org/ns/ttml}"
 TTM = "{http://www.w3.org/ns/ttml#metadata}"
+XML = "{http://www.w3.org/XML/1998/namespace}"
 MAREA_URI = "https://zh3.marea/ns/ttml"
 MAREA = f"{{{MAREA_URI}}}"
 
@@ -117,27 +118,70 @@ def _role(el) -> str | None:
     return el.get(f"{TTM}role")
 
 
-def _timed_spans(parent, bg: bool = False) -> list[Syllable]:
-    out: list[Syllable] = []
-    for c in parent:
-        if c.tag != f"{TT}span" or _role(c) or c.get("begin") is None:
-            continue
+def timed_span_children(container) -> list:
+    """Return direct child `<span>` elements carrying a `begin` attribute and no `ttm:role`."""
+    return [c for c in container if c.tag == f"{TT}span" and not _role(c) and c.get("begin") is not None]
+
+
+def _span_end_ms(spans: list, idx: int, begin_ms: int, fallback_end: int | None) -> int:
+    raw_end = spans[idx].get("end")
+    if raw_end is not None:
+        return parse_time(raw_end)
+    if idx + 1 < len(spans):
+        return max(begin_ms, parse_time(spans[idx + 1].get("begin")))
+    return max(begin_ms, fallback_end if fallback_end is not None else begin_ms)
+
+
+def iter_word_groups(container, bg: bool = False, fallback_end: int | None = None) -> list[list[tuple[int, str, int, int]]]:
+    """Group timed child spans into words using TTML whitespace rules: leading/trailing or tail whitespace delimits words.
+
+    Returns lists of `(span_index, text, begin_ms, end_ms)` tuples.
+    """
+    spans = timed_span_children(container)
+    groups: list[list[tuple[int, str, int, int]]] = [[]]
+    for j, c in enumerate(spans):
         raw = "".join(c.itertext())
-        if raw[:1].isspace() and out:
-            out[-1].word_end = True
-        tail = c.tail or ""
-        out.append(Syllable(raw.strip(), parse_time(c.get("begin")), parse_time(c.get("end")),
-                            word_end=raw[-1:].isspace() or tail.isspace()))
-    if bg and out:  # Apple envuelve la voz de fondo en "( … )"
-        out[0].text = out[0].text.lstrip("(")
-        out[-1].text = out[-1].text.rstrip(")")
-    out = [s for s in out if s.text]
+        if raw[:1].isspace() and groups[-1]:
+            groups.append([])
+        b = parse_time(c.get("begin"))
+        e = _span_end_ms(spans, j, b, fallback_end)
+        text = raw.strip()
+        if text:
+            groups[-1].append((j, text, b, e))
+        if raw[-1:].isspace() or (c.tail or "").isspace():
+            groups.append([])
+    groups = [g for g in groups if g]
+    if bg and groups:  # Apple wraps background vocals in "( ... )"
+        idx0, t0, b0, e0 = groups[0][0]
+        groups[0][0] = (idx0, t0.lstrip("("), b0, e0)
+        idx1, t1, b1, e1 = groups[-1][-1]
+        groups[-1][-1] = (idx1, t1.rstrip(")"), b1, e1)
+        groups = [[item for item in g if item[1]] for g in groups]
+        groups = [g for g in groups if g]
+    return groups
+
+
+def _append_word_syllable(out: list[Syllable], raw: str, b: int, e: int, tail_space: bool = False):
+    if raw[:1].isspace() and out:
+        out[-1].word_end = True
+    text = raw.strip()
+    if text:
+        out.append(Syllable(text, b, max(e, b), word_end=raw[-1:].isspace() or tail_space))
+
+
+def _timed_spans(parent, bg: bool = False, fallback_end: int | None = None) -> list[Syllable]:
+    groups = iter_word_groups(parent, bg=bg, fallback_end=fallback_end)
+    out: list[Syllable] = []
+    for g in groups:
+        for _, text, b, e in g:
+            out.append(Syllable(text, b, e, word_end=False))
+        out[-1].word_end = True
     if out:
         out[-1].word_end = False
     return out
 
 
-def _plain_text(p) -> str:
+def plain_text(p) -> str:
     """Texto de un <p> sin spans con tiempo, ignorando voces de fondo y traducciones."""
     parts = [p.text or ""]
     for c in p:
@@ -145,6 +189,9 @@ def _plain_text(p) -> str:
             parts.append("".join(c.itertext()))
         parts.append(c.tail or "")
     return " ".join("".join(parts).split())
+
+
+_plain_text = plain_text
 
 
 def _bg_vocal(span) -> BgVocal | None:
@@ -169,12 +216,12 @@ def _agent(raw: str | None, agents: dict) -> str:
 
 
 def _parse_p(p, agents: dict) -> Line | None:
-    syls = _timed_spans(p)
     start = parse_time(p.get("begin")) if p.get("begin") else None
     end = parse_time(p.get("end")) if p.get("end") else None
+    syls = _timed_spans(p, fallback_end=end)
     approx = False
     if not syls:  # TTML con tiempos solo por línea
-        text = _plain_text(p)
+        text = plain_text(p)
         if text and start is not None and end is not None:
             syls, approx = spread(text, start, end), True
     bg = [b for s in p if s.tag == f"{TT}span" and _role(s) == "x-bg" and (b := _bg_vocal(s))]
@@ -242,12 +289,11 @@ def parse_lyricsfile(text: str) -> Lyrics:
             syls: list[Syllable] = []
             for j, w in enumerate(words):
                 t, b = str(w["text"]), int(w["start_ms"])
-                if t[:1].isspace() and syls:
-                    syls[-1].word_end = True
                 e = int(w["end_ms"]) if w.get("end_ms") is not None else (
                     int(words[j + 1]["start_ms"]) if j + 1 < len(words) else end)
-                syls.append(Syllable(t.strip(), b, max(e, b), word_end=t[-1:].isspace()))
-            syls[-1].word_end = False
+                _append_word_syllable(syls, t, b, e)
+            if syls:
+                syls[-1].word_end = False
         else:
             syls = spread(str(l["text"]), start, end)
         lines.append(Line(start, max(end, syls[-1].end), syllables=syls, approx=approx))

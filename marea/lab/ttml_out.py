@@ -5,20 +5,20 @@ Explicit corrections rebuild only the affected spans; unsafe metadata loss is
 refused. Without a source, use the existing paragraph/x-bg conventions.
 Vowels, pauses, provenance, and review history remain in alignment JSON.
 """
-import io
-import xml.etree.ElementTree as XET  # solo serializa: los archivos ajenos se parsean con defusedxml
 from collections import Counter
+from functools import lru_cache
+import io
 from pathlib import Path
+import xml.etree.ElementTree as XET  # solo serializa: los archivos ajenos se parsean con defusedxml
 
 import defusedxml.ElementTree as ET
 
-from marea.export.job import safe_filename, unique_path
 from marea.lab.alignment import Alignment, AlignmentError, Line, Word, apply_offset, validate
-from marea.model.lyrics import MAREA, MAREA_URI, TT, TTM, join_text, parse_time, parse_ttml
+from marea.model.lyrics import MAREA, MAREA_URI, TT, TTM, XML, join_text, parse_time, parse_ttml, timed_span_children as _timed
+from marea.sysutil import safe_filename, unique_path
 
 ITUNES_URI = "http://music.apple.com/lyric-ttml-internal"
 ITUNES = f"{{{ITUNES_URI}}}"
-XML = "{http://www.w3.org/XML/1998/namespace}"
 
 
 def clock(ms: int) -> str:
@@ -42,10 +42,6 @@ def _spans(words: list[Word], wrap: bool = False) -> list[XET.Element]:
     if wrap and out:  # Apple envuelve la voz de fondo en "( … )"
         out[0].text, out[-1].text = "(" + out[0].text, out[-1].text + ")"
     return out
-
-
-def _timed(container) -> list:
-    return [c for c in container if c.tag == f"{TT}span" and not c.get(f"{TTM}role") and c.get("begin") is not None]
 
 
 def _retime(container, line: Line, label: str):
@@ -95,14 +91,30 @@ def _ensure_agent(root, agent: str):
         XET.SubElement(md, f"{TTM}agent", {"type": "person", f"{XML}id": agent})
 
 
+@lru_cache(maxsize=8)
+def _original_metadata(original: bytes) -> tuple[Counter, Counter, frozenset[tuple[int, int | None]]]:
+    """Cache immutable text counts and inline-nested-markup locations per original TTML bytes."""
+    parsed_orig = parse_ttml(original)
+    want_main = Counter(l.text for l in parsed_orig.lines if l.text)
+    want_bg = Counter(join_text(b.syllables) for l in parsed_orig.lines for b in l.bg)
+    nested: set[tuple[int, int | None]] = set()
+    root = ET.fromstring(original)
+    for pi, p in enumerate(root.iter(f"{TT}p")):
+        if any(list(s) for s in _timed(p)):
+            nested.add((pi, None))
+        bgs = [s for s in p if s.get(f"{TTM}role") == "x-bg"]
+        for bi, bg_el in enumerate(bgs):
+            if any(list(s) for s in _timed(bg_el)):
+                nested.add((pi, bi))
+    return want_main, want_bg, frozenset(nested)
+
+
 def ensure_editable(original: bytes, line: Line):
     """Refuse edits that would silently discard unsupported inline markup."""
     if "ttml_p_index" not in line.ref:
         return
-    p = list(ET.fromstring(original).iter(f"{TT}p"))[line.ref["ttml_p_index"]]
-    if "bg_index" in line.ref:
-        p = [s for s in p if s.get(f"{TTM}role") == "x-bg"][line.ref["bg_index"]]
-    if any(list(s) for s in _timed(p)):
+    _, _, nested = _original_metadata(original)
+    if (line.ref["ttml_p_index"], line.ref.get("bg_index")) in nested:
         raise AlignmentError(["This performance contains nested inline metadata; edit its source structure explicitly."])
 
 
@@ -331,9 +343,7 @@ def export_ttml(al: Alignment, original: bytes | None = None, *, allow_pending: 
         or any(l.ref.get("text_edited") or "ttml_p_index" not in l.ref for l in applied.lines)
     )
     if original is not None and not structural_edit:
-        parsed_orig = parse_ttml(original)
-        want_main = Counter(l.text for l in parsed_orig.lines if l.text)
-        want_bg = Counter(join_text(b.syllables) for l in parsed_orig.lines for b in l.bg)
+        want_main, want_bg, _ = _original_metadata(original)
     else:
         want_main = Counter(l.text for l in applied.lines if not l.bg and l.text)
         want_bg = Counter(l.text for l in applied.lines if l.bg and l.text)

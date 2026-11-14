@@ -10,12 +10,19 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
-from marea.export.job import unique_path
 from marea.lab import alignment as A
-from marea.lab.align_job import link_secondary_lines, needs_review, remap_line, request_layers
+from marea.lab.align_job import (
+    assign_unit_ids,
+    link_secondary_lines,
+    needs_review,
+    recompute_line_stats,
+    remap_line,
+    request_layers,
+)
 from marea.lab.alignment import BG_ROLES, ROLES, Alignment, AlignmentError, Line, Unit, Word, line_from_dict
 from marea.lab.ttml_out import export_ttml, write_new
 from marea.model.lyrics import Lyrics, parse_ttml
+from marea.sysutil import unique_path
 
 UNDO_LIMIT = 50
 REALIGN_MARGIN_MS = 1500  # cuánto se mira antes y después de la sección al recalcularla
@@ -121,7 +128,7 @@ class Session:
             if kind == "word":
                 unit.syllables = []
             else:
-                word = next(w for w in line.words if unit in w.syllables)
+                word = next(w for w in line.words if any(s is unit for s in w.syllables))
                 word.text = "".join(s.text for s in word.syllables)
                 unit.vowels = []
         line.ref["text_edited"] = True
@@ -194,7 +201,7 @@ class Session:
         unit.start, unit.end = int(start), int(end)
         unit.manual_override, unit.approximate, unit.confidence, unit.source = True, False, 1.0, "manual"
         if kind == "syllable":  # la palabra es lo que cubren sus sílabas, y la línea lo que cubren sus palabras
-            word = next(w for w in line.words if unit in w.syllables)
+            word = next(w for w in line.words if any(s is unit for s in w.syllables))
             unit.vowels = [v for v in unit.vowels if unit.start <= v.start and v.end <= unit.end]
             word.start, word.end = min(s.start for s in word.syllables), max(s.end for s in word.syllables)
         if kind in ("syllable", "word"):
@@ -236,20 +243,17 @@ class Session:
 
     def apply_realign(self, line_id: str, data: dict) -> list[str]:
         """Integra el resultado del sidecar para esa línea. Devuelve errores (lista vacía = aplicado)."""
-        old = self.find(line_id)[1]
+        found = self.find(line_id)
+        if found is None or found[0] != "line":
+            return ["Line not found."]
+        old = found[1]
         res = next((l for l in data["lines"] if l["id"] == line_id), None)
         if res is None:
             return ["El resultado no trae la línea pedida."]
-        if self.original is not None:
-            new = remap_line(old, res)
-        else:
-            new = remap_line(old, res)
-            for n, w in enumerate(new.words):
-                w.id = f"{old.id}.W{n}"
-                for k, s in enumerate(w.syllables):
-                    s.id = f"{w.id}.S{k}"
-            ws = [w.confidence for w in new.words]
-            new.confidence, new.approximate = sum(ws) / len(ws), any(w.approximate for w in new.words)
+        new = remap_line(old, res)
+        if self.original is None:
+            assign_unit_ids(new)
+            recompute_line_stats(new)
         try:
             merged = A.merge(self.alignment, [line_id], [new])
         except AlignmentError as e:

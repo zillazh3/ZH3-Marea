@@ -4,36 +4,23 @@ Timed syllables keep their segmentation. A line-only paragraph remains one
 approximate text interval until alignment supplies measured subdivisions.
 """
 import defusedxml.ElementTree as ET
+from defusedxml import DefusedXmlException
 
 from marea.lab.alignment import BG_ROLES, Alignment, Line, Syl, Word, assign_layers
-from marea.lab.ttml_out import XML, _timed
-from marea.model.lyrics import MAREA, TT, TTM, _plain_text, parse_time, spread
+from marea.model.lyrics import MAREA, TT, TTM, XML, iter_word_groups, parse_time, plain_text, spread
 
 
 def _words(container, prefix: str, bg: bool = False) -> list[Word]:
-    """Misma regla de palabras que `model.lyrics._timed_spans`: un espacio dentro o después del span cierra la palabra."""
-    groups: list[list[Syl]] = [[]]
-    for j, c in enumerate(_timed(container)):
-        raw = "".join(c.itertext())
-        if raw[:1].isspace() and groups[-1]:
-            groups.append([])
-        text = raw.strip()
-        if text:
-            groups[-1].append(Syl(text, parse_time(c.get("begin")), parse_time(c.get("end")), confidence=0.0, source="ttml",
-                                  ref={"span_index": j}))
-        if raw[-1:].isspace() or (c.tail or "").isspace():
-            groups.append([])
-    groups = [g for g in groups if g]
-    if bg and groups:  # Apple envuelve la voz de fondo en "( … )"
-        groups[0][0].text = groups[0][0].text.lstrip("(")
-        groups[-1][-1].text = groups[-1][-1].text.rstrip(")")
-        groups = [[s for s in g if s.text] for g in groups]
-        groups = [g for g in groups if g]
+    """Same word-grouping rule as `model.lyrics`: whitespace inside or trailing a span ends a word."""
+    groups = iter_word_groups(container, bg=bg)
     out = []
     for n, g in enumerate(groups):
-        for k, s in enumerate(g):
-            s.id = f"{prefix}.W{n}.S{k}"
-        out.append(Word("".join(s.text for s in g), g[0].start, g[-1].end, confidence=0.0, source="ttml", id=f"{prefix}.W{n}", syllables=g))
+        syls = [
+            Syl(text, b, e, confidence=0.0, source="ttml", id=f"{prefix}.W{n}.S{k}", ref={"span_index": j})
+            for k, (j, text, b, e) in enumerate(g)
+        ]
+        out.append(Word("".join(s.text for s in syls), syls[0].start, syls[-1].end, confidence=0.0, source="ttml",
+                        id=f"{prefix}.W{n}", syllables=syls))
     return out
 
 
@@ -60,16 +47,20 @@ def _role_conf(el, fallback=None) -> float:
 
 
 def from_ttml(data: bytes, duration_ms: int) -> Alignment:
-    root = ET.fromstring(data)
+    try:
+        root = ET.fromstring(data)
+    except (ET.ParseError, DefusedXmlException) as e:
+        raise ValueError(f"El archivo no es un TTML válido: {e}") from e
     lines = []
     for i, p in enumerate(root.iter(f"{TT}p")):
         words = _words(p, f"L{i}")
         bgs = [c for c in p if c.tag == f"{TT}span" and c.get(f"{TTM}role") == "x-bg"]
         agent = "" if p.get(f"{MAREA}agent-unknown") == "true" else (p.get(f"{TTM}agent") or "v1")
         p_role = p.get(f"{MAREA}role") or ""
-        line_only = not words and bool(_plain_text(p)) and p.get("begin") is not None and p.get("end") is not None
+        text = plain_text(p)
+        line_only = not words and bool(text) and p.get("begin") is not None and p.get("end") is not None
         if line_only:
-            words = [Word(_plain_text(p), parse_time(p.get("begin")), parse_time(p.get("end")),
+            words = [Word(text, parse_time(p.get("begin")), parse_time(p.get("end")),
                           id=f"L{i}.W0", confidence=0.0, approximate=True, source="ttml")]
         if words:
             # Con x-bg en el mismo <p>, begin/end del <p> envuelven ambas capas: el verso principal conserva su propio rango.

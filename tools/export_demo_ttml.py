@@ -8,13 +8,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from marea.demo_song import SONG, words  # noqa: E402
+from marea.lab.ttml_out import clock as _clock_ms  # noqa: E402
 
 OUT = ROOT / "assets" / "demo" / "marea-de-luz.ttml"
 
 
 def clock(sec):
-    ms = round(sec * 1000)
-    return f"{ms // 60000:02d}:{ms % 60000 / 1000:06.3f}"
+    return _clock_ms(round(sec * 1000))
 
 
 def spans(ws, wrap=False):

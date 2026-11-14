@@ -17,10 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 from eval_alignment import Worker  # noqa: E402
-from marea.export.ffmpeg import find_ffmpeg  # noqa: E402
 from marea.lab import env  # noqa: E402
-
-LANG_NAMES = {"en": "en", "es": "es"}
+from marea.sysutil import find_ffmpeg  # noqa: E402
 
 
 def words(text: str) -> list[str]:

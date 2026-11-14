@@ -3,6 +3,7 @@
 Todo vive dentro de UNA carpeta (`lab/`): el binario de uv, el Python gestionado, la caché de uv y el entorno. Borrarla desinstala todo.
 `progress(etapa, texto)` solo recibe lo que realmente pasó: bytes descargados, o las líneas que escribe uv.
 """
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -15,9 +16,9 @@ from typing import Callable
 
 import httpx
 
-from marea.export.ffmpeg import NO_WINDOW
-from marea.lab.sidecar import kill_tree, sidecar_root
-from marea.paths import app_data
+from marea.lab.sidecar import sidecar_root
+from marea.paths import app_data, make_settings
+from marea.sysutil import NO_WINDOW, kill_tree
 
 # ponytail: uv fijado por versión + SHA-256 (verificado contra el digest que publica la release el 2026-10-27); subir ambos juntos.
 UV_VERSION = "0.13.6"
@@ -42,16 +43,33 @@ def lab_dir() -> Path:
     return app_data() / "lab"
 
 
+def lab_root(settings=None) -> Path:
+    """Resolve user-configured lab directory or fall back to default `app_data()/lab`."""
+    s = settings or make_settings()
+    custom = s.value("experimental/lab_dir", "")
+    return Path(custom) if custom else lab_dir()
+
+
 def env_python(root: Path) -> Path:
     return root / "env" / "Scripts" / "python.exe"
 
 
-def requirements_hash(req_dir: Path = REQ_DIR) -> str:
+_REQ_FILES = ("requirements-torch-cu128.txt", "requirements.txt")
+
+
+@lru_cache(maxsize=8)
+def _cached_req_hash(req_dir_str: str, mtimes: tuple[int, ...]) -> str:
+    req_dir = Path(req_dir_str)
     h = hashlib.sha256()
-    for name in ("requirements-torch-cu128.txt", "requirements.txt"):
+    for name in _REQ_FILES:
         h.update((req_dir / name).read_bytes())
     h.update(f"{UV_VERSION}|{PYTHON}|{TORCH_INDEX}".encode())
     return h.hexdigest()[:16]
+
+
+def requirements_hash(req_dir: Path = REQ_DIR) -> str:
+    mtimes = tuple((req_dir / name).stat().st_mtime_ns for name in _REQ_FILES)
+    return _cached_req_hash(str(req_dir), mtimes)
 
 
 def env_relocated(root: Path) -> bool:
@@ -124,8 +142,11 @@ def _run(root: Path, stage: str, args: list[str], progress: Progress, cancel: th
     """Corre uv mostrando sus líneas tal cual; cancelar mata uv y todo lo que lanzó."""
     env = {**os.environ, "UV_CACHE_DIR": str(root / "uv-cache"), "UV_PYTHON_INSTALL_DIR": str(root / "python"),
            "UV_NO_PROGRESS": "1", "NO_COLOR": "1", "PYTHONUTF8": "1"}
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW,
-                            text=True, encoding="utf-8", errors="replace")
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW,
+                                text=True, encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise InstallError(f"{check_msg}: no pude ejecutar {args[0]} ({e}).") from e
 
     def watch():  # la cancelación no depende de que el proceso escriba: uno callado también se mata
         while proc.poll() is None:

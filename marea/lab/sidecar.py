@@ -3,14 +3,13 @@
 Mismo patrón que export/runner.py (proceso aparte + señales), pero por stdio. La UI nunca se bloquea y el proceso no comparte nada
 con la app: si hay que matarlo se mata con todo su árbol."""
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
-from marea.export.ffmpeg import NO_WINDOW
+from marea.sysutil import NO_WINDOW, kill_tree
 
 GRACE_MS = 3000  # tiempo que se le da al worker para cancelar por las buenas antes de matarlo
 STDERR_TAIL = 4000
@@ -23,13 +22,6 @@ def sidecar_root() -> Path:
 
 def worker_argv(python: str) -> list[str]:
     return [python, "-u", "-X", "utf8", "-m", "sidecar.worker"]
-
-
-def kill_tree(pid: int):
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
-    else:
-        os.kill(pid, 9)
 
 
 class SidecarClient(QObject):
@@ -142,8 +134,11 @@ class SidecarClient(QObject):
         data = bytes(self._proc.readAllStandardError()).decode("utf-8", "replace")
         self.stderr_tail = (self.stderr_tail + data)[-STDERR_TAIL:]
         if self._log:
-            with open(self._log, "a", encoding="utf-8") as f:
-                f.write(data)
+            try:
+                with open(self._log, "a", encoding="utf-8") as f:
+                    f.write(data)
+            except OSError:
+                pass
 
     def _on_error(self, error):
         if error == QProcess.FailedToStart:
