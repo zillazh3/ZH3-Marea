@@ -11,6 +11,7 @@ import re
 import subprocess
 import threading
 from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
@@ -18,8 +19,8 @@ import numpy as np
 import skia
 
 from marea.engine.curves import clamp01
-from marea.export.ffmpeg import NO_WINDOW, find_ffmpeg
 from marea.model.cinematic import ActiveInterval, CinematicConfig, CinematicTreatment, VideoResource, evaluate_at
+from marea.sysutil import NO_WINDOW, find_ffmpeg
 
 CHUNK_FRAMES = 24       # ~0.8–1.0 s por bloque: menos spawns de ffmpeg manteniendo arrastre ágil
 MAX_CACHE_FRAMES = 40   # techo de memoria (~330 MB máx en 1080×1920, ~83 MB en 540×960)
@@ -288,22 +289,26 @@ class VideoDecoder:
         return max(0, min(self.max_frames - 1, idx))
 
     def prefetch_ms(self, src_ms: float, urgent: bool = False):
-        if not self.async_decode or self._broken:
+        if not self.async_decode:
             return
+        with self._lock:
+            if self._broken:
+                return
         idx = self.frame_index(src_ms)
-        self._enqueue_chunk(idx // CHUNK_FRAMES, urgent=urgent)
+        self._enqueue_chunk(idx // CHUNK_FRAMES, urgent=urgent, req_idx=idx)
 
     def get_image(self, src_ms: float) -> skia.Image | None:
         """Obtiene el `skia.Image` exacto para `src_ms` (solo llamar desde el hilo que dibuja en Skia)."""
-        if self._broken:
-            return None
+        with self._lock:
+            if self._broken:
+                return None
         idx = self.frame_index(src_ms)
         if idx in self._img_cache:
             self._img_cache.move_to_end(idx)
             if self.async_decode and (idx % CHUNK_FRAMES) >= (CHUNK_FRAMES // 2):
                 next_idx = idx + CHUNK_FRAMES
                 if next_idx < self.max_frames:
-                    self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False)
+                    self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False, req_idx=next_idx)
             return self._img_cache[idx]
 
         raw, actual_idx = self._get_raw(idx)
@@ -320,7 +325,7 @@ class VideoDecoder:
         if self.async_decode and actual_idx == idx and (idx % CHUNK_FRAMES) >= (CHUNK_FRAMES // 2):
             next_idx = idx + CHUNK_FRAMES
             if next_idx < self.max_frames:
-                self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False)
+                self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False, req_idx=next_idx)
         return img
 
     def _get_raw(self, idx: int) -> tuple[bytes | None, int]:
@@ -342,7 +347,7 @@ class VideoDecoder:
                 return raw, idx
 
         # Modo asíncrono (UI): nunca bloquea el hilo principal; pide el bloque con prioridad y devuelve el frame más cercano si existe
-        self._enqueue_chunk(chunk_id, urgent=True)
+        self._enqueue_chunk(chunk_id, urgent=True, req_idx=idx)
         with self._lock:
             if not self._raw_cache:
                 return None, idx
@@ -351,12 +356,12 @@ class VideoDecoder:
                 return self._raw_cache[nearest], nearest
             return None, idx
 
-    def _enqueue_chunk(self, chunk_id: int, urgent: bool = False):
+    def _enqueue_chunk(self, chunk_id: int, urgent: bool = False, req_idx: int | None = None):
         with self._cond:
             if self._closed or self._broken or chunk_id in self._failed_chunks or chunk_id in self._inflight:
                 return
-            first_idx = chunk_id * CHUNK_FRAMES
-            if first_idx in self._raw_cache:
+            check_idx = req_idx if req_idx is not None else chunk_id * CHUNK_FRAMES
+            if check_idx in self._raw_cache:
                 return
             if chunk_id in self._queue:
                 if urgent:
@@ -401,12 +406,14 @@ class VideoDecoder:
     def _run_ffmpeg_raw(self, t0_s: float, count: int) -> bytes | None:
         p = Path(self.resource.path)
         if not p.is_file():
-            self._broken = True
+            with self._lock:
+                self._broken = True
             return None
         try:
             ffmpeg_bin = find_ffmpeg()
         except FileNotFoundError:
-            self._broken = True
+            with self._lock:
+                self._broken = True
             return None
 
         cmd = [
@@ -455,7 +462,9 @@ class VideoDecoder:
             frames = [out[i * self._frame_bytes:(i + 1) * self._frame_bytes] for i in range(n_got)]
 
         # Si el contenedor reportó unos ms de más al final y `t0` cayó justo tras el último PTS, sostenemos el último frame válido
-        if not frames and chunk_id > 0 and not self._broken and not self._closed:
+        with self._lock:
+            broken_or_closed = self._broken or self._closed
+        if not frames and chunk_id > 0 and not broken_or_closed:
             if self._last_tail_raw is not None:
                 frames = [self._last_tail_raw]
             else:
@@ -507,6 +516,7 @@ class VideoDecoder:
 
 # ---------------- estética cinemática de recuerdo (Skia) ----------------
 
+@lru_cache(maxsize=64)
 def _color_matrix(saturation: float, contrast: float) -> skia.ColorFilter:
     """Matriz combinada de saturación (BT.709) y contraste suave alrededor de gris medio 0.5."""
     r, g, b = 0.2126, 0.7152, 0.0722
@@ -519,6 +529,11 @@ def _color_matrix(saturation: float, contrast: float) -> skia.ColorFilter:
         c * (r * i), c * (g * i), c * (b * i + saturation), 0.0, t,
         0.0, 0.0, 0.0, 1.0, 0.0,
     ])
+
+
+@lru_cache(maxsize=128)
+def _blur_filter_clamp(sigma_q: float):
+    return skia.ImageFilters.Blur(sigma_q, sigma_q, skia.TileMode.kClamp)
 
 
 def _make_grain_tile(side: int = GRAIN_TILE) -> skia.Image:
@@ -559,6 +574,12 @@ class CinematicBackground:
         self.on_frame_ready = on_frame_ready
         self._decoders: dict[tuple[str, str, int, int], VideoDecoder] = {}
         self.config: CinematicConfig | None = None
+        self._rect = skia.Rect.MakeWH(self.w, self.h)
+        self._sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
+        self._layer_paint = skia.Paint(AntiAlias=True)
+        self._vig_paint = skia.Paint()
+        self._grain_paint = skia.Paint(BlendMode=skia.BlendMode.kSoftLight)
+        self._vig_radius = 0.62 * math.hypot(self.w, self.h)
         self.set_config(config)
 
     def set_config(self, config: CinematicConfig | None):
@@ -606,7 +627,7 @@ class CinematicBackground:
         for dec in list(self._decoders.values()):
             dec.wait_idle(timeout)
 
-    def draw(self, canvas: skia.Canvas, base_bg, t_s: float, lyric_act: float = 0.0):
+    def draw(self, canvas: skia.Canvas, base_bg, t_s: float, lyric_act: float | Callable[[], float] = 0.0):
         t_ms = t_s * 1000.0
         self._prefetch_upcoming(t_ms)
         active = evaluate_at(self.config, t_ms)
@@ -633,11 +654,11 @@ class CinematicBackground:
         if max_opaque < 0.999:
             base_bg.draw(canvas, t_s)
 
-        rect = skia.Rect.MakeWH(self.w, self.h)
-        sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
+        act_val = clamp01(lyric_act() if callable(lyric_act) else lyric_act)
+        rect, sampling = self._rect, self._sampling
         for act, img, eff_alpha in layers:
             self._draw_memory_layer(canvas, rect, sampling, img, act.interval.treatment.clamped(),
-                                    act.envelope, eff_alpha, t_s, clamp01(lyric_act))
+                                    act.envelope, eff_alpha, t_s, act_val)
 
     def _draw_memory_layer(
         self,
@@ -657,20 +678,22 @@ class CinematicBackground:
         transition_sigma = (1.0 - envelope) * 0.024 * ref * max(0.25, tr.blur)
         lyric_sigma = (0.006 * ref + base_sigma * 0.22) * lyric_act
         sigma = base_sigma + transition_sigma + lyric_sigma
-        img_filter = skia.ImageFilters.Blur(sigma, sigma, skia.TileMode.kClamp) if sigma > 0.35 else None
+        img_filter = _blur_filter_clamp(round(sigma * 200.0) / 200.0) if sigma > 0.35 else None
 
         color_filter = (
             _color_matrix(tr.saturation, tr.contrast)
             if abs(tr.saturation - 1.0) > 1e-3 or abs(tr.contrast - 1.0) > 1e-3
             else None
         )
-        paint = skia.Paint(
-            AntiAlias=True,
-            Alphaf=eff_alpha,
-            ColorFilter=color_filter,
-            ImageFilter=img_filter,
-        )
-        canvas.drawImageRect(img, rect, sampling, paint)
+        lp = self._layer_paint
+        lp.reset()
+        lp.setAntiAlias(True)
+        lp.setAlphaf(eff_alpha)
+        if color_filter is not None:
+            lp.setColorFilter(color_filter)
+        if img_filter is not None:
+            lp.setImageFilter(img_filter)
+        canvas.drawImageRect(img, rect, sampling, lp)
 
         # 2. Velo de legibilidad (ligeramente más profundo mientras se canta una línea activa)
         veil = clamp01(tr.dim * (1.0 + 0.14 * lyric_act)) * eff_alpha
@@ -680,14 +703,14 @@ class CinematicBackground:
         # 3. Viñeta radial suave
         vig = tr.vignette * 0.68 * eff_alpha
         if vig > 0.004:
-            rad = 0.62 * math.hypot(self.w, self.h)
             shader = skia.GradientShader.MakeRadial(
                 (self.w / 2.0, self.h / 2.0),
-                rad,
+                self._vig_radius,
                 [skia.ColorSetARGB(0, 0, 0, 0), skia.ColorSetARGB(round(vig * 255), 0, 0, 0)],
                 [0.28, 1.0],
             )
-            canvas.drawRect(rect, skia.Paint(Shader=shader))
+            self._vig_paint.setShader(shader)
+            canvas.drawRect(rect, self._vig_paint)
 
         # 4. Grano de película sutil a cadencia cinematográfica determinista (24 Hz en función de `t_s`, nunca reloj real)
         grain_a = tr.grain * eff_alpha
@@ -701,7 +724,10 @@ class CinematicBackground:
                 sampling,
                 skia.Matrix.Translate(ox, oy),
             )
-            canvas.drawRect(rect, skia.Paint(Shader=g_shader, Alphaf=grain_a, BlendMode=skia.BlendMode.kSoftLight))
+            gp = self._grain_paint
+            gp.setShader(g_shader)
+            gp.setAlphaf(grain_a)
+            canvas.drawRect(rect, gp)
 
     def close(self):
         for dec in list(self._decoders.values()):

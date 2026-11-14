@@ -1,5 +1,5 @@
 """Fuentes y layout de texto de las líneas (CSS del prototipo expresado en em)."""
-from functools import lru_cache
+from collections import OrderedDict
 from pathlib import Path
 
 import skia
@@ -13,6 +13,7 @@ PAD_R = 0.15  # margen del lado contrario (fracción del ancho de la línea)
 BG_SCALE = 0.7  # tamaño de las voces de fondo
 BG_PAD_TOP = 0.3  # em de la voz de fondo
 LETTER_SPACING = -0.012  # em
+_TEXT_CACHE_MAX = 2048
 
 
 class Fonts:
@@ -23,30 +24,52 @@ class Fonts:
                      or mgr.makeFromFile(str(FONTS / "InterTight-Bold.ttf")))
         self.regular = (family and mgr.matchFamilyStyle(family, skia.FontStyle.Normal())
                         or mgr.makeFromFile(str(FONTS / "InterTight-Regular.ttf")))
+        self._font_cache: dict[tuple[float, bool], skia.Font] = {}
+        self._text_cache: OrderedDict[tuple[str, float, bool], tuple[skia.TextBlob, float]] = OrderedDict()
+        self._baseline_cache: dict[float, float] = {}
 
     def font(self, size: float, bold: bool = True) -> skia.Font:
-        f = skia.Font(self.bold if bold else self.regular, size)
-        f.setSubpixel(True)
-        f.setLinearMetrics(True)
-        f.setEdging(skia.Font.Edging.kAntiAlias)
+        key = (size, bold)
+        f = self._font_cache.get(key)
+        if f is None:
+            f = skia.Font(self.bold if bold else self.regular, size)
+            f.setSubpixel(True)
+            f.setLinearMetrics(True)
+            f.setEdging(skia.Font.Edging.kAntiAlias)
+            if len(self._font_cache) >= 256:
+                self._font_cache.clear()
+            self._font_cache[key] = f
         return f
 
-    @lru_cache(maxsize=None)
     def text(self, s: str, size: float, bold: bool = True) -> tuple[skia.TextBlob, float]:
         """(blob con letter-spacing aplicado, ancho) de un texto sin saltos de línea."""
+        key = (s, size, bold)
+        cached = self._text_cache.get(key)
+        if cached is not None:
+            self._text_cache.move_to_end(key)
+            return cached
         font = self.font(size, bold)
         glyphs = font.textToGlyphs(s)
         ls, xs, x = LETTER_SPACING * size, [], 0.0
         for w in font.getWidths(glyphs):
             xs.append(x)
             x += w + ls
-        return skia.TextBlob.MakeFromPosTextH(s, xs, 0, font), x
+        res = (skia.TextBlob.MakeFromPosTextH(s, xs, 0, font), x)
+        self._text_cache[key] = res
+        if len(self._text_cache) > _TEXT_CACHE_MAX:
+            self._text_cache.popitem(last=False)
+        return res
 
-    @lru_cache(maxsize=None)
     def baseline(self, size: float) -> float:
         """Distancia del borde superior de la caja de línea (line-height 1.25) a la línea base."""
-        m = self.font(size).getMetrics()
-        return (LINE_H * size - (m.fDescent - m.fAscent)) / 2 - m.fAscent
+        b = self._baseline_cache.get(size)
+        if b is None:
+            m = self.font(size).getMetrics()
+            b = (LINE_H * size - (m.fDescent - m.fAscent)) / 2 - m.fAscent
+            if len(self._baseline_cache) >= 128:
+                self._baseline_cache.clear()
+            self._baseline_cache[size] = b
+        return b
 
 
 def layout_block(words, fonts: Fonts, size: float, avail: float):

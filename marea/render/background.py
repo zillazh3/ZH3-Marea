@@ -44,6 +44,10 @@ class Background:
         cw, ch = cover.width(), cover.height()
         side = min(cw, ch)
         self.layers = []
+        self._sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
+        self._full_rect = skia.Rect.MakeWH(*self.full)
+        self._layer_rect = skia.Rect.MakeXYWH(-self.size / 2, -self.size / 2, self.size, self.size)
+        self._layer_paints = [skia.Paint(Alphaf=alpha) for _, _, alpha, _, _ in LAYERS]
         for *_, zoom in LAYERS:
             s = skia.Surface(RES, RES)
             c = s.getCanvas()
@@ -51,7 +55,7 @@ class Background:
             src = skia.Rect.MakeXYWH((cw - src_side) / 2, (ch - src_side) / 2, src_side, src_side)
             paint = skia.Paint(ColorFilter=_saturation(SAT),
                                ImageFilter=skia.ImageFilters.Blur(sigma, sigma, skia.TileMode.kMirror))
-            c.drawImageRect(cover, src, skia.Rect.MakeWH(RES, RES), skia.SamplingOptions(skia.FilterMode.kLinear),
+            c.drawImageRect(cover, src, skia.Rect.MakeWH(RES, RES), self._sampling,
                             paint, skia.Canvas.kFast_SrcRectConstraint)
             self.layers.append(s.makeImageSnapshot())
 
@@ -59,18 +63,15 @@ class Background:
         if self.surface is None:
             return self._compose(canvas, t)
         self._compose(self.surface.getCanvas(), t)
-        canvas.drawImageRect(self.surface.makeImageSnapshot(), skia.Rect.MakeWH(*self.full),
-                             skia.SamplingOptions(skia.FilterMode.kLinear))
+        canvas.drawImageRect(self.surface.makeImageSnapshot(), self._full_rect, self._sampling)
 
     def _compose(self, canvas: skia.Canvas, t: float):
-        half, sampling = self.size / 2, skia.SamplingOptions(skia.FilterMode.kLinear)
-        for img, (period, direction, alpha, phase, _) in zip(self.layers, LAYERS):
+        for img, paint, (period, direction, _, phase, _) in zip(self.layers, self._layer_paints, LAYERS):
             a = 2 * math.pi * t / period + phase
             canvas.save()
             canvas.translate(self.w / 2 + self.drift * math.sin(a), self.h / 2 + self.drift * math.cos(a * 0.8))
             canvas.rotate(direction * 360 * t / (3 * period))
             canvas.scale(*(1 + SCALE_SWING * math.sin(a * 1.3 + phase),) * 2)
-            canvas.drawImageRect(img, skia.Rect.MakeXYWH(-half, -half, self.size, self.size), sampling,
-                                 skia.Paint(Alphaf=alpha))
+            canvas.drawImageRect(img, self._layer_rect, self._sampling, paint)
             canvas.restore()
         canvas.drawColor(skia.ColorSetARGB(round(VEIL * 255), 0, 0, 0))

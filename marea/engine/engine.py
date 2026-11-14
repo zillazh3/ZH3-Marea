@@ -85,6 +85,7 @@ class Word:
         self.text = "".join(p.text for p in parts)
         self.p = 0.0  # progreso del wipe de toda la palabra (emph: promedio de sus letras)
         self.fx = None  # marea.wordfx.matcher.Match si la palabra lleva efecto semántico (lo asigna la escena)
+        self.fx_layer = None
 
 
 class Dot:
@@ -190,7 +191,7 @@ class Engine:
         self.t, self.now = 0.0, now
         self.active, self.seek_flag, self.config_flag = -1, True, False
         self.live = frozenset()  # índices que se pintan como activos: la línea activa + anteriores cuyo fin (voz de fondo incluida) no llega
-        self.last_policy = None
+        self._active_range: tuple[int, ...] = ()
         entries = [(l.start, 1, l) for l in lyrics.lines] + [(i.start, 0, i) for i in lyrics.interludes]
         self.items = []
         for idx, (_, _, src) in enumerate(sorted(entries, key=lambda e: e[:2])):
@@ -253,6 +254,10 @@ class Engine:
             for tw in (L.blur_tw, L.op_tw, L.act_tw, L.bgp_tw, L.bgo_tw):
                 if tw.v0 != tw.t and now < tw.t0 + tw.dur:
                     return False
+            for dot in L.dots:
+                for sp in (dot.sp, dot.yp):
+                    if abs(sp.p - sp.g) > 1e-4 or abs(sp.v) > 1e-3:
+                        return False
             for w in L.words:
                 for u in w.parts:
                     for sp in (u.S, u.Y, u.G):
@@ -283,6 +288,8 @@ class Engine:
 
     def _relayout(self, reason, now):
         P, items, active = self.p, self.items, self.active
+        if not items:
+            return
         seek_like = reason != "tick"
         for i, L in enumerate(items):
             L.on = i in self.live
@@ -299,7 +306,6 @@ class Engine:
         if active > 0 and not a.is_gap:
             interval = (a.start - items[active - 1].start) * 1000
         k, c = pos_y_policy(reason == "seek", a.is_gap, interval)
-        self.last_policy = (k, c, reason)
 
         delay, base = 0.0, 0.0 if seek_like else P.stagger
         for i, L in enumerate(items):
@@ -333,17 +339,25 @@ class Engine:
             reason = ("init" if self.active == -1 else "seek" if self.seek_flag else
                       "config" if self.config_flag else "tick")
             self.active, self.live, self.seek_flag, self.config_flag = a, live, False, False
+            n = len(self.items)
+            lo, hi = max(0, a - 1), min(n - 1, a + 1)
+            self._active_range = tuple(sorted(live | set(range(lo, hi + 1)))) if n else ()
             self._relayout(reason, self.now)
             for i, L in enumerate(self.items):
                 self._render_item(L, i in live, dt if abs(i - a) <= 1 or i in live else 0.0)
         else:
-            for i in sorted(live | set(range(max(0, a - 1), min(len(self.items) - 1, a + 1) + 1))):
+            for i in self._active_range:
                 self._render_item(self.items[i], i in live, dt)
+        now = self.now
         for L in self.items:
-            L.y.step(dt, self.now)
-            L.s.step(dt, self.now)
-            L.blur, L.opacity = L.blur_tw.value(self.now), L.op_tw.value(self.now)
-            L.act, L.bg_p, L.bg_op = L.act_tw.value(self.now), L.bgp_tw.value(self.now), L.bgo_tw.value(self.now)
+            sy = L.y
+            if sy.pending is not None or sy.p != sy.t or sy.v != 0.0:
+                sy.step(dt, now)
+            ss = L.s
+            if ss.pending is not None or ss.p != ss.t or ss.v != 0.0:
+                ss.step(dt, now)
+            L.blur, L.opacity = L.blur_tw.value(now), L.op_tw.value(now)
+            L.act, L.bg_p, L.bg_op = L.act_tw.value(now), L.bgp_tw.value(now), L.bgo_tw.value(now)
 
     def _render_item(self, L, on, dt):
         if L.is_gap:
@@ -388,60 +402,68 @@ class Engine:
             w.p = _prog(t, w.b, w.e)
             bgk = 2 if w.bg else 1
             if not w.emph:
-                for u in w.parts:
-                    raw = _prog(t, u.b, u.e)
-                    u.p = WIPE(raw)  # el relleno acelera y frena dentro de cada sílaba; las curvas de abajo siguen el avance lineal
-                    gs, gy, gg = 1.0, 0.0, 0.0
-                    if L.approx:  # sin sílabas reales no hay saltos por palabra: solo el barrido y un brillo suave sobre lo que se canta
-                        if u.b <= t < u.e and on:
-                            gg = GLOW(raw)
-                    elif fl:
-                        if t < u.b:
-                            gs, gy = SCALE(0), YOFF(0)
-                        elif t < u.e:
-                            s, y = SCALE(raw), YOFF(raw)  # las notas largas suben y crecen más (solo por encima de 1.0 / de la posición base)
-                            gs = s + max(0.0, s - 1.0) * SUSTAIN_SCALE * u.sus
-                            gy = y + min(0.0, y) * SUSTAIN_LIFT * u.sus
-                            gg = GLOW(raw) * (1 + SUSTAIN_GLOW * u.sus) if on else 0.0
-                    s, y, g = self._springs(u, gs, gy, gg, dt, snap)
-                    u.scale, u.y, u.x = s, y * bgk, 0.0
-                    u.wdy, u.wds = (motion.syllable(pf, P.motion_amt, t, u.b, u.e, len(u.text), u.sus, dip, u.y, s - 1.0)
-                                    if pf else None) or (None, None)
-                    u.glow_r, u.glow_a = (4 + 2 * g, min(0.35 * g, 1.0)) if g > 0.01 else (0.0, 0.0)
-                continue
-            # palabra con énfasis: la letra activa crece y brilla; las vecinas caen con la distancia
-            for c in w.parts:  # cada sílaba se rellena con su propio easing y respeta las pausas; sus letras se reparten ese avance
-                c.p = clamp01(WIPE(_prog(t, c.sb, c.se)) * c.k - c.j)
-            w.p = sum(c.p for c in w.parts) / len(w.parts)
-            active_w = on and P.emph and w.b <= t < w.e
-            ai, ap = -1, 0.0
-            if active_w:
-                for i, c in enumerate(w.parts):
-                    if c.b <= t < c.e:
-                        ai, ap = i, (t - c.b) / (c.e - c.b)
+                self._render_syllable_word(w, L.approx, on, fl, pf, dip, bgk, t, dt, snap)
+            else:
+                self._render_emph_word(w, on, fl, vib, dip, bgk, t, dt, snap)
+
+    def _render_syllable_word(self, w, approx, on, fl, pf, dip, bgk, t, dt, snap):
+        P = self.p
+        for u in w.parts:
+            raw = _prog(t, u.b, u.e)
+            u.p = WIPE(raw)  # el relleno acelera y frena dentro de cada sílaba; las curvas de abajo siguen el avance lineal
+            gs, gy, gg = 1.0, 0.0, 0.0
+            if approx:  # sin sílabas reales no hay saltos por palabra: solo el barrido y un brillo suave sobre lo que se canta
+                if u.b <= t < u.e and on:
+                    gg = GLOW(raw)
+            elif fl:
+                if t < u.b:
+                    gs, gy = SCALE(0), YOFF(0)
+                elif t < u.e:
+                    s, y = SCALE(raw), YOFF(raw)  # las notas largas suben y crecen más (solo por encima de 1.0 / de la posición base)
+                    gs = s + max(0.0, s - 1.0) * SUSTAIN_SCALE * u.sus
+                    gy = y + min(0.0, y) * SUSTAIN_LIFT * u.sus
+                    gg = GLOW(raw) * (1 + SUSTAIN_GLOW * u.sus) if on else 0.0
+            s, y, g = self._springs(u, gs, gy, gg, dt, snap)
+            u.scale, u.y, u.x = s, y * bgk, 0.0
+            u.wdy, u.wds = (motion.syllable(pf, P.motion_amt, t, u.b, u.e, len(u.text), u.sus, dip, u.y, s - 1.0)
+                            if pf else None) or (None, None)
+            u.glow_r, u.glow_a = (4 + 2 * g, min(0.35 * g, 1.0)) if g > 0.01 else (0.0, 0.0)
+
+    def _render_emph_word(self, w, on, fl, vib, dip, bgk, t, dt, snap):
+        P = self.p
+        # palabra con énfasis: la letra activa crece y brilla; las vecinas caen con la distancia
+        for c in w.parts:  # cada sílaba se rellena con su propio easing y respeta las pausas; sus letras se reparten ese avance
+            c.p = clamp01(WIPE(_prog(t, c.sb, c.se)) * c.k - c.j)
+        w.p = sum(c.p for c in w.parts) / len(w.parts)
+        active_w = on and P.emph and w.b <= t < w.e
+        ai, ap = -1, 0.0
+        if active_w:
             for i, c in enumerate(w.parts):
-                gs, gy, gg = 1.0, 0.0, 0.0
-                if P.emph and fl:
-                    if t < w.b:
-                        gs, gy = L_SCALE(0), L_YOFF(0)
-                    elif active_w and ai >= 0:
-                        dist = abs(i - ai)
-                        fo, gfo = 1 / (1 + dist ** 2.8), 1 / (1 + dist * 0.9)
-                        gs = L_SCALE(0) + (L_SCALE(ap) - L_SCALE(0)) * fo
-                        gy = L_YOFF(0) + (L_YOFF(ap) - L_YOFF(0)) * fo
-                        gg = GLOW(ap) * gfo * (1.15 if w.last else 1.0)
-                    elif t < w.e:
-                        gs, gy = L_SCALE(0), L_YOFF(0)
-                s, y, g = self._springs(c, gs, gy, gg, dt, snap)
-                vx = vy = 0.0
-                if vib and active_w and g > 0.05:  # micro-vibrato mientras se sostiene la nota
-                    a = min(1.0, g)
-                    vy = math.sin(t * 2 * math.pi * 6.3 + c.phase) * 0.011 * a
-                    vx = math.sin(t * 2 * math.pi * 4.7 + c.phase * 1.7) * 0.006 * a
-                c.scale, c.y, c.x = s, y * 2 * bgk + vy, vx
-                d = motion.limit(dip, c.y, motion.LIFT_CAP)  # las letras con énfasis ya tienen su propia animación: aquí solo la entrada
-                c.wdy, c.wds = ([d], [0.0]) if d else (None, None)
-                c.glow_r, c.glow_a = (4 + 12 * g, min(1.85 * g * 0.55, 1.0)) if g > 0.01 else (0.0, 0.0)
+                if c.b <= t < c.e:
+                    ai, ap = i, (t - c.b) / (c.e - c.b)
+        for i, c in enumerate(w.parts):
+            gs, gy, gg = 1.0, 0.0, 0.0
+            if P.emph and fl:
+                if t < w.b:
+                    gs, gy = L_SCALE(0), L_YOFF(0)
+                elif active_w and ai >= 0:
+                    dist = abs(i - ai)
+                    fo, gfo = 1 / (1 + dist ** 2.8), 1 / (1 + dist * 0.9)
+                    gs = L_SCALE(0) + (L_SCALE(ap) - L_SCALE(0)) * fo
+                    gy = L_YOFF(0) + (L_YOFF(ap) - L_YOFF(0)) * fo
+                    gg = GLOW(ap) * gfo * (1.15 if w.last else 1.0)
+                elif t < w.e:
+                    gs, gy = L_SCALE(0), L_YOFF(0)
+            s, y, g = self._springs(c, gs, gy, gg, dt, snap)
+            vx = vy = 0.0
+            if vib and active_w and g > 0.05:  # micro-vibrato mientras se sostiene la nota
+                a = min(1.0, g)
+                vy = math.sin(t * 2 * math.pi * 6.3 + c.phase) * 0.011 * a
+                vx = math.sin(t * 2 * math.pi * 4.7 + c.phase * 1.7) * 0.006 * a
+            c.scale, c.y, c.x = s, y * 2 * bgk + vy, vx
+            d = motion.limit(dip, c.y, motion.LIFT_CAP)  # las letras con énfasis ya tienen su propia animación: aquí solo la entrada
+            c.wdy, c.wds = ([d], [0.0]) if d else (None, None)
+            c.glow_r, c.glow_a = (4 + 12 * g, min(1.85 * g * 0.55, 1.0)) if g > 0.01 else (0.0, 0.0)
 
     def _springs(self, u, gs, gy, gg, dt, snap):
         u.S.g, u.Y.g, u.G.g = gs, gy, gg

@@ -71,9 +71,19 @@ WIPE = bezier(0.3, 0.12, 0.7, 0.88)
 WIPE_INV = bezier(0.12, 0.3, 0.88, 0.7)  # inversa de WIPE (puntos de control transpuestos): progreso del wipe -> fracción del tiempo
 
 
+def clamp(v, lo, hi):
+    return lo if v < lo else hi if v > hi else v
+
+
 def smoothstep(x):
     x = clamp01(x)
     return x * x * (3 - 2 * x)
+
+
+def smoothstep_range(a, b, x):
+    if b <= a:
+        return 1.0 if x >= b else 0.0
+    return smoothstep((x - a) / (b - a))
 
 
 # Progreso de la sílaba 0→1 (Spicy Lyrics)

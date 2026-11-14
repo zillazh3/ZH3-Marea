@@ -1,6 +1,6 @@
 """Escena de un clip: dibuja el estado del motor en un canvas de skia.
 
-`render_frame(scene, canvas)` es lo único que llaman la preview y el export: el motor (marea.engine) avanza
+`Scene.render(canvas)` es lo único que llaman la preview y el export: el motor (marea.engine) avanza
 el estado, aquí solo se dibuja. Todo se mide en px del lienzo; blur y glow vienen del motor en px de diseño
 (letra de 42 px) y se escalan con `k = tamaño de letra / 42`.
 """
@@ -58,14 +58,6 @@ def _argb(a: float, rgb: tuple[int, int, int] = (255, 255, 255)) -> int:
     return skia.ColorSetARGB(round(max(0.0, min(1.0, a)) * 255), rgb[0], rgb[1], rgb[2])
 
 
-def _paint(**kw) -> skia.Paint:
-    p = skia.Paint(AntiAlias=True, Color=WHITE)
-    for k, v in kw.items():
-        if v is not None:
-            getattr(p, "set" + k)(v)
-    return p
-
-
 class Scene:
     def __init__(self, lyrics, cover: skia.Image, size=(1080, 1920), params: Params | None = None,
                  style: Style | None = None, gpu: bool = False, cinematic: CinematicConfig | None = None,
@@ -93,6 +85,28 @@ class Scene:
         fade = skia.GradientShader.MakeLinear([(0, self.stage.top()), (0, self.stage.bottom())],  # máscara de bordes del prototipo
                                               [_argb(0), _argb(1), _argb(1), _argb(0)], [0, 0.06, 0.90, 1])
         self._stage_fade_paint = skia.Paint(Shader=fade, BlendMode=skia.BlendMode.kDstIn)
+        self._sampling_linear = skia.SamplingOptions(skia.FilterMode.kLinear)
+        self._p_white = skia.Paint(AntiAlias=True, Color=WHITE)
+        self._p_fill = skia.Paint(AntiAlias=True)
+        self._p_wipe_fill = skia.Paint(AntiAlias=True)
+        self._p_glow = skia.Paint(AntiAlias=True)
+        self._p_wipe_glow = skia.Paint(AntiAlias=True)
+        self._p_dstin = skia.Paint(BlendMode=skia.BlendMode.kDstIn)
+        self._p_layer = skia.Paint(AntiAlias=True)
+        self._p_stroke = skia.Paint(
+            AntiAlias=True,
+            Style=skia.Paint.kStroke_Style,
+            StrokeCap=skia.Paint.kRound_Cap,
+            StrokeJoin=skia.Paint.kRound_Join,
+        )
+        self._scratch_rect = skia.Rect.MakeEmpty()
+        cs = 0.14 * self.ref
+        hx, hy = self.stage.left() + 0.04 * self.ref, 0.06 * self.h
+        self._hdr_box = skia.Rect.MakeXYWH(hx, hy, cs, cs)
+        self._hdr_rrect = skia.RRect.MakeRectXY(self._hdr_box, cs * 0.14, cs * 0.14)
+        self._hdr_geom = (cs, hx + cs + 0.035 * self.ref, hy, self.stage.right() - 0.04 * self.ref - (hx + cs + 0.035 * self.ref))
+        self._hdr_cache: tuple | None = None
+        self._wm_wave_cache: tuple | None = None
         self._bloom_cache: dict[float, object] = {}
         self._mask_blur_cache: dict[int, object] = {}
         self._blur_filter_cache: dict[int, object] = {}
@@ -191,13 +205,19 @@ class Scene:
         lay = self._layout(self._by_line[id(line)])
         return lay.h_active if active else lay.h_inactive
 
-    def _draw_bg(self, canvas: skia.Canvas, base):
-        e = self.engine
-        if self.cinematic_bg is not None and self.cinematic_bg.active_at(e.t * 1000.0):
-            lyric_act = max((L.act for L in e.items if not (L.is_gap or L.is_credit)), default=0.0)
-            self.cinematic_bg.draw(canvas, base, e.t, lyric_act)
+    def _draw_bg_at(self, canvas: skia.Canvas, base, t_s: float):
+        if self.cinematic_bg is not None:
+            self.cinematic_bg.draw(
+                canvas,
+                base,
+                t_s,
+                lambda: max((L.act for L in self.engine.items if not (L.is_gap or L.is_credit)), default=0.0),
+            )
         else:
-            base.draw(canvas, e.t)
+            base.draw(canvas, t_s)
+
+    def _draw_bg(self, canvas: skia.Canvas, base):
+        self._draw_bg_at(canvas, base, self.engine.t)
 
     def _backdrop(self, x: float, top: float, w: float, h: float) -> tuple[int, int, int]:
         """Color medio del fondo real (portada o cinemático) bajo una caja en px del lienzo: se dibuja el fondo en una miniatura
@@ -211,7 +231,7 @@ class Scene:
             c.save()
             if self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0):
                 c.scale(PROBE_W / self.w, PROBE_H / self.h)  # el cinemático dibuja en px del lienzo real
-                self._draw_bg(c, self.bg)
+                self._draw_bg_at(c, self.bg, t)
             else:
                 small.draw(c, t)
             c.restore()
@@ -290,23 +310,36 @@ class Scene:
         blob, tw = self.fonts.text(self.style.wm_text, sz)
         tx = box.left() + (box.width() - tw)
         base = box.top() + sz  # línea base
-        shadow = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(round(alpha * 0.9 * 255), 0, 0, 0),
-                            MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, 0.25 * sz))
+        shadow = self._p_glow
+        shadow.setColor(skia.ColorSetARGB(round(alpha * 0.9 * 255), 0, 0, 0))
+        shadow.setMaskFilter(self._mask_blur(0.25 * sz))
         canvas.drawTextBlob(blob, tx, base + 0.06 * sz, shadow)
-        canvas.drawTextBlob(blob, tx, base, _paint(Color=_argb(alpha)))
+        fill = self._p_fill
+        fill.setColor(_argb(alpha))
+        canvas.drawTextBlob(blob, tx, base, fill)
         if self.style.wm_glyph:
             self._wm_waves(canvas, box.left(), base - 0.35 * sz, 1.5 * sz, sz, alpha)
 
     def _wm_waves(self, canvas, x, cy, w, sz, alpha):
         """Tres ondas apiladas (la central más gruesa), como el logo."""
-        for i, (dy, thick) in enumerate(((-0.34, 0.07), (0.0, 0.12), (0.34, 0.07))):
-            path = skia.Path()
-            for s in range(17):
-                px = x + w * s / 16
-                py = cy + dy * sz + 0.1 * sz * math.sin((s / 16 * 2 + i * 0.3) * math.pi)
-                path.moveTo(px, py) if s == 0 else path.lineTo(px, py)
-            canvas.drawPath(path, _paint(Color=_argb(alpha), Style=skia.Paint.kStroke_Style, StrokeWidth=thick * sz,
-                                         StrokeCap=skia.Paint.kRound_Cap, StrokeJoin=skia.Paint.kRound_Join))
+        key = (x, cy, w, sz)
+        cached = self._wm_wave_cache
+        if cached is None or cached[0] != key:
+            items = []
+            for i, (dy, thick) in enumerate(((-0.34, 0.07), (0.0, 0.12), (0.34, 0.07))):
+                path = skia.Path()
+                for s in range(17):
+                    px = x + w * s / 16
+                    py = cy + dy * sz + 0.1 * sz * math.sin((s / 16 * 2 + i * 0.3) * math.pi)
+                    path.moveTo(px, py) if s == 0 else path.lineTo(px, py)
+                items.append((path, thick * sz))
+            cached = (key, tuple(items))
+            self._wm_wave_cache = cached
+        p = self._p_stroke
+        p.setColor(_argb(alpha))
+        for path, sw in cached[1]:
+            p.setStrokeWidth(sw)
+            canvas.drawPath(path, p)
 
     def snapshot(self, t_ms: float) -> skia.Image:
         """Frame estático en t_ms con el motor ya asentado (3 s de pre-roll). Úsese con una escena nueva."""
@@ -316,21 +349,27 @@ class Scene:
         return s.makeImageSnapshot()
 
     def _header(self, canvas):
-        H, R, st = self.h, self.ref, self.style
-        cs, x, y = 0.14 * R, self.stage.left() + 0.04 * R, 0.06 * H
-        box = skia.Rect.MakeXYWH(x, y, cs, cs)
+        st = self.style
         canvas.save()
-        canvas.clipRRect(skia.RRect.MakeRectXY(box, cs * 0.14, cs * 0.14), doAntiAlias=True)
-        canvas.drawImageRect(self.cover, box, skia.SamplingOptions(skia.FilterMode.kLinear))
+        canvas.clipRRect(self._hdr_rrect, doAntiAlias=True)
+        canvas.drawImageRect(self.cover, self._hdr_box, self._sampling_linear)
         canvas.restore()
-        tx = x + cs + 0.035 * R
-        avail = self.stage.right() - 0.04 * R - tx
-        for text, size, base, alpha, bold in ((st.title, 0.04 * R, 0.45, 1.0, True), (st.artist, 0.032 * R, 0.80, 0.62, False)):
-            if text:
-                font = self.fonts.font(size, bold)
-                while font.measureText(text) > avail and len(text) > 1:
-                    text = text[:-2] + "…"
-                canvas.drawString(text, tx, y + cs * base, font, _paint(Alphaf=alpha))
+        key = (st.title, st.artist)
+        cached = self._hdr_cache
+        if cached is None or cached[0] != key:
+            cs, tx, y, avail = self._hdr_geom
+            R = self.ref
+            entries = []
+            for text, size, base, alpha, bold in ((st.title, 0.04 * R, 0.45, 1.0, True), (st.artist, 0.032 * R, 0.80, 0.62, False)):
+                if text:
+                    font = self.fonts.font(size, bold)
+                    while font.measureText(text) > avail and len(text) > 1:
+                        text = text[:-2] + "…"
+                    entries.append((text, tx, y + cs * base, font, skia.Paint(AntiAlias=True, Color=WHITE, Alphaf=alpha)))
+            cached = (key, tuple(entries))
+            self._hdr_cache = cached
+        for text, tx, ty, font, paint in cached[1]:
+            canvas.drawString(text, tx, ty, font, paint)
 
     def _item(self, canvas, L):
         st_w, k = self.stage.width(), self.k
@@ -348,8 +387,11 @@ class Scene:
         canvas.translate(-ox, -L.h / 2)
         layer = L.opacity < 0.999 or sigma > 0.01
         if layer:
-            canvas.saveLayer(skia.Rect.MakeLTRB(-m, -m, st_w + m, L.h + m), _paint(
-                Alphaf=L.opacity, ImageFilter=self._blur_filter(sigma) if sigma > 0.01 else None))
+            self._scratch_rect.setLTRB(-m, -m, st_w + m, L.h + m)
+            lp = self._p_layer
+            lp.setAlphaf(L.opacity)
+            lp.setImageFilter(self._blur_filter(sigma) if sigma > 0.01 else None)
+            canvas.saveLayer(self._scratch_rect, lp)
         if L.is_gap:
             self._gap(canvas, L)
         elif L.is_credit:
@@ -364,12 +406,15 @@ class Scene:
         """«Written by A, B» y «Provided by Apple Music»: el prefijo tenue y el nombre más claro, en pequeño."""
         csize, size = self._credit_size, self.size
         y = CREDIT_GAP_TOP * size
+        p = self._p_fill
+        c_bold, c_reg = _argb(0.62), _argb(0.38)
         for rows in self._credit_rows:
             for row in rows:
                 base = y + self.fonts.baseline(csize)
                 for word, x, bold in row:
                     blob, _ = self.fonts.text(word, csize, bold)
-                    canvas.drawTextBlob(blob, PAD_L * size + x, base, _paint(Color=_argb(0.62 if bold else 0.38)))
+                    p.setColor(c_bold if bold else c_reg)
+                    canvas.drawTextBlob(blob, PAD_L * size + x, base, p)
                 y += LINE_H * csize
             y += 0.35 * csize
 
@@ -385,15 +430,17 @@ class Scene:
         canvas.translate(left + gw / 2, cy)
         canvas.scale(L.grp_sc, L.grp_sc)
         canvas.translate(-gw / 2, 0)
+        p_glow, p_fill = self._p_glow, self._p_fill
         for i, dot in enumerate(L.dots):
             canvas.save()
             canvas.translate(i * (d + gap) + d / 2, dot.y * size)
             canvas.scale(dot.scale, dot.scale)
             if dot.halo_a > 0:
-                sigma = dot.halo_r * size / 2
-                canvas.drawCircle(0, 0, d / 2, _paint(
-                    Color=_argb(dot.halo_a * dot.op * L.grp_op, dot_rgb), MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, sigma)))
-            canvas.drawCircle(0, 0, d / 2, _paint(Color=_argb(dot.op * L.grp_op, dot_rgb)))
+                p_glow.setColor(_argb(dot.halo_a * dot.op * L.grp_op, dot_rgb))
+                p_glow.setMaskFilter(self._mask_blur(dot.halo_r * size / 2))
+                canvas.drawCircle(0, 0, d / 2, p_glow)
+            p_fill.setColor(_argb(dot.op * L.grp_op, dot_rgb))
+            canvas.drawCircle(0, 0, d / 2, p_fill)
             canvas.restore()
         canvas.restore()
 
@@ -409,8 +456,12 @@ class Scene:
                 bloom = self._bloom_cache[size] = f
         m = BLOOM[0][0] * size * 2
         top = PAD_V * size
+        lp = self._p_layer
         if bloom:
-            canvas.saveLayer(skia.Rect.MakeLTRB(-m, -m, lay.width + m, L.h + m), _paint(ImageFilter=bloom))
+            self._scratch_rect.setLTRB(-m, -m, lay.width + m, L.h + m)
+            lp.setAlphaf(1.0)
+            lp.setImageFilter(bloom)
+            canvas.saveLayer(self._scratch_rect, lp)
         self._block(canvas, L, lay, lay.main, lay.main_w, size, top, ba, da)
         if bloom:
             canvas.restore()
@@ -421,8 +472,10 @@ class Scene:
             canvas.translate(ox, box_top - 0.8 * lay.bg_h * (1 - L.bg_p))  # entra deslizándose desde -80 %
             canvas.scale(0.8 + 0.2 * L.bg_p, 0.8 + 0.2 * L.bg_p)
             canvas.translate(-ox, -box_top)
-            canvas.saveLayer(skia.Rect.MakeLTRB(-m, box_top - m, lay.width + m, box_top + lay.bg_h + m),
-                             _paint(Alphaf=0.4 * L.bg_op, ImageFilter=bloom))
+            self._scratch_rect.setLTRB(-m, box_top - m, lay.width + m, box_top + lay.bg_h + m)
+            lp.setAlphaf(0.4 * L.bg_op)
+            lp.setImageFilter(bloom)
+            canvas.saveLayer(self._scratch_rect, lp)
             self._block(canvas, L, lay, lay.bg, lay.bg_w, lay.bg_size, box_top + BG_PAD_TOP * lay.bg_size, ba, da)
             canvas.restore()
             canvas.restore()
@@ -503,7 +556,9 @@ class Scene:
         oy = line_top + (ORIGIN_CH if word.emph else ORIGIN_SYL) * size
         backdrop = (self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
                     if self.wordfx.adapt_bg else None)
-        letters = render.letters_for(self.fonts, word.text, size)
+        p_adapted = render.adapt_params(p_fx, backdrop)
+        dark_factor = render._backdrop_dark_factor(backdrop)
+        letters = render._letters_cached(self.fonts, word.text, size)
         onsets = [cl.onset_s for cl in carrier.letters]
         rms_now = self.wordfx.rms_at(t_now)
         base = line_top + self.fonts.baseline(size)
@@ -521,21 +576,22 @@ class Scene:
             render.draw_word_fx(canvas, self.fonts, fx_use, letters, x, base, size, t_now, rms_now,
                                 self.engine.p.reduce, strain=strain_val, onsets=onsets,
                                 backdrop=backdrop, carrier=carrier, origin_y=oy, wipe_alpha=wipe_a,
-                                include_particles=False)
+                                include_particles=False, adapted_params=p_adapted, dark_factor=dark_factor)
         else:
             canvas.saveLayer(bounds, None)
             render.draw_word_fx(canvas, self.fonts, fx_use, letters, x, base, size, t_now, rms_now,
                                 self.engine.p.reduce, strain=strain_val, onsets=onsets,
                                 backdrop=backdrop, carrier=carrier, origin_y=oy,
-                                include_particles=False)
+                                include_particles=False, adapted_params=p_adapted, dark_factor=dark_factor)
             fw = FW * max(0.35, min(1.8, p_fx.fill_edge_softness))
-            canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, front_u, ba, da, size, fw=fw),
-                                               BlendMode=skia.BlendMode.kDstIn))
+            self._p_dstin.setShader(self._wipe(x, ww, front_u, ba, da, size, fw=fw))
+            canvas.drawRect(bounds, self._p_dstin)
             canvas.restore()
         if p_fx.particles > 0 or p_fx.sparkle > 0:
             p_wipe_a = da + (ba - da) * min(1.0, max(0.0, front_u))
             render.draw_word_particles(canvas, fx_use, letters, x, base, size, t_now, self.engine.p.reduce,
-                                       onsets=onsets, backdrop=backdrop, carrier=carrier, wipe_alpha=p_wipe_a)
+                                       onsets=onsets, backdrop=backdrop, carrier=carrier, wipe_alpha=p_wipe_a,
+                                       adapted_params=p_adapted, dark_factor=dark_factor)
 
     def _wipe(self, x, w, p, ba, da, size, a=1.0, fw=FW):
         """Máscara del prototipo: gradiente horizontal de alpha ba→da con borde de `fw` em que avanza con p."""
@@ -544,45 +600,62 @@ class Scene:
 
     def _word(self, canvas, word, x, line_top, ww, size, ba, da):
         base = line_top + self.fonts.baseline(size)
+        p_fill, p_wipe_fill = self._p_fill, self._p_wipe_fill
+        p_glow, p_wipe_glow = self._p_glow, self._p_wipe_glow
         if not word.emph:
             fw = FW_SOFT if word.soft else FW
             for u in word.parts:
                 blob, pw = self.fonts.text(u.text, size)
                 if u.p <= 0.0:
-                    text = skia.Paint(AntiAlias=True, Color=_argb(da))
-                    glow = (skia.Paint(AntiAlias=True, Color=_argb(u.glow_a * da),
-                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
-                            if u.glow_a > 0 else None)
+                    p_fill.setColor(_argb(da))
+                    text = p_fill
+                    if u.glow_a > 0:
+                        p_glow.setColor(_argb(u.glow_a * da))
+                        p_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
+                        glow = p_glow
+                    else:
+                        glow = None
                 elif u.p >= 1.0:
-                    text = skia.Paint(AntiAlias=True, Color=_argb(ba))
-                    glow = (skia.Paint(AntiAlias=True, Color=_argb(u.glow_a * ba),
-                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
-                            if u.glow_a > 0 else None)
+                    p_fill.setColor(_argb(ba))
+                    text = p_fill
+                    if u.glow_a > 0:
+                        p_glow.setColor(_argb(u.glow_a * ba))
+                        p_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
+                        glow = p_glow
+                    else:
+                        glow = None
                 else:
-                    text = skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, fw=fw))
-                    glow = (skia.Paint(AntiAlias=True, Shader=self._wipe(x, pw, u.p, ba, da, size, u.glow_a, fw),
-                                       MaskFilter=self._mask_blur(u.glow_r * self.k / 2))
-                            if u.glow_a > 0 else None)
+                    p_wipe_fill.setShader(self._wipe(x, pw, u.p, ba, da, size, fw=fw))
+                    text = p_wipe_fill
+                    if u.glow_a > 0:
+                        p_wipe_glow.setShader(self._wipe(x, pw, u.p, ba, da, size, u.glow_a, fw))
+                        p_wipe_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
+                        glow = p_wipe_glow
+                    else:
+                        glow = None
                 self._glyphs(canvas, u, blob, x, base, pw, size, line_top + ORIGIN_SYL * size, text, glow)
                 x += pw
             return
         # palabra con énfasis: una sola máscara para la palabra, las letras se animan dentro
         pad = 0.6 * size
-        bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
+        bounds = self._scratch_rect
+        bounds.setLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
         canvas.saveLayer(bounds, None)
         cx, filled = x, 0.0  # filled: px de la palabra ya rellenos; cada letra aporta su ancho real, no una fracción igual
-        white_paint = skia.Paint(AntiAlias=True, Color=WHITE)
         for c in word.parts:
             blob, pw = self.fonts.text(c.text, size)
-            glow = (skia.Paint(AntiAlias=True, Color=_argb(c.glow_a),
-                               MaskFilter=self._mask_blur(c.glow_r * self.k / 2))
-                    if c.glow_a > 0 else None)
+            if c.glow_a > 0:
+                p_glow.setColor(_argb(c.glow_a))
+                p_glow.setMaskFilter(self._mask_blur(c.glow_r * self.k / 2))
+                glow = p_glow
+            else:
+                glow = None
             self._glyphs(canvas, c, blob, cx, base, pw, size, line_top + ORIGIN_CH * size,
-                         white_paint, glow)
+                         self._p_white, glow)
             cx += pw
             filled += pw * c.p
-        canvas.drawRect(bounds, skia.Paint(Shader=self._wipe(x, ww, filled / ww if ww else 0.0, ba, da, size),
-                                           BlendMode=skia.BlendMode.kDstIn))
+        self._p_dstin.setShader(self._wipe(x, ww, filled / ww if ww else 0.0, ba, da, size))
+        canvas.drawRect(bounds, self._p_dstin)
         canvas.restore()
 
     def _glyphs(self, canvas, u, blob, x, base, pw, size, oy, text, glow):
@@ -609,7 +682,3 @@ class Scene:
                 canvas.restore()
                 cx += cw
         canvas.restore()
-
-
-def render_frame(scene: Scene, canvas: skia.Canvas):
-    scene.render(canvas)
