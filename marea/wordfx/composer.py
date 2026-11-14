@@ -241,6 +241,10 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
             # Restrained indigo-violet cosmic pull (kept legible over blurred cover art)
             meta["color_from"] = _legible(_mix(meta["color_from"], (178, 166, 238), 0.58))
             meta["color_to"] = _legible(_mix(meta["color_to"], (142, 132, 204), 0.62))
+        elif {"growth", "fire"} <= cats_set:
+            # Phoenix ember gold-to-flame gradient instead of green growth dominance
+            meta["color_from"] = _mix(meta["color_from"], (255, 180, 36), 0.80)
+            meta["color_to"] = _mix(meta["color_to"], (255, 122, 18), 0.85)
     if partner:  # mismo pipeline que color_from, con las categorías de la pareja
         pv = blend_categories(partner.categories, lib)
         pauth = _authored(partner.categories, lib)
@@ -335,6 +339,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     zeta = sig.zeta
     glow_spread = sig.glow_spread
     glow_color = sig.glow_color
+    sparkle_style = sig.sparkle_style
     cats_set = set(match.categories)
     if {"sadness", "water"} <= cats_set:
         p_kind = "tear"
@@ -364,6 +369,14 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         f["spacing_em"] = _clamp(min(f.get("spacing_em", 0.0), -0.035 * min(1.3, intensity)), -LIMITS["spacing_em"], LIMITS["spacing_em"])
         glow_spread = max(glow_spread, 0.35)
         glow_color = (128, 116, 206)
+    elif {"growth", "fire"} <= cats_set:
+        p_kind = "ember"
+        p_max = max(p_max, 18)
+        sparkle_style = "ember"
+        sig_waveform = "flicker"
+        sig_axis = "y"
+        glow_spread = max(glow_spread, 0.8)
+        glow_color = (255, 146, 48)
     if d_mode == "accent":
         f["particles"] = 0
         f["sparkle"] = 0
@@ -392,7 +405,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         glow_spread=glow_spread,
         glow_color=glow_color,
         particle_kind=p_kind if p_kind in CUSTOM_PARTICLE_KINDS else "dust",
-        sparkle_style=sig.sparkle_style,
+        sparkle_style=sparkle_style,
         motif=sig.motif,
     )
     return FxParams(primitives=tuple(prims), **meta, **f)

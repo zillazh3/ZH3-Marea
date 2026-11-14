@@ -200,3 +200,17 @@ def test_resin_and_black_hole_combo_fx_and_legibility(lib):
             assert img.toarray(colorType=skia.kRGBA_8888_ColorType).shape == (480, 270, 4)
     finally:
         scene.close()
+
+
+def test_phoenix_growth_fire_uses_ember_fx(lib):
+    line = _line("como un fenix", start=1000, dur=1800)
+    plan = build_plan(Lyrics([line]), lib, track_id="phoenix_fire")
+    fx = plan.get(0, 2)
+    assert fx is not None
+    assert {"growth", "fire"} <= set(fx.match.categories)
+    assert fx.params.particle_kind == "ember"
+    assert fx.params.sparkle_style == "ember"
+    assert fx.params.waveform == "flicker"
+    assert fx.params.particles >= 14
+    r, g, b = fx.params.color_from
+    assert r > g > b
