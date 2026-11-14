@@ -3,13 +3,12 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
+from marea.async_util import run_async
 from marea.export import history
 from marea.paths import reveal_in_folder
 from marea.providers.spotify import Playback
 from marea.ui import theme
-from marea.ui.net import run_async
-from marea.ui.screens import EmptyState
-from marea.ui.widgets import ElidedLabel, placeholder_pixmap, rounded_pixmap
+from marea.ui.widgets import ElidedLabel, EmptyState, make_button, placeholder_pixmap, rounded_pixmap
 
 COVER = 200
 
@@ -17,7 +16,7 @@ COVER = 200
 class NowPlayingCard(QWidget):
     def __init__(self, services, on_open_track, extra_actions):
         super().__init__()
-        self.services, self.on_open_track, self.track, self._token = services, on_open_track, None, 0
+        self.services, self.on_open_track, self.track, self._token, self._has_cover = services, on_open_track, None, 0, False
         lay = QHBoxLayout(self)
         lay.setAlignment(Qt.AlignCenter)
         lay.setSpacing(theme.SPACE[6])
@@ -34,19 +33,12 @@ class NowPlayingCard(QWidget):
         for lb in (self.title, self.artist):
             lb.setWordWrap(True)
             lb.setMaximumWidth(420)
-        self.btn = QPushButton("Crear clip con esta canción")
-        self.btn.setObjectName("Primary")
-        self.btn.setCursor(Qt.PointingHandCursor)
-        self.btn.clicked.connect(lambda: self.track and self.on_open_track(self.track))
+        self.btn = make_button("Crear clip con esta canción", "Primary", lambda: self.track and self.on_open_track(self.track))
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE[3])
         row.addWidget(self.btn)
         for text, cb in extra_actions:
-            b = QPushButton(text)
-            b.setObjectName("Ghost")
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(cb)
-            row.addWidget(b)
+            row.addWidget(make_button(text, "Ghost", cb))
         row.addStretch()
         for w in (self.state, self.title, self.artist, self.badge):
             info.addWidget(w)
@@ -59,7 +51,7 @@ class NowPlayingCard(QWidget):
         self._placeholder()
 
     def _placeholder(self):
-        if not getattr(self, "_has_cover", False):
+        if not self._has_cover:
             self.cover.setPixmap(placeholder_pixmap(COVER, theme.RADIUS["card"], 64))
 
     def set_playback(self, pb: Playback):

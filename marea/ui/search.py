@@ -4,11 +4,10 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QLabel, QLineEdit, QListWidget, QListWidgetItem, QStackedWidget, QStyle,
                                QStyledItemDelegate, QVBoxLayout, QWidget)
 
+from marea.async_util import run_async
 from marea.providers.spotify import Track
 from marea.ui import theme
-from marea.ui.net import run_async
-from marea.ui.screens import EmptyState
-from marea.ui.widgets import LYRICS_BADGES, placeholder_pixmap, rounded_pixmap
+from marea.ui.widgets import LYRICS_BADGES, EmptyState, fmt_ms, placeholder_pixmap, rounded_pixmap
 
 DEBOUNCE_MS = 450
 ROW_H = 68
@@ -17,7 +16,7 @@ TRACK_ROLE, KIND_ROLE = Qt.UserRole, Qt.UserRole + 1
 
 
 def fmt_duration(ms: int) -> str:
-    return f"{ms // 60000}:{ms // 1000 % 60:02d}"
+    return fmt_ms(ms, tenths=False)
 
 
 class ResultDelegate(QStyledItemDelegate):

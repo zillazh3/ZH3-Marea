@@ -175,6 +175,7 @@ QPushButton#Primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
 QPushButton#Ghost {{ border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
     padding: {SPACE[2]}px {SPACE[4]}px; font-weight: 500; }}
 QPushButton#Ghost:hover {{ background: {t.hover}; }}
+QPushButton#Ghost:checked {{ background: {t.accent}; color: {t.on_accent}; border-color: {t.accent}; }}
 QLineEdit#Search {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['card']}px;
     padding: {SPACE[3]}px {SPACE[4]}px; font-size: {f['md']}px; selection-background-color: {t.accent}; }}
 QLineEdit#Search:focus {{ border: {BORDER_PX}px solid {t.accent}; }}

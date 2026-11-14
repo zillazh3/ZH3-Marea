@@ -8,6 +8,7 @@ from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QImage, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from marea.async_util import run_async
 from marea.export.queue import ExportQueue
 from marea.paths import make_settings, reveal_in_folder
 from marea.project import ClipProject, ProjectError, demo_project, load_project_file, project_from_ttml
@@ -17,13 +18,12 @@ from marea.ui import theme
 from marea.ui.editor import EditorPage
 from marea.ui.exports import ExportsPage
 from marea.ui.home import HomePage
-from marea.ui.net import run_async
-from marea.ui.screens import EmptyState, FadeStack, Page, SettingsBody, scrollable
 from marea.ui.search import SearchPage
 from marea.ui.services import Services
+from marea.ui.settings import SettingsBody
 from marea.ui.sidebar import Sidebar
 from marea.ui.toast import ToastHost
-from marea.ui.widgets import ElidedLabel
+from marea.ui.widgets import ElidedLabel, EmptyState, FadeStack, Page, scrollable
 
 TITLE_H = 40
 EDGE = 6  # px de borde que redimensiona
@@ -159,19 +159,23 @@ class MainWindow(QWidget):
         self.queue = ExportQueue(self.services, self)
         self.editor = EditorPage(self.settings, self.toast, self.queue, self.services, prefer_gpu=gpu)
         self.editor.project_changed.connect(self._on_editor_project_changed)
-        goto = lambda i: (self.sidebar.select(i), self.pages.set_page(i))
-        self.editor.enqueued.connect(lambda _: self.toast("Añadido a la cola de exportaciones.", "info", ("Ver cola", lambda: goto(4))))
+        self.editor.enqueued.connect(
+            lambda _: self.toast("Añadido a la cola de exportaciones.", "info", ("Ver cola", lambda: self._goto_page(self.page_exports)))
+        )
         self.queue.item_done.connect(lambda it: self.toast(f"Listo: {it.out_path.name}", "ok",
                                                            ("Abrir carpeta", lambda: reveal_in_folder(str(it.out_path)))))
         self.queue.item_failed.connect(lambda it: self.toast(f"No pude exportar «{it.title}»: {it.error}", "error"))
         self.settings_body = SettingsBody(self.settings, self.set_theme, self.services, self.toast)
         self.settings_scroll = scrollable(self.settings_body)
-        for p in (HomePage(self.services, self.open_track, self.open_ttml, self.load_demo, lambda: goto(5), self.queue),
-                  SearchPage(self.services, self.open_track, lambda: goto(5), self.toast),
-                  Page("Biblioteca", EmptyState("library", "Tu biblioteca está vacía", "Aquí aparecerán las letras y los clips que guardes.")),
-                  self.editor,
-                  ExportsPage(self.queue),
-                  Page("Ajustes", self.settings_scroll)):
+        self.page_home = HomePage(
+            self.services, self.open_track, self.open_ttml, self.load_demo, lambda: self._goto_page(self.page_settings), self.queue
+        )
+        self.page_search = SearchPage(self.services, self.open_track, lambda: self._goto_page(self.page_settings), self.toast)
+        self.page_library = Page("Biblioteca", EmptyState("library", "Tu biblioteca está vacía", "Aquí aparecerán las letras y los clips que guardes."))
+        self.page_editor = self.editor
+        self.page_exports = ExportsPage(self.queue)
+        self.page_settings = Page("Ajustes", self.settings_scroll)
+        for p in (self.page_home, self.page_search, self.page_library, self.page_editor, self.page_exports, self.page_settings):
             self.pages.addWidget(p)
         body.addWidget(self.sidebar)
         body.addWidget(self.pages, 1)
@@ -201,14 +205,15 @@ class MainWindow(QWidget):
         self.sidebar.set_collapsed(self._pref_collapsed or self._narrow, animate=False)
 
     # ---- API ----
+    def _goto_page(self, page: QWidget):
+        idx = self.pages.indexOf(page)
+        if idx >= 0:
+            self.sidebar.select(idx)
+            self.pages.set_page(idx)
+
     def open_lab_model_settings(self, model_id: str):
-        self.sidebar.select(5)
-        self.pages.set_page(5)
-        panel = self.settings_body._lab_panel
-        target = self.settings_body.cb_align
-        if panel is not None:
-            panel.refresh()
-            target = panel.rows[model_id][1]
+        self._goto_page(self.page_settings)
+        target = self.settings_body.focus_lab_model(model_id)
         self.raise_()
         self.activateWindow()
         QTimer.singleShot(0, lambda: (self.settings_scroll.ensureWidgetVisible(target), target.setFocus()))
@@ -263,8 +268,7 @@ class MainWindow(QWidget):
     def load_project(self, project: ClipProject, editor_state: dict | None = None):
         self.set_cover(qimage_from_skia(project.cover))
         self.editor.set_project(project, editor_state=editor_state)
-        self.sidebar.select(3)
-        self.pages.set_page(3)
+        self._goto_page(self.page_editor)
 
     def set_cover(self, cover: QImage):
         """Velo muy sutil con los colores de la portada actual (tapa ya borrosa: 8 px escalados suavemente)."""
@@ -309,9 +313,7 @@ class MainWindow(QWidget):
         if e.type() == QEvent.WindowStateChange:
             self.titlebar.btn_max.set_icon_name("copy" if self.isMaximized() else "square")
         if e.type() == QEvent.ActivationChange and self.isActiveWindow() and hasattr(self, "settings_body"):
-            panel = self.settings_body._lab_panel
-            if panel is not None:
-                panel.refresh()
+            self.settings_body.refresh_lab_status()
         super().changeEvent(e)
 
     def closeEvent(self, e):
@@ -320,6 +322,8 @@ class MainWindow(QWidget):
         self.settings.sync()  # no esperar a que se destruya el objeto: un cierre brusco perdería las preferencias
         self.queue.shutdown()  # lo que se esté exportando se cancela: sin mp4 a medias ni Spotify sonando
         self.editor.shutdown()
+        if close_services := getattr(self.services, "close", None):
+            close_services()
         QApplication.instance().removeEventFilter(self)
         super().closeEvent(e)
 

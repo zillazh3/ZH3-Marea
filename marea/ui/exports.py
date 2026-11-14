@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMessa
 from marea.paths import reveal_in_folder
 from marea.export.queue import ACTIVE, AUDIO, DONE, QUEUED, RENDER, ExportQueue, QueueItem
 from marea.ui import theme
-from marea.ui.screens import EmptyState
-from marea.ui.widgets import ElidedLabel, placeholder_pixmap, rounded_pixmap
+from marea.ui.widgets import ElidedLabel, EmptyState, make_button, placeholder_pixmap, rounded_pixmap
 
 THUMB = 56
 
@@ -63,10 +62,7 @@ class ExportRow(QFrame):
             self.thumb.setPixmap(placeholder_pixmap(THUMB, theme.RADIUS["control"]))
 
     def _button(self, text: str, callback, primary: bool = False) -> QPushButton:
-        b = QPushButton(text)
-        b.setObjectName("Primary" if primary else "Ghost")
-        b.setCursor(Qt.PointingHandCursor)
-        b.clicked.connect(callback)
+        b = make_button(text, "Primary" if primary else "Ghost", callback)
         self.buttons.addWidget(b)
         return b
 
@@ -119,10 +115,7 @@ class ExportsPage(QWidget):
         head = QHBoxLayout()
         h1 = QLabel("Exportaciones")
         h1.setObjectName("H1")
-        self.btn_clear = QPushButton("Limpiar terminadas")
-        self.btn_clear.setObjectName("Ghost")
-        self.btn_clear.setCursor(Qt.PointingHandCursor)
-        self.btn_clear.clicked.connect(queue.clear_finished)
+        self.btn_clear = make_button("Limpiar terminadas", "Ghost", queue.clear_finished)
         head.addWidget(h1)
         head.addStretch()
         head.addWidget(self.btn_clear)

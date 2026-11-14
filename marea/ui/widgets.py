@@ -1,14 +1,148 @@
-from PySide6.QtCore import QRectF, Qt
+from contextlib import contextmanager
+
+from PySide6.QtCore import QEasingCurve, QObject, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import (
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from marea.ui import theme
 
 # tipo de letra disponible (el valor viene de Lyrics.kind o 'none'/'error')
 LYRICS_BADGES = {"syllable": "Sílaba", "line": "Línea", "none": "Sin letra", "error": "—"}
 
 
+def fmt_ms(ms: float, tenths: bool = False) -> str:
+    """Format milliseconds as M:SS or M:SS.t."""
+    s = max(0.0, ms) / 1000
+    if tenths:
+        return f"{int(s // 60)}:{s % 60:04.1f}"
+    total = int(s)
+    return f"{total // 60}:{total % 60:02d}"
+
+
+@contextmanager
+def blocked_signals(widget: QObject):
+    """Temporarily block Qt signals on a QObject, restoring the previous state."""
+    prev = widget.blockSignals(True)
+    try:
+        yield widget
+    finally:
+        widget.blockSignals(prev)
+
+
+def make_button(text: str = "", object_name: str = "Ghost", clicked=None, tooltip: str = "") -> QPushButton:
+    """Create a consistently styled QPushButton with pointing-hand cursor."""
+    btn = QPushButton(text)
+    if object_name:
+        btn.setObjectName(object_name)
+    btn.setCursor(Qt.PointingHandCursor)
+    if tooltip:
+        btn.setToolTip(tooltip)
+    if clicked is not None:
+        btn.clicked.connect(clicked)
+    return btn
+
+
+def fade_in(target: QWidget, duration_ms: int | None = None, on_done=None,
+            owner: QObject | None = None) -> QPropertyAnimation | None:
+    """Fade a widget from transparent to opaque when animations are enabled."""
+    ms = theme.duration() if duration_ms is None else duration_ms
+    if not ms:
+        target.setGraphicsEffect(None)
+        if on_done is not None:
+            on_done()
+        return None
+    fx = QGraphicsOpacityEffect(target)
+    target.setGraphicsEffect(fx)
+    anim = QPropertyAnimation(fx, b"opacity", owner or target)
+    anim.setDuration(ms)
+    anim.setStartValue(0.0)
+    anim.setEndValue(1.0)
+    anim.setEasingCurve(QEasingCurve.OutCubic)
+
+    def _finish():
+        target.setGraphicsEffect(None)
+        if on_done is not None:
+            on_done()
+
+    anim.finished.connect(_finish)
+    anim.start()
+    return anim
+
+
+class CoalescedAction(QObject):
+    """Coalesce rapid triggers into one single-shot callback after delay_ms."""
+
+    def __init__(self, delay_ms: int, callback, parent: QObject | None = None):
+        super().__init__(parent)
+        self._cb = callback
+        self._timer = QTimer(self, singleShot=True, interval=delay_ms)
+        self._timer.timeout.connect(self._cb)
+
+    def schedule(self):
+        self._timer.start()
+
+    def cancel(self):
+        self._timer.stop()
+
+    def flush(self):
+        self._timer.stop()
+        self._cb()
+
+    def is_active(self) -> bool:
+        return self._timer.isActive()
+
+
+class SliderRow(QWidget):
+    """Horizontal slider paired with a formatted caption readout."""
+    valueChanged = Signal(int)
+    sliderReleased = Signal()
+
+    def __init__(self, lo: int, hi: int, val: int, format_fn, tooltip: str = "",
+                 min_label_width: int = 40, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._format_fn = format_fn
+        self.slider = QSlider(Qt.Horizontal, self)
+        self.slider.setRange(lo, hi)
+        self.slider.setValue(val)
+        if tooltip:
+            self.slider.setToolTip(tooltip)
+        self.label = QLabel(format_fn(val), self)
+        self.label.setObjectName("Caption")
+        self.label.setMinimumWidth(min_label_width)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.slider, 1)
+        row.addWidget(self.label)
+        self.slider.valueChanged.connect(self._on_changed)
+        self.slider.sliderReleased.connect(self.sliderReleased)
+
+    def _on_changed(self, value: int):
+        self.label.setText(self._format_fn(value))
+        self.valueChanged.emit(value)
+
+    def value(self) -> int:
+        return self.slider.value()
+
+    def setValue(self, value: int):
+        self.slider.setValue(value)
+
+    def update_readout(self):
+        self.label.setText(self._format_fn(self.slider.value()))
+
+
 def placeholder_pixmap(size: int, radius: int, icon_px: int = 24, dpr: float = 2.0) -> QPixmap:
     """Recuadro de portada vacía con un disco centrado, a tamaño nativo (sin reescalar el ícono)."""
-    from marea.ui import theme
     px = QPixmap(round(size * dpr), round(size * dpr))
     px.fill(Qt.transparent)
     p = QPainter(px)
@@ -59,3 +193,86 @@ class ElidedLabel(QLabel):
 
     def _elide(self):
         self.setText(self.fontMetrics().elidedText(self._full, Qt.ElideRight, max(0, self.width())))
+
+
+class EmptyState(QWidget):
+    """Ícono, una frase clara y qué hacer."""
+
+    def __init__(self, icon_name: str, title: str, message: str, actions=()):
+        """actions: [(texto, callback, es_principal)] — botones bajo la frase."""
+        super().__init__()
+        self.icon_name = icon_name
+        lay = QVBoxLayout(self)
+        lay.setAlignment(Qt.AlignCenter)
+        lay.setSpacing(theme.SPACE[3])
+        self.tile = QFrame()
+        self.tile.setObjectName("IconTile")
+        self.tile.setFixedSize(64, 64)
+        self.glyph = QLabel(self.tile)
+        self.glyph.setGeometry(18, 18, 28, 28)
+        head, body = QLabel(title), QLabel(message)
+        head.setObjectName("H2")
+        body.setObjectName("Body")
+        for lb in (head, body):
+            lb.setAlignment(Qt.AlignCenter)
+            lb.setWordWrap(True)
+        body.setMaximumWidth(440)
+        lay.addWidget(self.tile, alignment=Qt.AlignCenter)
+        lay.addSpacing(theme.SPACE[1])
+        lay.addWidget(head)
+        lay.addWidget(body, alignment=Qt.AlignCenter)
+        if actions:
+            row = QHBoxLayout()
+            row.setAlignment(Qt.AlignCenter)
+            row.setSpacing(theme.SPACE[3])
+            for text, callback, primary in actions:
+                row.addWidget(make_button(text, "Primary" if primary else "Ghost", callback))
+            lay.addSpacing(theme.SPACE[2])
+            lay.addLayout(row)
+        theme.signals.changed.connect(self._refresh)
+        self._refresh()
+
+    def _refresh(self):
+        self.glyph.setPixmap(theme.icon_pixmap(self.icon_name, theme.current.accent_icon, 28, self.devicePixelRatioF()))
+
+
+class Page(QWidget):
+    """Título de sección + una tarjeta con el contenido."""
+
+    def __init__(self, title: str, body: QWidget, header: QWidget | None = None):
+        super().__init__()
+        self.setObjectName("Page")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[6])
+        lay.setSpacing(theme.SPACE[4])
+        h1 = QLabel(title)
+        h1.setObjectName("H1")
+        lay.addWidget(h1)
+        if header:
+            lay.addWidget(header)
+        card = QFrame()
+        card.setObjectName("Card")
+        QVBoxLayout(card).addWidget(body)
+        card.layout().setContentsMargins(theme.SPACE[5], theme.SPACE[5], theme.SPACE[5], theme.SPACE[5])
+        lay.addWidget(card, 1)
+
+
+def scrollable(body: QWidget) -> QScrollArea:
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    area.setWidget(body)
+    return area
+
+
+class FadeStack(QStackedWidget):
+    """Cambio de sección con fundido corto (ease-out); sin animación si Windows pide reducir movimiento."""
+
+    def set_page(self, index: int):
+        if index == self.currentIndex():
+            return
+        self.setCurrentIndex(index)
+        page = self.currentWidget()
+        if page is not None:
+            self._anim = fade_in(page, owner=self)

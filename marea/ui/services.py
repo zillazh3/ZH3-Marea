@@ -2,6 +2,7 @@
 import skia
 from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
+from marea.async_util import run_async
 from marea.demo_cover import demo_cover
 from marea.project import ClipProject
 from marea.secrets import KeyringSecrets
@@ -11,7 +12,6 @@ from marea.providers.lyrics.chain import ChainProvider
 from marea.providers.lyrics.lrclib import LrclibProvider
 from marea.providers.lyrics.spicy import SpicyLyricsProvider
 from marea.providers.spotify import Playback, SpotifyClient, Track
-from marea.ui.net import run_async
 
 POLL_MS = 5000  # una consulta de «ahora suena» cada 5 s: lejos de los límites de Spotify
 CONTROL_REFRESH_MS = 600  # tras play/pausa/siguiente: espera a que Spotify refleje el cambio antes de consultar
@@ -53,6 +53,13 @@ class Services(QObject):
     def connected(self) -> bool:
         return bool(self.spotify and self.spotify.connected)
 
+    def close(self):
+        self._timer.stop()
+        for client in (self.spotify, self.spicy, *getattr(self.lyrics, "providers", ())):
+            fn = getattr(client, "close", None)
+            if fn:
+                fn()
+
     def _make_client(self):
         self.spotify = SpotifyClient(self.client_id) if self.client_id else None
 
@@ -62,6 +69,8 @@ class Services(QObject):
             return
         if self.spotify:
             self.spotify.disconnect()  # el token pertenece al Client ID anterior
+            if close_fn := getattr(self.spotify, "close", None):
+                close_fn()
         self.settings.setValue("spotify/client_id", client_id)
         self._timer.stop()
         self._make_client()

@@ -1,8 +1,9 @@
 """Avisos discretos abajo a la derecha (sin diálogos modales)."""
-from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, QTimer
-from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from marea.ui import theme
+from marea.ui.widgets import fade_in, make_button
 
 MARGIN = theme.SPACE[5]
 
@@ -20,11 +21,7 @@ class Toast(QFrame):
         label.setWordWrap(True)
         lay.addWidget(label, 1)
         if action:
-            btn = QPushButton(action[0])
-            btn.setObjectName("Ghost")
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda: (action[1](), self.dismiss()))
-            lay.addWidget(btn)
+            lay.addWidget(make_button(action[0], "Ghost", lambda: (action[1](), self.dismiss())))
         close = QPushButton()
         close.setObjectName("IconBtn")
         close.setFixedSize(28, 28)
@@ -78,15 +75,7 @@ class ToastHost(QWidget):
         t = Toast(text, kind, action, ms=8000 if kind == "error" else 5000)
         self._lay.addWidget(t, alignment=Qt.AlignRight)
         self._fit()
-        fx = QGraphicsOpacityEffect(t)
-        t.setGraphicsEffect(fx)
-        anim = QPropertyAnimation(fx, b"opacity", t)
-        anim.setDuration(theme.duration("fast"))
-        anim.setStartValue(0.0 if theme.duration("fast") else 1.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.finished.connect(lambda: t.setGraphicsEffect(None))
-        anim.start()
+        fade_in(t, theme.duration("fast"), owner=t)
         return t
 
     def count(self) -> int:

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpin
                                QPushButton, QVBoxLayout, QWidget)
 
 from marea.ui import theme
+from marea.ui.widgets import make_button
 from marea.wordfx.profile import ARC_MOODS, TAGS, ArcSegment, SongProfile
 
 LABELS = {  # etiquetas en español de los tags y ánimos
@@ -77,8 +78,6 @@ class ProfileDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Perfil de la canción" + (f" · {title}" if title else ""))
         self.setMinimumWidth(660)
-        t = theme.current  # el estado marcado de los tags se ve con el acento de la app
-        self.setStyleSheet(f"QPushButton#Ghost:checked {{ background: {t.accent}; color: {t.on_accent}; border-color: {t.accent}; }}")
         self._recompute = recompute
         self.duration = max(1.0, duration_s)
         self.intensity = profile.intensity
@@ -94,9 +93,7 @@ class ProfileDialog(QDialog):
         grid = QGridLayout()
         self.tag_buttons: dict[str, QPushButton] = {}
         for i, tag in enumerate(TAGS):
-            b = QPushButton(_mood_label(tag))
-            b.setObjectName("Ghost")
-            b.setCursor(Qt.PointingHandCursor)
+            b = make_button(_mood_label(tag), "Ghost")
             b.setCheckable(True)
             b.setToolTip(tag)
             self.tag_buttons[tag] = b
