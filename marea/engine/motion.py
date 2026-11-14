@@ -22,7 +22,8 @@ A_FLOOR = 0.4
 TAIL, TAIL_DECAY, TAIL_PERIOD, FALL_SETTLE = 0.35, 0.12, 0.22, 0.14  # rebote: cola elástica, su amortiguación, periodo y caída previa (s)
 BREATH_HZ, BREATH_ATTACK, BREATH_RELEASE = 1.3, 0.25, 0.2
 ENTER_DUR, ENTER_STEP, ENTER_MAX_DELAY = 0.2, 0.035, 0.2  # la entrada de toda la línea acaba en ≤ 0.4 s
-PRE_MARGIN, POST_MARGIN = 0.4, 0.7  # fuera de [b - PRE_MARGIN, e + POST_MARGIN] la ola vale 0 en cualquier perfil
+ONSET_S = 0.03  # smooth onset window from syllable start `b` so the wave never lifts before `b`
+POST_MARGIN = 0.7  # beyond `e + POST_MARGIN` the wave is 0 in any profile
 FAST_LINE, SUSTAIN_S = 0.045, 0.9  # pick: s por carácter de una línea «rápida»; duración de una nota «sostenida»
 
 
@@ -93,17 +94,18 @@ def syllable(pf: Profile, amt: float, t: float, b: float, e: float, n: int, sus:
              base_y: float, base_s: float):
     """(dy[n], ds[n]) de los n caracteres de una sílaba que suena en [b, e], o None si todos están en reposo.
     dip: hundimiento de entrada de su palabra; base_y / base_s: lo que ya hace la sílaba (para no pasarse del tope)."""
-    if n < 1 or not (b - PRE_MARGIN <= t <= e + POST_MARGIN or dip):
+    if n < 1 or not (b < t <= e + POST_MARGIN or dip):
         return None
     spacing = (e - b) / n
     stretch = min(STRETCH_MAX, max(1.0, STEP_MIN / spacing)) if spacing > 0 else STRETCH_MAX
     d = min(D_MAX, max(D_MIN, SPREAD * spacing))
     k = A_FLOOR + (1 - A_FLOOR) * smoothstep((spacing - SLOW_S) / (FAST_S - SLOW_S))  # poco tiempo por letra: menos amplitud
     mid = (b + e) / 2
+    gate = smoothstep((t - b) / ONSET_S) if t > b else 0.0
     dys, dss = [], []
     for j in range(n):
         tc = b + (e - b) * WIPE_INV((j + 0.5) / n)  # la cresta pasa cuando el borde del wipe cruza la letra
-        v = bump(t - (mid + (tc - mid) * stretch), d, pf.settle) * k
+        v = bump(t - (mid + (tc - mid) * stretch), d, pf.settle) * k * gate if gate else 0.0
         dy, ds = -pf.lift * amt * v, pf.swell * amt * v
         if sus > 0 and pf.breath and b <= t:  # respiración: la nota sostenida pulsa y la onda la recorre
             env = smoothstep((t - b) / BREATH_ATTACK) * (smoothstep(1 - (t - e) / BREATH_RELEASE) if t > e else 1.0)

@@ -35,7 +35,11 @@ def test_each_crest_lands_when_the_wipe_crosses_its_letter(b, e, n):
     stretch = min(motion.STRETCH_MAX, max(1.0, motion.STEP_MIN / ((e - b) / n)))
     for j in range(n):
         tc = b + (e - b) * curves.WIPE_INV((j + 0.5) / n)
-        assert crest(s, j) == pytest.approx(mid + (tc - mid) * stretch, abs=1 / 60)
+        target = mid + (tc - mid) * stretch
+        if target < b:
+            assert crest(s, j) >= b
+        else:
+            assert crest(s, j) == pytest.approx(target, abs=1 / 60)
     assert [crest(s, j) for j in range(n)] == sorted(crest(s, j) for j in range(n))  # la onda recorre la palabra de izquierda a derecha
 
 
@@ -300,3 +304,50 @@ def test_layer_changes_the_frame_only_while_it_moves():
     assert np.abs(px(13650) - px(13650, motion="clasico")).sum() > 0  # entra «y tu voz me llega…»: se ve la onda de entrada
     assert np.array_equal(px(13650), px(13650))  # determinista
     assert np.array_equal(px(0), px(0, motion="clasico"))  # al inicio no hay nada que mover
+
+
+def test_syllable_has_no_pre_onset_upward_motion():
+    for pf in PROFILES.values():
+        for b, e, n in ((1.0, 2.0, 4), (1.0, 1.3, 4), (1.0, 1.09, 6)):
+            for sus in (0.0, 1.0):
+                for dt in (-0.3, -0.1, -0.05, -0.01, 0.0):
+                    t = b + dt
+                    assert syllable(pf, 1.0, t, b, e, n, sus, 0.0, 0.01, -0.05) is None
+                    res = syllable(pf, 1.0, t, b, e, n, sus, 0.02, 0.01, -0.05)
+                    assert res is not None
+                    dys, dss = res
+                    assert all(dy >= 0.0 for dy in dys)
+                    assert all(ds == 0.0 for ds in dss)
+
+
+def test_engine_has_no_pre_playback_upward_motion_across_transitions():
+    # Consecutive lines, interludes, backing vocals, and <p begin> before first <span>
+    delayed_line = Line(54000, 56000, syllables=[Syllable("tarde", 54250, 55000, True), Syllable("ya", 55000, 56000)])
+    lyrics = Lyrics(list(exact_lyrics().lines) + [delayed_line])
+    eng = Engine(lyrics, measure, 900.0, params=Params(vib=False))
+    eng.warmup(0)
+    for _ in range(3400):
+        eng.advance(1 / 60)
+        t = eng.t
+        for L in eng.items:
+            if L.is_gap or L.is_credit:
+                continue
+            for w in L.words:
+                for u in w.parts:
+                    if t <= u.b:
+                        if u.wdy is not None:
+                            assert min(u.wdy) >= 0.0, (L.index, u.text, t, u.b, u.wdy)
+                        if u.wds is not None:
+                            assert all(ds == 0.0 for ds in u.wds), (L.index, u.text, t, u.b, u.wds)
+    # Pauses and seeks preserve the same zero pre-onset guarantee
+    for seek_ms in (5960, 9360, 33460, 54100):
+        eng.seek(seek_ms)
+        eng.advance(0.0, running=False)
+        for L in eng.items:
+            if L.is_gap or L.is_credit:
+                continue
+            for w in L.words:
+                for u in w.parts:
+                    if eng.t <= u.b and u.wdy is not None:
+                        assert min(u.wdy) >= 0.0
+                        assert all(ds == 0.0 for ds in (u.wds or ()))
