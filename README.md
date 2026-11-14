@@ -36,7 +36,7 @@ exactamente el mismo motor, así que lo que ves es lo que sale.
 - 🎧 **Audio alineado**: loopback de tu propia reproducción de Spotify o archivo propio con forma de onda para ajustar el desfase.
 - 🌅 **Outro ajustable**: el menú Outro extiende el rango del clip unos segundos más y desvanece el audio.
 - 📝 **Cambia la letra sin perder el proyecto**: «Reemplazar letra con .ttml» en el menú del Editor conserva portada y metadatos.
-- 🎨 **Efectos semánticos por palabra**: detecta 32 categorías de emoción y elementos (ES/EN) con firmas de movimiento y partículas propias por categoría y estación.
+- 🎨 **Efectos semánticos por palabra** (experimental, opcional): anima palabras clave en español e inglés según su significado (44 categorías entre emociones, elementos, estaciones y meses) con color adaptativo y partículas propias.
 - 🎚️ **Sincronía automática de letras** (experimental, opcional): alinea una letra con el audio y te deja revisarla.
 - 📥 **Cola de exportaciones** con progreso, ETA, cancelar y abrir carpeta.
 - 🔐 **Credenciales seguras**: claves y tokens en el Credential Manager de Windows, nunca en archivos.
@@ -169,16 +169,18 @@ exactamente igual y no carga nada de esto.
 - **Licenses:** audio-separator code is MIT licensed; model weight permissions remain unresolved. Review the
   [karaoke licensing question](https://github.com/Anjok07/ultimatevocalremovergui/issues/2295) before downloading. Weights are not bundled.
 
-## 🎨 Efectos semánticos por palabra
+## 🎨 Efectos semánticos por palabra (experimental)
 
-El módulo `marea/wordfx/` analiza cada verso en español e inglés y aplica efectos continuos sobre palabras clave manteniendo la tipografía alineada:
+Reacciona al **significado y emoción** de palabras clave dentro de cada verso (en español e inglés) con animaciones suaves que se mantienen alineadas con la letra y salen **idénticas** en la vista previa y en el video exportado. Está **apagada por defecto**: actívala en **Ajustes → Funciones experimentales → Efectos semánticos por palabra**.
 
-- **32 categorías en [`assets/wordfx/library.json`](assets/wordfx/library.json):** 15 emociones (`sadness`, `anguish`, `numbness`, `loss`, `longing`, `memory`, `tenderness`, `love`, `joy`, `healing`, `calm`, `fear`, `anger`, `intoxication`, `growth`) y 17 elementos (`time`, `celestial`, `air`, `cloud`, `photo`, `earth`, `water`, `fire`, `dryness`, `dream`, `shadow`, `craft`, `broken`, más las 4 estaciones: `spring`, `summer`, `autumn`, `winter`).
-- **Contexto, negación y frases en [`assets/wordfx/rules.json`](assets/wordfx/rules.json):** soporta expresiones bilingües (*para siempre*, *patadas de ahogado*, *flor de papel*, *drift apart*), negaciones e inversiones (*sin miedo* → `growth`, *no puedo respirar* → `anguish`, *volví a respirar* → `healing`), guardias de muletillas y pares de contraste.
-- **Partículas vectoriales propias:**
-  - **Estaciones del año:** pétalos flotantes (`spring`), luciérnagas cálidas (`summer`), hojas balanceándose (`autumn`) y copos de nieve de 6 puntas (`winter`).
-  - **Elementos y emociones:** brasas (`fire`), lluvia (`sadness`), lágrimas que resbalan y abren ondas `ripple` abajo (`sadness` + `water`, p. ej. *llorar* / *cry*), gotas carmesí viscosas que escurren desde un corte con latido y fractura (`sadness` + `anger`, p. ej. *herida* / *wound* / *bleed*), costura *kintsugi* dorada (`sadness` + `healing`, p. ej. *cicatriz* / *scar*), burbujas (`water`), bruma suave (`cloud`), esquirlas (`broken`), halos orbitales (`dream`, `healing`) y vilanos al viento (`air`).
-- **Continuidad y color adaptativo:** firmas de movimiento (`breath`, `tick`, `flicker`, `orbit`, `sine`, `step`, `erode`), mezcla por prioridad, contagio suave con vecinas y corrección de contraste frente al fondo.
+- **Entiende contexto, no solo palabras sueltas:** reconoce **44 categorías** (15 emociones como tristeza, amor, alegría, angustia o sanación; 17 elementos y las 4 estaciones; y los 12 meses del año). Distingue frases (*para siempre*, *flor de papel*, *let go*), negaciones y giros (*sin miedo*, *no puedo respirar*, *volví a respirar*), palabras opuestas en el mismo verso y repeticiones que evolucionan a lo largo de la canción.
+- **Partículas y detalles visuales propios:**
+  - **Estaciones y meses:** pétalos flotantes en primavera, luciérnagas cálidas en verano, hojas cayendo en otoño, copos de nieve en invierno y matices propios para cada mes.
+  - **Elementos y emociones:** brasas de fuego, lluvia, lágrimas que resbalan y abren ondas abajo (*llorar* / *cry*), gotas carmesí desde un corte (*herida* / *wound*), costura dorada tipo *kintsugi* (*cicatriz* / *scar*), burbujas en el agua, bruma suave en nubes, esquirlas rotas, halos brillantes y semillas al viento.
+- **Controles sencillos en el Editor:**
+  - En la pestaña **Estilo** puedes ajustar **Intensidad FX** (de `0 %` para apagarlos temporalmente hasta reforzarlos), activar **Adaptar color de efectos al fondo** para mantener buena lectura sobre portadas o videos claros/oscuros sin perder el tono, y usar **Depurar efectos por palabra** para ver en la vista previa qué detectó cada palabra (nunca sale en el export).
+  - En el menú del Editor (**Perfil de la canción (efectos por palabra)…**) puedes ajustar el ánimo general, cambiar secciones en la línea de tiempo y añadir notas; si usas un archivo de audio propio, los efectos también responden al ritmo y a la intensidad vocal.
+- **Personalizable (opcional):** si quieres agregar palabras, reglas o ajustes por canción sin recompilar, consulta [`docs/wordfx.md`](docs/wordfx.md); tus cambios se recargan solos en la vista previa al guardar.
 
 ## 🔐 Seguridad y datos
 
