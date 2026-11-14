@@ -7,6 +7,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from marea.wordfx._math import lerp_rgb as _lerp, smoothstep
 from marea.wordfx.bleed import spring_bleed_arrival
 from marea.wordfx.envelope import sample_envelope
 from marea.wordfx.fxtypes import RGB, CarrierLetter, FxParams
@@ -86,35 +87,13 @@ def noise1(seed: int, x: float) -> float:
     return a + (b - a) * u
 
 
-def smoothstep(a: float, b: float, x: float) -> float:
-    if b <= a:
-        return 1.0 if x >= b else 0.0
-    u = (x - a) / (b - a)
-    if u <= 0.0:
-        return 0.0
-    if u >= 1.0:
-        return 1.0
-    return u * u * (3.0 - 2.0 * u)
-
-
 def _key(p: FxParams, i: int, salt: int) -> int:
     return (p.seed * 0x9E3779B1 + i * 0x85EBCA6B + salt * 0xC2B2AE35) & _M
 
 
 def _color(p: FxParams, i: int, n: int) -> RGB:
     u = i / (n - 1) if n > 1 else 0.0
-    a, b = p.color_from, p.color_to
-    if a == b or u == 0.0:
-        return a
-    return (round(a[0] + (b[0] - a[0]) * u), round(a[1] + (b[1] - a[1]) * u), round(a[2] + (b[2] - a[2]) * u))
-
-
-def _lerp(a: RGB, b: RGB, u: float) -> RGB:
-    if a == b or u <= 0.0:
-        return a
-    if u >= 1.0:
-        return b
-    return (round(a[0] + (b[0] - a[0]) * u), round(a[1] + (b[1] - a[1]) * u), round(a[2] + (b[2] - a[2]) * u))
+    return _lerp(p.color_from, p.color_to, u)
 
 
 def strain_boost(p: FxParams, strain: float) -> float:
@@ -154,22 +133,80 @@ def _eroded(p: FxParams, n: int) -> int:
     return min(n, max(k, 1 if p.erode > 0.05 else 0))
 
 
-def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: float,
-                 rms: float = 0.0, reduce: bool = False, strain: float = 0.0, onset: float | None = None,
-                 carrier: CarrierLetter | None = None, line_act: float | None = None,
-                 line_end_s: float | None = None, beat_phase: float | None = None) -> LetterState:
-    """`onset`: segundo real en que se canta esta letra (de las sílabas de la canción); sin él se reparte a partes iguales.
-    When `carrier` is supplied (from Scene), activates on the fill front via the 6-phase spring envelope and
-    reshapes the held-note wave using the category's continuous motion signature.
-    """
+@dataclass(frozen=True, slots=True)
+class _WordAnimCtx:
+    dur: float
+    end_s: float
+    ow: float
+    sg: float
+    c_end: RGB
+    opacity_factor: float
+    blur: float
+    ne: int
+    base_glow: float
+    sig_seed_u: float
+
+
+def _word_ctx(p: FxParams, n: int, t: float, begin_s: float, end_s: float,
+              rms: float, reduce: bool, strain: float, has_carrier: bool) -> _WordAnimCtx:
     dur = max(end_s - begin_s, 0.05)
     end_s = begin_s + dur
+    ow = _osc(p, t, reduce)
+    sg = strain_boost(p, strain)
+    if has_carrier and p.bleed_donor_s >= 0.0 and p.color_to != p.color_from and not reduce:
+        b_gain = spring_bleed_arrival(
+            t, p.bleed_donor_s, p.bleed_donor_end_s if p.bleed_donor_end_s > p.bleed_donor_s else p.bleed_donor_s + 0.6
+        )
+        c_end = _lerp(p.color_from, p.color_to, b_gain)
+    else:
+        c_end = p.color_to
+    if p.opacity_min < 1.0:
+        phase = hash01(_key(p, 0, 4))
+        osc = 0.5 + 0.5 * math.sin(2.0 * math.pi * (t * 0.7 + phase))
+        sung = smoothstep(begin_s, begin_s + dur / 2, t) * (1.0 - smoothstep(begin_s + dur / 2, end_s, t))
+        opacity_factor = 1.0 - (1.0 - max(p.opacity_min, 0.0)) * (0.5 * osc + 0.5 * sung)
+    else:
+        opacity_factor = 1.0
+    blur = p.blur_em * (1.0 - smoothstep(begin_s, end_s, t)) if p.blur_em > 0.0 else 0.0
+    ne = _eroded(p, n)
+    if p.glow > 0.0:
+        g0 = p.glow * (1.0 + p.audio_gain * (rms - 0.5))
+        base_glow = 0.0 if g0 < 0.0 else (1.0 if g0 > 1.0 else g0)
+    else:
+        base_glow = 0.0
+    sig_seed_u = hash01(p.seed, 77)
+    return _WordAnimCtx(dur, end_s, ow, sg, c_end, opacity_factor, blur, ne, base_glow, sig_seed_u)
+
+
+def _apply_jitter(
+    p: FxParams, i: int, t: float, rms: float, ow: float, sg: float, go: float,
+    strain_scale: float, strain_min: float, strain_hz: float, max_ag: float, damp_with_sig: bool,
+) -> tuple[float, float]:
+    hz = p.jitter_hz if p.jitter_hz > 0.0 else (6.0 if p.osc_jitter_em > 0.0 else 0.0)
+    amp = p.jitter_em + (p.osc_jitter_em * ow if p.osc_hz > 0.0 else 0.0)
+    if damp_with_sig and p.sig_amp_em > 0.0:
+        amp *= 0.45
+    if sg > 0.0:
+        amp = amp * (1.0 + strain_scale * sg) if amp > 0.0 else strain_min * sg
+        hz = hz or strain_hz
+    if amp > 0.0 and hz > 0.0:
+        ag = 1.0 + p.audio_gain * (rms - 0.5) * 2.0
+        amp *= go * (0.3 if ag < 0.3 else (max_ag if ag > max_ag else ag))
+        return amp * noise1(_key(p, i, 1), t * hz), amp * noise1(_key(p, i, 2), t * hz)
+    return 0.0, 0.0
+
+
+def _letter_state_with_ctx(
+    p: FxParams, i: int, n: int, t: float, begin_s: float, ctx: _WordAnimCtx,
+    rms: float, reduce: bool, onset: float | None,
+    carrier: CarrierLetter | None, line_act: float | None, line_end_s: float | None,
+    beat_phase: float | None,
+) -> LetterState:
+    dur, end_s, ow, sg = ctx.dur, ctx.end_s, ctx.ow, ctx.sg
     dx = dy = rot = 0.0
     on = (begin_s + dur * i / n if onset is None else onset) if carrier is None else carrier.onset_s
     scale = 1.0 if carrier is None else carrier.scale
-    alpha = 1.0
-    ow = _osc(p, t, reduce)
-    sg = strain_boost(p, strain)
+    alpha = ctx.opacity_factor
 
     env = None
     if carrier is not None:
@@ -185,38 +222,24 @@ def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: f
             zeta=p.zeta,
             reduce=reduce,
         )
-        # Gate motion/tint smoothly with the fill front passing this letter (anticipation allowed for hero)
-        fill_gate = max(carrier.fill_p, 0.13 if (p.is_hero and env.phase == "anticipation") else 0.0)
         dy += carrier.y_em
 
     if not reduce:
         if carrier is not None and env is not None:
-            # Keep every unsung letter locked on the Apple Music baseline: geometry only moves once fill_p > 0.
             fp = carrier.fill_p
             if fp > 0.0:
                 m_amp = 1.0 if env.motion_amp > 1.0 else env.motion_amp
                 go = m_amp * fp
                 if p.drift_em != 0.0:
-                    cap_drift = math.copysign(0.04 if abs(p.drift_em) > 0.04 else abs(p.drift_em), p.drift_em)
-                    dy += cap_drift * go
+                    dy += math.copysign(0.04 if abs(p.drift_em) > 0.04 else abs(p.drift_em), p.drift_em) * go
                 if p.jitter_em > 0.0 or p.osc_jitter_em > 0.0 or sg > 0.0:
-                    hz = p.jitter_hz if p.jitter_hz > 0.0 else (6.0 if p.osc_jitter_em > 0.0 else 0.0)
-                    amp = p.jitter_em + (p.osc_jitter_em * ow if p.osc_hz > 0.0 else 0.0)
-                    if p.sig_amp_em > 0.0:
-                        amp *= 0.45  # avoid stacking full jitter + signature oscillation (e.g. exaggerated wobble)
-                    if sg > 0.0:  # vocal strain micro-tremor
-                        amp = amp * (1.0 + 1.2 * sg) if amp > 0.0 else 0.010 * sg
-                        hz = hz or 10.0
-                    if amp > 0.0 and hz > 0.0:
-                        ag = 1.0 + p.audio_gain * (rms - 0.5) * 2.0
-                        amp *= go * (0.3 if ag < 0.3 else (1.6 if ag > 1.6 else ag))
-                        dx += amp * noise1(_key(p, i, 1), t * hz)
-                        dy += amp * noise1(_key(p, i, 2), t * hz)
+                    jdx, jdy = _apply_jitter(p, i, t, rms, ow, sg, go, 1.2, 0.010, 10.0, 1.6, True)
+                    dx += jdx
+                    dy += jdy
                 if p.sig_amp_em > 0.0:
-                    # env.motion_amp already encodes held_factor / accent scaling; gate strictly by fill front fp
                     mode_gain = 1.0 if env.mode == "held" else 0.65
                     sig_scale = env.motion_amp * mode_gain * fp
-                    w_val = eval_waveform(p.waveform, t, p.sig_freq_hz, i, hash01(p.seed, 77), beat_phase=beat_phase)
+                    w_val = eval_waveform(p.waveform, t, p.sig_freq_hz, i, ctx.sig_seed_u, beat_phase=beat_phase)
                     s_disp = p.sig_amp_em * sig_scale * w_val
                     axis = p.sig_axis
                     if axis == "y":
@@ -236,7 +259,6 @@ def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: f
                 if p.rotation_deg > 0.0:
                     r_deg = 4.0 if p.rotation_deg > 4.0 else p.rotation_deg
                     rot += (hash01(_key(p, i, 3)) * 2.0 - 1.0) * r_deg * go
-                # Clamp semantic offset over carrier baseline to keep line alignment clean
                 sem_dy = dy - carrier.y_em
                 max_off = 0.08 if p.is_hero and env.mode == "held" else 0.05
                 if sem_dy > max_off:
@@ -250,15 +272,10 @@ def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: f
         else:
             go = smoothstep(begin_s, begin_s + 0.12, t)
             dy += p.drift_em * smoothstep(begin_s, end_s + DRIFT_TAIL_S, t)
-            hz = p.jitter_hz if p.jitter_hz > 0.0 else 6.0 if p.osc_jitter_em > 0.0 else 0.0
-            amp = p.jitter_em + (p.osc_jitter_em * ow if p.osc_hz > 0.0 else 0.0)
-            if sg > 0.0:  # tensión vocal: más temblor; sin jitter propio aparece uno mínimo a ~12 Hz
-                amp = amp * (1.0 + 1.5 * sg) if amp > 0.0 else 0.012 * sg
-                hz = hz or 12.0
-            if amp > 0.0 and hz > 0.0:
-                amp *= go * min(2.0, max(0.3, 1.0 + p.audio_gain * (rms - 0.5) * 2.0))
-                dx += amp * noise1(_key(p, i, 1), t * hz)
-                dy += amp * noise1(_key(p, i, 2), t * hz)
+            if p.jitter_em > 0.0 or p.osc_jitter_em > 0.0 or sg > 0.0:
+                jdx, jdy = _apply_jitter(p, i, t, rms, ow, sg, go, 1.5, 0.012, 12.0, 2.0, False)
+                dx += jdx
+                dy += jdy
             if p.wave_em > 0.0:
                 dy += go * p.wave_em * math.sin(2.0 * math.pi * p.wave_hz * t - 0.9 * i)
             if p.scale_amp > 0.0 and p.scale_period_s > 0.0 and t >= begin_s:
@@ -267,62 +284,40 @@ def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: f
                 r_env = smoothstep(begin_s, begin_s + 0.2, t) * (1.0 - smoothstep(end_s, end_s + 0.4, t))
                 rot += (hash01(_key(p, i, 3)) * 2.0 - 1.0) * p.rotation_deg * r_env
             if p.stagger_ms > 0.0 or p.letter_offset_em > 0.0:
-                t0 = begin_s + i * p.stagger_ms / 1000.0 if onset is None else onset  # con sílabas reales, la letra entra cuando se canta
+                t0 = begin_s + i * p.stagger_ms / 1000.0 if onset is None else onset
                 k = smoothstep(t0, t0 + ENTER_S, t)
                 alpha *= k
                 dy += p.letter_offset_em * (1.0 - k)
 
-    if p.opacity_min < 1.0:
-        phase = hash01(_key(p, 0, 4))  # una fase por palabra: las letras respiran juntas
-        osc = 0.5 + 0.5 * math.sin(2.0 * math.pi * (t * 0.7 + phase))
-        sung = smoothstep(begin_s, begin_s + dur / 2, t) * (1.0 - smoothstep(begin_s + dur / 2, end_s, t))
-        alpha *= 1.0 - (1.0 - max(p.opacity_min, 0.0)) * (0.5 * osc + 0.5 * sung)
-
-    ne = _eroded(p, n)
+    ne = ctx.ne
     if ne and i >= n - ne:
         j = i - (n - ne)
-        w0, wl = (p.vanish_s, VANISH_S) if p.vanish_s > 0.0 else (end_s - ERODE_TAIL * dur, ERODE_TAIL * dur)  # ventana de erosión
-        s0 = w0 + (j / ne) * 0.4 * wl  # cada letra empieza algo más tarde que la anterior
-        e = smoothstep(s0, s0 + 0.6 * wl, t)  # la última termina justo en end_s
+        w0, wl = (p.vanish_s, VANISH_S) if p.vanish_s > 0.0 else (end_s - ERODE_TAIL * dur, ERODE_TAIL * dur)
+        s0 = w0 + (j / ne) * 0.4 * wl
+        e = smoothstep(s0, s0 + 0.6 * wl, t)
         alpha *= 1.0 - e
-        scale *= 1.0 - 0.15 * e  # se deshace: encoge y se va con el polvo
+        scale *= 1.0 - 0.15 * e
         if not reduce:
             dx += (hash01(_key(p, i, 5)) * 2.0 - 1.0) * 0.04 * e
             dy += (0.02 if p.drift_em >= 0.0 else -0.02) * e * (0.5 + hash01(_key(p, i, 6)))
 
-    blur = p.blur_em * (1.0 - smoothstep(begin_s, end_s, t)) if p.blur_em > 0.0 else 0.0
-    if p.glow > 0.0:
-        glow = p.glow * (1.0 + p.audio_gain * (rms - 0.5))
-        glow = 0.0 if glow < 0.0 else (1.0 if glow > 1.0 else glow)
-    else:
-        glow = 0.0
+    glow = ctx.base_glow
     if carrier is not None:
         ma = glow * (1.0 if env.motion_amp > 1.0 else env.motion_amp)
         g2 = ma if ma > carrier.glow_a else carrier.glow_a
         glow = 1.0 if g2 > 1.0 else g2
     if sg > 0.0:
-        glow += 0.25 * sg
-        if glow > 1.0:
-            glow = 1.0
+        glow = min(1.0, glow + 0.25 * sg)
     if glow > 0.0 and not reduce:
         if p.particle_kind == "ember" and (carrier is None or carrier.fill_p > 0.0):
-            # Subtle organic flame-light breathing synced to time without shifting text baseline
             flk = noise1(_key(p, i, 9), t * 7.5)
             glow = min(1.0, max(0.05, glow * (1.0 + 0.16 * flk)))
-        # mini destello: el bloom de cada letra sube un instante justo al empezar y vuelve a su nivel
         fl = glow + p.flash * smoothstep(on - FLASH_IN_S, on, t) * (1.0 - smoothstep(on, on + FLASH_OUT_S, t))
         glow = 1.0 if fl > 1.0 else fl
 
-    if carrier is not None and p.bleed_donor_s >= 0.0 and p.color_to != p.color_from and not reduce:
-        b_gain = spring_bleed_arrival(t, p.bleed_donor_s, p.bleed_donor_end_s if p.bleed_donor_end_s > p.bleed_donor_s else p.bleed_donor_s + 0.6)
-        c_end = _lerp(p.color_from, p.color_to, b_gain)
-        u = i / (n - 1) if n > 1 else 0.0
-        base_col = _lerp(p.color_from, c_end, u)
-    else:
-        base_col = _color(p, i, n)
+    base_col = _lerp(p.color_from, ctx.c_end, i / (n - 1) if n > 1 else 0.0)
     target_col = _lerp(base_col, p.osc_color, ow) if p.osc_hz > 0.0 else base_col
     if carrier is not None and env is not None:
-        # Carrier fill tint: mix(base white, category color, fill_tint * env.tint_amp) gated by fill front + anticipation
         ta = 1.0 if env.tint_amp > 1.0 else env.tint_amp
         fg = carrier.fill_p
         if fg < 0.25 and env.phase in ("anticipation", "fade"):
@@ -333,7 +328,38 @@ def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: f
     else:
         col = target_col
     a_out = 0.0 if alpha < 0.0 else (1.0 if alpha > 1.0 else alpha)
-    return LetterState(dx, dy, scale, rot, a_out, col, blur, glow)
+    return LetterState(dx, dy, scale, rot, a_out, col, ctx.blur, glow)
+
+
+def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: float,
+                 rms: float = 0.0, reduce: bool = False, strain: float = 0.0, onset: float | None = None,
+                 carrier: CarrierLetter | None = None, line_act: float | None = None,
+                 line_end_s: float | None = None, beat_phase: float | None = None) -> LetterState:
+    """`onset`: segundo real en que se canta esta letra (de las sílabas de la canción); sin él se reparte a partes iguales.
+    When `carrier` is supplied (from Scene), activates on the fill front via the 6-phase spring envelope and
+    reshapes the held-note wave using the category's continuous motion signature.
+    """
+    ctx = _word_ctx(p, n, t, begin_s, end_s, rms, reduce, strain, carrier is not None)
+    return _letter_state_with_ctx(p, i, n, t, begin_s, ctx, rms, reduce, onset, carrier, line_act, line_end_s, beat_phase)
+
+
+def word_letter_states(
+    p: FxParams, n: int, t: float, begin_s: float, end_s: float,
+    rms: float = 0.0, reduce: bool = False, strain: float = 0.0, onsets: Sequence[float] | None = None,
+    c_letters: Sequence[CarrierLetter] | None = None, line_act: float | None = None,
+    line_end_s: float | None = None, beat_phase: float | None = None,
+) -> list[LetterState]:
+    """Evaluate all `n` letter states for one word, sharing word-invariant calculations across letters."""
+    ctx = _word_ctx(p, n, t, begin_s, end_s, rms, reduce, strain, c_letters is not None)
+    return [
+        _letter_state_with_ctx(
+            p, i, n, t, begin_s, ctx, rms, reduce,
+            onsets[i] if onsets else None,
+            c_letters[i] if c_letters else None,
+            line_act, line_end_s, beat_phase,
+        )
+        for i in range(n)
+    ]
 
 
 def _month_particle(kind: str, k: int, zp: int, p: FxParams, x0: float, age: float, life: float, life_u: float,
@@ -494,26 +520,29 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
     if not 0.0 <= age < life:
         return None
     u3, u4, u5, u6, u7 = _u01(zp, 3), _u01(zp, 4), _u01(zp, 5), _u01(zp, 6), _u01(zp, 7)
-    u8, u9, u10, u11, u12 = _u01(zp, 8), _u01(zp, 9), _u01(zp, 10), _u01(zp, 11), _u01(zp, 12)
     x0 = letters_x_em[li] + u3 * letters_w_em[li]
-    ph = 2.0 * math.pi * u10
+    ph = 2.0 * math.pi * _u01(zp, 10)
     col = _color(p, li, n)
     life_u = min(1.0, age / life)
     env = math.sin(math.pi * life_u) ** 0.75
     if kind in _MONTH_PARTICLES:
-        return _month_particle(kind, k, zp, p, x0, age, life, life_u, env, ph, col, u4, u5, u6, u7, u9, u11, u12)
+        return _month_particle(kind, k, zp, p, x0, age, life, life_u, env, ph, col, u4, u5, u6, u7,
+                               _u01(zp, 9), _u01(zp, 11), _u01(zp, 12))
     if kind == "petal":
+        u8, u11, u12 = _u01(zp, 8), _u01(zp, 11), _u01(zp, 12)
         x = x0 + (0.16 + 0.16 * u4) * age + 0.13 * math.sin(2.3 * age + ph)
         y = -0.15 - 0.55 * u5 - (0.34 + 0.28 * u6) * age + 0.05 * math.sin(3.4 * age + ph)
         rot = (u11 - 0.5) * 90.0 + (70.0 if u12 > 0.5 else -70.0) * age
         col = _lerp(col, (255, 210, 226) if u8 < 0.65 else (255, 255, 255), 0.35)
         return Particle(x, y, 0.065 + 0.050 * u7, 0.92 * env, "petal", col, rot_deg=rot, life_u=life_u)
     if kind == "firefly":
+        u9, u11 = _u01(zp, 9), _u01(zp, 11)
         x = x0 + 0.20 * math.sin(1.9 * age + ph) + 0.09 * (u4 - 0.5) * age + 0.06 * math.cos(0.9 * age + ph * 0.5)
         y = -0.25 - 0.65 * u5 - (0.16 + 0.14 * u6) * age + 0.15 * math.cos(1.7 * age + ph * 0.7)
         blink = 0.28 + 0.72 * (math.sin(math.pi * ((1.2 + 0.9 * u9) * age + u11)) ** 2)
         return Particle(x, y, 0.045 + 0.045 * u7, 0.98 * env * blink, "firefly", _lerp(col, (255, 232, 145), 0.45), life_u=life_u)
     if kind == "leaf":
+        u8, u11 = _u01(zp, 8), _u01(zp, 11)
         vx_osc = 0.22 * 3.1 * math.cos(3.1 * age + ph)
         x = x0 + 0.14 * (u4 - 0.35) * age + 0.22 * math.sin(3.1 * age + ph)
         y = -0.60 - 0.45 * u5 + (0.30 + 0.24 * u6) * age + 0.08 * age * age
@@ -521,11 +550,13 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
         col = _lerp(col, (242, 168, 72) if u8 < 0.5 else (214, 98, 62), 0.40)
         return Particle(x, y, 0.070 + 0.050 * u7, 0.94 * env, "leaf", col, rot_deg=rot, life_u=life_u)
     if kind == "snow":
+        u11, u12 = _u01(zp, 11), _u01(zp, 12)
         x = x0 + 0.09 * (u4 - 0.25) * age + 0.08 * math.sin(1.9 * age + ph)
         y = -0.80 - 0.45 * u5 + (0.24 + 0.18 * u6) * age
         rot = 360.0 * u11 + (42.0 if u12 > 0.5 else -42.0) * age
         return Particle(x, y, 0.060 + 0.055 * u7, 0.92 * env, "snow", _lerp(col, (235, 249, 255), 0.60), rot_deg=rot, life_u=life_u)
     if kind == "ember":
+        u9 = _u01(zp, 9)
         # Slow-out convective buoyancy (rises swiftly then decelerates softly as embers cool)
         buoy = 1.0 - (1.0 - life_u) ** 1.55
         rise_dist = (0.90 + 0.65 * u6) * life
@@ -599,12 +630,14 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
         r = (0.14 + 0.11 * u7) * (0.82 + 0.42 * life_u)
         return Particle(x, y, r, 0.44 * env, "mist", _lerp(col, (240, 248, 255), 0.55), life_u=life_u)
     if kind == "shard":
+        u11, u12 = _u01(zp, 11), _u01(zp, 12)
         vx = (u4 - 0.5) * 0.72
         x = x0 + vx * age
         y = -0.25 - 0.35 * u5 + (0.20 * u6 - 0.15) * age + 0.55 * age * age
         rot = 360.0 * u11 + (220.0 if u12 > 0.5 else -220.0) * age * (1.0 - 0.25 * life_u)
         return Particle(x, y, 0.060 + 0.048 * u7, 0.94 * (1.0 - life_u), "shard", _lerp(col, (235, 245, 255), 0.55), rot_deg=rot, life_u=life_u)
     if kind == "wisp":
+        u9 = _u01(zp, 9)
         w_rate = 1.6 + 0.8 * u9
         ang = ph + w_rate * age
         rad = 0.15 + 0.19 * u4
@@ -617,6 +650,7 @@ def _custom_particle(p: FxParams, k: int, letters_x_em: Sequence[float], letters
                         _lerp(col, (232, 222, 255), 0.45), life_u=life_u, vx_em=vx, vy_em=vy,
                         core_color=(255, 252, 245))
     if kind == "spark":
+        u9, u11 = _u01(zp, 9), _u01(zp, 11)
         y = -0.20 - 0.65 * u5 - (0.22 + 0.18 * u6) * age
         x = x0 + 0.12 * math.sin(1.8 * age + ph) + 0.06 * (u4 - 0.5) * age
         tw = 0.25 + 0.75 * (math.sin(math.pi * ((1.0 + 0.7 * u9) * age + u11)) ** 2)
@@ -724,13 +758,13 @@ def particles(p: FxParams, letters_x_em: Sequence[float], letters_w_em: Sequence
             if q is not None:
                 out.append(q)
     else:
-        ne = max(_eroded(p, n), 1)  # sin erosión el polvo sale de la última letra
+        eroded_raw = _eroded(p, n)
+        ne = max(eroded_raw, 1)  # sin erosión el polvo sale de la última letra
         for k in range(max(p.particles, 0)):
             zp = _seed_k(p.seed, 100, k)
             u0, u1, u2 = _u01(zp, 0), _u01(zp, 1), _u01(zp, 2)
             li = n - ne + int(u2 * ne) % ne
             if onsets is not None and len(onsets) == n:
-                # Fill-front spawn: each particle emits when the fill front crosses its target letter
                 spawn = onsets[li] + u0 * min(0.25, max(0.05, end_s - onsets[li]))
             else:
                 spawn = (p.vanish_s + u0 * VANISH_S if p.vanish_s > 0.0 else end_s - ERODE_TAIL * dur + u0 * (ERODE_TAIL * dur + DRIFT_TAIL_S))
@@ -740,12 +774,11 @@ def particles(p: FxParams, letters_x_em: Sequence[float], letters_w_em: Sequence
                 continue
             u3, u4, u5, u6, u7, u8, u9, u10 = (_u01(zp, s) for s in range(3, 11))
             life_u = age / life
-            # Air-drag damped lateral spread + gentle organic curl (Slow Out)
             damp = (1.0 - math.exp(-2.0 * age)) * 0.5
             x = (letters_x_em[li] + u3 * letters_w_em[li] + (u4 - 0.4) * 0.40 * damp
                  + 0.03 * math.sin(2.0 * math.pi * ((0.5 + 0.4 * u9) * age + u10))
                  + 0.02 * noise1(zp ^ 0x3C6EF372, age * 2.2))
-            if _eroded(p, n) > 0:
+            if eroded_raw > 0:
                 x = max(letters_x_em[n - ne], x)
             y0 = p.drift_em - 0.1 - 0.5 * u5  # las letras erosionadas ya bajaron/subieron con el drift
             if p.drift_em >= 0.0:

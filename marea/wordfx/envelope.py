@@ -12,6 +12,7 @@ import math
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from marea.wordfx._math import clamp as _clamp, smoothstep
 from marea.wordfx.springs import CachedSpringCurve
 
 _ENVELOPE_CURVES: OrderedDict[tuple, CachedSpringCurve] = OrderedDict()
@@ -50,18 +51,6 @@ def duration_mode(dur_s: float) -> tuple[str, float]:
     return "held", held_scale
 
 
-def _smooth01(x: float) -> float:
-    if x <= 0.0:
-        return 0.0
-    if x >= 1.0:
-        return 1.0
-    return x * x * (3.0 - 2.0 * x)
-
-
-def _clamp(x: float, lo: float, hi: float) -> float:
-    return lo if x < lo else (hi if x > hi else x)
-
-
 def _raw_target(
     t: float,
     b0: float,
@@ -82,17 +71,17 @@ def _raw_target(
     if t < on_t:
         if not is_hero or anticipation_s <= 0.0:
             return 0.0
-        u = _smooth01((t - anti_start) / max(1e-4, b0 - anti_start))
+        u = smoothstep(anti_start, b0, t)
         return ANTICIPATION_AMP * u
     if t <= b1:
         return peak
     rel_end = b1 + release_s
     if t <= rel_end:
-        u = _smooth01((t - b1) / release_s)
+        u = smoothstep(b1, rel_end, t)
         return peak + (residue - peak) * u
     if t <= line_end_s:
         return residue
-    u = _smooth01((t - line_end_s) / max(0.05, fade_s))
+    u = smoothstep(line_end_s, line_end_s + max(0.05, fade_s), t)
     return residue * (1.0 - u)
 
 

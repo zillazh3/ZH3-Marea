@@ -16,9 +16,7 @@ from marea.wordfx.fxtypes import RGB, FxWord
 from marea.wordfx.lexicon import normalize
 from marea.wordfx.matcher import MAX_PER_LINE, Match, _match_line, _phrase_buckets, match_lyrics, phrase_table, word_groups
 from marea.wordfx.momentum import MomentumCurve, build_momentum
-from marea.wordfx.profile import vector_at
-
-NEIGHBOR_TOKENS = 2  # una vecina con efecto a ≤2 palabras contagia
+from marea.wordfx.profile import _global_vector, vector_at
 
 
 @dataclass
@@ -95,6 +93,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
     ptable = phrase_table(lib, rls) if has_bg else None
     pbuckets = _phrase_buckets(ptable) if ptable is not None else None
     main_groups_by_line = [word_groups(l.syllables) for l in lyrics.lines]
+    bg_groups_by_line: list[list[list]] = [[word_groups(bg.syllables) for bg in line.bg] for line in lyrics.lines]
     by_line: dict[int, list[Match]] = {}
     for m in matches.values():
         by_line.setdefault(m.line, []).append(m)
@@ -103,6 +102,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
     bg_words: dict[tuple[int, int], FxWord] = {}
     momentum_events: list[tuple[float, float, tuple[float, ...], float]] = []
     raw_vocals = profile is not None and profile.has("raw_vocals")
+    g_vec = _global_vector(profile) if profile is not None else None
     beat = getattr(analysis, "beat_period_ms", None) if analysis is not None and getattr(analysis, "beats_ms", None) else None
     prev_last_hero: Match | None = None
     for li, line in enumerate(lyrics.lines):
@@ -124,7 +124,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
                 m, lib, track_id=track, bleed_donors=donors, line_mood=line_mood, palette=palette, repeat_n=rep,
                 intensity=intensity * mult.get(key, 1.0), beat_period_ms=beat, partner=partner,
                 osc_phase=0.0 if partner is None or m.word < partner.word else math.pi, vector_override=vec_over.get(key),
-                song_mood=vector_at(profile, m.begin_ms / 1000) if profile is not None else None,
+                song_mood=vector_at(profile, m.begin_ms / 1000, global_vec=g_vec) if profile is not None else None,
                 raw_vocals=raw_vocals, handoff_overlap_s=overlap_s)
             if params.erode > 0.0:  # las letras que se deshacen esperan al verso siguiente (o al fin del último)
                 nxt = nxt_start if nxt_start is not None else line.end
@@ -136,9 +136,8 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         # Match background vocals / ad-libs at 40% amplitude (after main words in L.words order)
         main_groups = main_groups_by_line[li]
         wi_offset = len(main_groups)
-        for bg_line in line.bg:
+        for bg_line, bg_groups in zip(line.bg, bg_groups_by_line[li]):
             bg_as_line = Line(bg_line.start, bg_line.end, syllables=bg_line.syllables)
-            bg_groups = word_groups(bg_line.syllables)
             bg_matches = _match_line(bg_as_line, 0, lib, MAX_PER_LINE, rls, ptable, pbuckets)
             bg_by_w = {bm.word: bm for bm in bg_matches}
             for bi, grp in enumerate(bg_groups):
@@ -149,7 +148,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
                     b_params = compose(
                         b_match, lib, track_id=track, line_mood=line_mood, palette=palette,
                         beat_period_ms=beat, intensity=intensity, is_bg=True,
-                        song_mood=vector_at(profile, b_match.begin_ms / 1000) if profile is not None else None,
+                        song_mood=vector_at(profile, b_match.begin_ms / 1000, global_vec=g_vec) if profile is not None else None,
                         raw_vocals=raw_vocals, handoff_overlap_s=overlap_s,
                     )
                     bg_words[b_key] = FxWord(b_match, b_params)
@@ -188,8 +187,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
             amb_m = Match(li, wi, text, text.lower(), "es", (), b0, b1, score=0.0, note="ambient")
             ambient[key] = FxWord(amb_m, amb_p)
         wi_offset = len(main_groups)
-        for bg_line in line.bg:
-            bg_groups = word_groups(bg_line.syllables)
+        for bg_groups in bg_groups_by_line[li]:
             for bi, grp in enumerate(bg_groups):
                 b_key = (li, wi_offset + bi)
                 if b_key in bg_words:

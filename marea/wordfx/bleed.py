@@ -5,7 +5,7 @@ from typing import Sequence
 from marea.wordfx.matcher import Match
 from marea.wordfx.springs import CachedSpringCurve
 
-_BLEED_CURVES: OrderedDict[tuple[float, float, float], CachedSpringCurve] = OrderedDict()
+_BLEED_CURVES: OrderedDict[tuple[float, float], CachedSpringCurve] = OrderedDict()
 _MAX_BLEED_CURVES = 512
 
 BLEED_KERNEL: dict[int, float] = {1: 0.35, 2: 0.12}
@@ -46,27 +46,27 @@ def line_bleed_donors(
 
 def spring_bleed_arrival(t_s: float, donor_begin_s: float, donor_end_s: float, freq_hz: float = 2.8) -> float:
     """Spring-eased arrival envelope in [0, 1] so bleed glides in smoothly instead of snapping."""
-    anti_s = donor_begin_s - 0.12
-    if t_s <= anti_s:
+    tau = t_s - donor_begin_s
+    if tau <= -0.12:
         return 0.0
-    key = (donor_begin_s, donor_end_s, freq_hz)
+    q_dur = round(max(0.05, donor_end_s - donor_begin_s), 3)
+    key = (q_dur, freq_hz)
     curve = _BLEED_CURVES.get(key)
     if curve is None:
-        tail_end = donor_end_s + 0.70
+        tail_end = q_dur + 0.70
 
-        def _target(x: float, _b=donor_begin_s, _e=donor_end_s, _te=tail_end) -> float:
-            if x < _b:
+        def _target(x: float, _e=q_dur, _te=tail_end) -> float:
+            if x < 0.0:
                 return 0.0
             if x <= _e:
                 return 1.0
             if x <= _te:
-                u = (x - _e) / max(0.05, _te - _e)
-                return 1.0 - u * 0.75
+                return 1.0 - ((x - _e) / 0.70) * 0.75
             return 0.25
 
         curve = CachedSpringCurve(
             _target,
-            anti_s - 0.05,
+            -0.17,
             initial=0.0,
             freq_hz=freq_hz,
             zeta=1.0,
@@ -78,8 +78,8 @@ def spring_bleed_arrival(t_s: float, donor_begin_s: float, donor_end_s: float, f
             _BLEED_CURVES.popitem(last=False)
     else:
         _BLEED_CURVES.move_to_end(key)
-    val, _ = curve.eval(t_s)
-    return max(0.0, min(1.0, val))
+    val, _ = curve.eval(tau)
+    return 0.0 if val < 0.0 else (1.0 if val > 1.0 else val)
 
 
 def handoff_overlap_s(line_end_ms: int, next_line_start_ms: int | None) -> float:

@@ -287,6 +287,22 @@ def _pick_phrase(toks: list[_Tok], i: int, table: list[Phrase], buckets: dict[st
     return next((p for _, p in cands if _fits(toks, i, p)), None)
 
 
+def _apply_negation(
+    lib: Library, rules: Rules, singles: dict[int, tuple[str, tuple[str, ...], str]],
+    line_cats: dict[int, tuple[str, ...]], neg_deleted: set[int], k: int, lemma: str,
+    cats: tuple[str, ...], neg: str,
+) -> None:
+    """Transform or delete negated word categories in place."""
+    new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
+    if new:
+        singles[k] = (lemma, new, f"neg:{neg}")
+        line_cats[k] = new
+    else:
+        del singles[k]
+        line_cats.pop(k, None)
+    neg_deleted.add(k)
+
+
 def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rules, table: list[Phrase],
                 buckets: dict[str, list[tuple[int, Phrase]]] | None = None) -> list[Match]:
     toks = _tokens(line, lib.known)
@@ -314,11 +330,10 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
         consumed.update(range(i, j))
         i = j
     # 2. palabras sueltas: guardas de categoría gramatical, luego lema
-    singles = {}
+    singles: dict[int, tuple[str, tuple[str, ...], str]] = {}
     for k, tok in enumerate(toks):
         if k in consumed or _guarded(rules, toks, k):
             continue
-        # shortcut: una palabra con guion se prueba entera; partirla en piezas si aparecen compuestos en la letra
         hit = next(
             (
                 (c, cats)
@@ -354,15 +369,7 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
         if (neg := _negator(rules, toks, consumed, k)) and any(c in rules.negation for c in cats):
             neg_hits[k] = neg
             if not (rules.senses and _senses_for(rules, toks[k], lemma)):
-                new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
-                if new:
-                    singles[k] = (lemma, new, f"neg:{neg}")
-                    line_cats[k] = new
-                    neg_deleted.add(k)
-                else:
-                    del singles[k]
-                    line_cats.pop(k, None)
-                    neg_deleted.add(k)
+                _apply_negation(lib, rules, singles, line_cats, neg_deleted, k, lemma, cats, neg)
     # 3c. Sentidos contextuales sobre categorías activas del verso (también sobre palabras polisémicas aún por negar).
     sense_flags: dict[int, bool] = {}
     if rules.senses:
@@ -382,15 +389,7 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
         lemma, cats, note = singles[k]
         if note.startswith("neg:") or not any(c in rules.negation for c in cats):
             continue
-        new = _order(lib, [m for c in cats for m in rules.negation.get(c, (c,))])
-        if new:
-            singles[k] = (lemma, new, f"neg:{neg}")
-            line_cats[k] = new
-            neg_deleted.add(k)
-        else:
-            del singles[k]
-            line_cats.pop(k, None)
-            neg_deleted.add(k)
+        _apply_negation(lib, rules, singles, line_cats, neg_deleted, k, lemma, cats, neg)
     for k, (lemma, cats, note) in singles.items():
         tok = toks[k]
         has_s = sense_flags.get(k, bool(rules.senses and _senses_for(rules, tok, lemma)))
@@ -416,17 +415,34 @@ def _match_line(line: Line, line_idx: int, lib: Library, max_fx: int, rules: Rul
     return sorted(chosen + rest[:max(max_fx - len(chosen), 0)], key=lambda m: m.word)
 
 
+_PHRASE_CACHE: list[tuple[Library, Rules, int, list[Phrase], dict[str, list[tuple[int, Phrase]]]]] = []
+
+
+def _cached_phrases(lib: Library, rules: Rules) -> tuple[list[Phrase], dict[str, list[tuple[int, Phrase]]]]:
+    n_p = len(rules.phrases)
+    for idx, entry in enumerate(_PHRASE_CACHE):
+        if entry[0] is lib and entry[1] is rules and entry[2] == n_p:
+            if idx != len(_PHRASE_CACHE) - 1:
+                _PHRASE_CACHE.append(_PHRASE_CACHE.pop(idx))
+            return entry[3], entry[4]
+    table = phrase_table(lib, rules)
+    buckets = _phrase_buckets(table)
+    _PHRASE_CACHE.append((lib, rules, n_p, table, buckets))
+    if len(_PHRASE_CACHE) > 8:
+        del _PHRASE_CACHE[0]
+    return table, buckets
+
+
 def match_line(line: Line, line_idx: int, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> list[Match]:
     """`rules=None` carga las reglas del usuario o las incluidas; pasa `Rules()` para desactivarlas."""
     rules = rules if rules is not None else rules_mod.load()
-    table = phrase_table(lib, rules)
-    return _match_line(line, line_idx, lib, max_fx, rules, table, _phrase_buckets(table))
+    table, buckets = _cached_phrases(lib, rules)
+    return _match_line(line, line_idx, lib, max_fx, rules, table, buckets)
 
 
 def match_lyrics(lyrics: Lyrics, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> dict[tuple[int, int], Match]:
     rules = rules if rules is not None else rules_mod.load()
-    table = phrase_table(lib, rules)
-    buckets = _phrase_buckets(table)
+    table, buckets = _cached_phrases(lib, rules)
     out = {}
     for li, line in enumerate(lyrics.lines):
         for m in _match_line(line, li, lib, max_fx, rules, table, buckets):

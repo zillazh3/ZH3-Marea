@@ -195,9 +195,7 @@ def find_cached_stem(audio_path, lab_root=None) -> np.ndarray | None:
     try:
         if lab_root is None:
             from marea.lab import env
-            from marea.paths import make_settings
-            custom = make_settings().value("experimental/lab_dir", "")  # misma clave que marea.ui.lab.lab_root
-            lab_root = Path(custom) if custom else env.lab_dir()
+            lab_root = env.lab_root()
         h = hashlib.sha256()
         with open(audio_path, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):

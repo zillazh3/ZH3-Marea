@@ -9,29 +9,24 @@ from array import array
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from marea.engine.springs import step_spring
+
 SIM_HZ = 240.0
 SIM_DT = 1.0 / SIM_HZ
 DEFAULT_FREQ_HZ = 2.4
 DEFAULT_ZETA = 1.0  # critically damped by default
 
 
-def step_spring(p: float, v: float, g: float, freq_hz: float, zeta: float, dt: float) -> tuple[float, float]:
-    """Advance spring state `(p, v)` toward target `g` by `dt` seconds using the analytical solution.
-
-    Zero numerical drift and unconditionally stable for any `dt >= 0`.
-    """
+def _spring_step_coeffs(freq_hz: float, zeta: float, dt: float) -> tuple[float, float, float, float]:
+    """Precompute the 2x2 analytical state-transition matrix `(a11, a12, a21, a22)` for fixed `(freq_hz, zeta, dt)`."""
     if dt <= 0.0 or freq_hz <= 0.0:
-        return p, v
-    w = 2.0 * math.pi * freq_hz
-    o = p - g
-    if abs(o) < 1e-12 and abs(v) < 1e-12:
-        return g, 0.0
+        return 1.0, 0.0, 0.0, 1.0
+    w = freq_hz * 2.0 * math.pi
     if abs(zeta - 1.0) < 1e-6:
         q = math.exp(-w * dt)
         t_q = dt * q
-        np = o * (q + t_q * w) + v * t_q + g
-        nv = v * (q - t_q * w) - o * (t_q * w * w)
-    elif zeta < 1.0:
+        return q + t_q * w, t_q, -(t_q * w * w), q - t_q * w
+    if zeta < 1.0:
         z = max(0.01, zeta)
         q = math.exp(-z * w * dt)
         c = math.sqrt(1.0 - z * z)
@@ -39,19 +34,16 @@ def step_spring(p: float, v: float, g: float, freq_hz: float, zeta: float, dt: f
         sn = math.sin(dt * w * c)
         k1 = sn / c
         k2 = sn / (w * c)
-        np = (o * (cs + k1 * z) + v * k2) * q + g
-        nv = (v * (cs - k1 * z) - o * (k1 * w)) * q
-    else:
-        c = math.sqrt(zeta * zeta - 1.0)
-        r1 = -w * (zeta + c)
-        r2 = -w * (zeta - c)
-        e1 = math.exp(r1 * dt)
-        e2 = math.exp(r2 * dt)
-        c2 = (v - o * r1) / (2.0 * w * c)
-        c1 = e1 * (o - c2)
-        np = c1 + c2 * e2 + g
-        nv = c1 * r1 + c2 * e2 * r2
-    return np, nv
+        return (cs + k1 * z) * q, k2 * q, -(k1 * w) * q, (cs - k1 * z) * q
+    c = math.sqrt(zeta * zeta - 1.0)
+    r1 = -w * (zeta + c)
+    r2 = -w * (zeta - c)
+    e1 = math.exp(r1 * dt)
+    e2 = math.exp(r2 * dt)
+    inv = 1.0 / (2.0 * w * c)
+    de = e2 - e1
+    der = e2 * r2 - e1 * r1
+    return e1 - r1 * inv * de, inv * de, e1 * r1 - r1 * inv * der, inv * der
 
 
 @dataclass
@@ -142,6 +134,10 @@ class CachedSpringCurve:
         "steady_after",
         "steady_value",
         "_steady_done_t",
+        "_a11",
+        "_a12",
+        "_a21",
+        "_a22",
         "_p",
         "_v",
         "_settled_tick",
@@ -169,6 +165,7 @@ class CachedSpringCurve:
         self._steady_done_t = (
             steady_after + 40.0 / _decay_rate(freq_hz, zeta) if steady_after is not None else None
         )
+        self._a11, self._a12, self._a21, self._a22 = _spring_step_coeffs(freq_hz, zeta, SIM_DT)
         self._p = array("d", (initial,))
         self._v = array("d", (0.0,))
         self._settled_tick: int | None = None
@@ -194,14 +191,17 @@ class CachedSpringCurve:
             v = v_arr[cached]
             target_fn = self.target_fn
             t_origin = self.t_origin
-            freq_hz = self.freq_hz
-            zeta = self.zeta
+            a11, a12, a21, a22 = self._a11, self._a12, self._a21, self._a22
             steady_after = self.steady_after
             steady_value = self.steady_value
             for k in range(cached, n_ticks):
                 tick_t = t_origin + (k + 0.5) * SIM_DT
                 g = target_fn(tick_t)
-                p, v = step_spring(p, v, g, freq_hz, zeta, SIM_DT)
+                o = p - g
+                if abs(o) < 1e-12 and abs(v) < 1e-12:
+                    p, v = g, 0.0
+                else:
+                    p, v = a11 * o + a12 * v + g, a21 * o + a22 * v
                 p_arr.append(p)
                 v_arr.append(v)
                 if steady_after is not None and tick_t >= steady_after and p == steady_value and v == 0.0:

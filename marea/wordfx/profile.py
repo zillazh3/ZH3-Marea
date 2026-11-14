@@ -84,6 +84,12 @@ NOTE_KEYS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("euforia", "euphori"), ("euphoric",)),
     (("tribut", "homenaje", "papa", "mama", "padre", "madre", "abuel", "familia", "family", "parents", "dedicad"), ("tribute",)),
 )
+_TAG_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (t, re.compile(rf"\b{t.replace('_', '[ _-]')}\b")) for t in TAGS
+)
+_NOTE_PATTERNS: tuple[tuple[tuple[re.Pattern[str], ...], tuple[str, ...]], ...] = tuple(
+    (tuple(re.compile(rf"\b{s}") for s in stems), moods) for stems, moods in NOTE_KEYS
+)
 
 
 class ProfileError(ValueError):
@@ -170,24 +176,45 @@ def _global_vector(profile: SongProfile) -> tuple[float, ...] | None:
     return tuple(sum(v[i] for v in vs) / len(vs) for i in range(len(AXES))) if vs else None
 
 
-def vector_at(profile: SongProfile, t_s: float, smooth_s: float = 1.0) -> tuple[float, ...] | None:
+def vector_at(
+    profile: SongProfile,
+    t_s: float,
+    smooth_s: float = 1.0,
+    *,
+    global_vec: tuple[float, ...] | None = ...,  # type: ignore[assignment]
+) -> tuple[float, ...] | None:
     """Vector base en `t_s`: ánimo del tramo del arco, con fundido lineal de `smooth_s` centrado en cada frontera.
 
     Fuera del arco (o sin él) se usa la media de las etiquetas globales; None si no hay ni arco ni etiquetas con vector.
     En los bordes del arco el fundido es contra ese vector global.
     """
+    g = _global_vector(profile) if global_vec is ... else global_vec
+    if not profile.arc:
+        return g
     smooth = max(smooth_s, 1e-6)
     h = smooth / 2
-    ws = [(max(0.0, min(1.0, (t_s - (s.start - h)) / smooth)) * max(0.0, min(1.0, (s.end + h - t_s) / smooth)), s.mood)
-          for s in profile.arc]
-    total = sum(w for w, _ in ws)
-    g = _global_vector(profile)
-    if total <= 0:
+    total = 0.0
+    vec = [0.0] * len(AXES)
+    for s in profile.arc:
+        w0 = (t_s - (s.start - h)) / smooth
+        if w0 <= 0.0:
+            continue
+        w1 = (s.end + h - t_s) / smooth
+        if w1 <= 0.0:
+            continue
+        w = (1.0 if w0 > 1.0 else w0) * (1.0 if w1 > 1.0 else w1)
+        total += w
+        mv = MOOD_VECTORS[s.mood]
+        for i in range(len(AXES)):
+            vec[i] += w * mv[i]
+    if total <= 0.0:
         return g
-    vec = [sum(w * MOOD_VECTORS[m][i] for w, m in ws) for i in range(len(AXES))]
-    if total < 1 and g is not None:
-        return tuple(v + (1 - total) * g[i] for i, v in enumerate(vec))
-    return tuple(v / total for v in vec) if total < 1 else tuple(vec)
+    if total < 1.0 and g is not None:
+        rem = 1.0 - total
+        return tuple(vec[i] + rem * g[i] for i in range(len(AXES)))
+    if total < 1.0:
+        return tuple(v / total for v in vec)
+    return tuple(vec)
 
 
 def mood_at(profile: SongProfile, t_s: float) -> str | None:
@@ -204,9 +231,9 @@ def _note_signals(notes: str) -> tuple[dict[str, float], set[str]]:
     """(sesgos por ánimo, etiquetas forzadas) de las notas libres ES/EN; los nombres de etiqueta escritos tal cual fuerzan."""
     txt = _fold(notes)
     bias: dict[str, float] = {}
-    forced = {t for t in TAGS if re.search(rf"\b{t.replace('_', '[ _-]')}\b", txt)}
-    for stems, moods in NOTE_KEYS:
-        if any(re.search(rf"\b{s}", txt) for s in stems):
+    forced = {t for t, pat in _TAG_PATTERNS if pat.search(txt)}
+    for pats, moods in _NOTE_PATTERNS:
+        if any(p.search(txt) for p in pats):
             for m in moods:
                 if m == "tribute":
                     forced.add(m)

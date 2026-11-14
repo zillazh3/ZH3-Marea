@@ -10,41 +10,23 @@ from typing import Sequence
 
 import numpy as np
 
+from marea.wordfx._math import MAX_AMBIENT_AMP, ambient_vector_color, clamp as _clamp, lerp_rgb as _lerp_rgb
 from marea.wordfx.fxtypes import AXES, RGB
-from marea.wordfx.profile import vector_at as profile_vector_at
-from marea.wordfx.springs import SIM_DT, step_spring
+from marea.wordfx.profile import _global_vector, vector_at as profile_vector_at
+from marea.wordfx.springs import SIM_DT, _spring_step_coeffs
 
 ZERO_VEC: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-MAX_AMBIENT_AMP = 0.15
 MAX_INTERLUDE_TINT = 0.20
 
-_WARM_POS: RGB = (255, 198, 128)  # warm luminous amber
-_COOL_POS: RGB = (164, 224, 255)  # airy sky cyan
-_WARM_NEG: RGB = (232, 134, 152)  # tender bruised rose
-_COOL_NEG: RGB = (122, 168, 238)  # deep nostalgic indigo-blue
-
-
-def _clamp(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
-
-
-def _lerp_rgb(a: RGB, b: RGB, u: float) -> RGB:
-    k = _clamp(u, 0.0, 1.0)
-    return tuple(round(x + (y - x) * k) for x, y in zip(a, b))  # type: ignore[return-value]
-
-
-def ambient_vector_color(vec: Sequence[float]) -> RGB:
-    """Map a 6-axis Undertow vector cleanly to a cohesive ambient tint RGB."""
-    v = vec[0] if len(vec) > 0 else 0.0
-    a = vec[1] if len(vec) > 1 else 0.0
-    t = vec[3] if len(vec) > 3 else 0.0
-    wu = _clamp(0.5 + 0.5 * t, 0.0, 1.0)
-    vu = _clamp(0.5 + 0.5 * v, 0.0, 1.0)
-    neg = _lerp_rgb(_COOL_NEG, _WARM_NEG, wu)
-    pos = _lerp_rgb(_COOL_POS, _WARM_POS, wu)
-    base = _lerp_rgb(neg, pos, vu)
-    # High arousal nudges slightly brighter so energy reads naturally in tint
-    return _lerp_rgb(base, (255, 244, 228), _clamp(0.15 * max(0.0, a), 0.0, 0.15))
+__all__ = [
+    "MAX_AMBIENT_AMP",
+    "MAX_INTERLUDE_TINT",
+    "MomentumCurve",
+    "ZERO_VEC",
+    "ambient_vector_color",
+    "build_momentum",
+    "mood_tau_s",
+]
 
 
 def mood_tau_s(profile=None) -> float:
@@ -79,16 +61,6 @@ class MomentumCurve:
         v1 = self.samples[i1]
         return tuple(float(v0[k] + (v1[k] - v0[k]) * u) for k in range(6))
 
-    def color_at(self, t_s: float) -> RGB:
-        """Color derived from the live Undertow state vector at `t_s`."""
-        return ambient_vector_color(self.vector_at(t_s))
-
-    def ambient_tint_weight(self, t_s: float, intensity: float = 1.0) -> float:
-        """Modulation amplitude for non-semantic/ambient words, strictly capped <= 15%."""
-        vec = self.vector_at(t_s)
-        mag = min(1.0, math.sqrt(sum(x * x for x in vec) / 3.0))
-        return _clamp(MAX_AMBIENT_AMP * (0.45 + 0.55 * mag) * min(1.0, max(0.0, intensity)), 0.0, MAX_AMBIENT_AMP)
-
     def interlude_color(self, t_s: float, intensity: float = 1.0) -> RGB:
         """Dot color for instrumental interludes: white tinted up to <= 20% by momentum."""
         vec = self.vector_at(t_s)
@@ -110,14 +82,19 @@ def build_momentum(
     tau = mood_tau_s(profile)
     # Critically damped frequency corresponding to settling time tau (~1.5..3.0 s)
     freq_hz = (3.2 / tau) / (2.0 * math.pi)
+    a11, a12, a21, a22 = _spring_step_coeffs(freq_hz, 1.0, SIM_DT)
     total_s = max(1.0, duration_s + 1.0)
     n_out = max(2, int(math.ceil(total_s * rate_hz)) + 1)
     out = np.zeros((n_out, len(AXES)), dtype=np.float32)
 
     sorted_ev = sorted(events, key=lambda e: e[0])
-    # Initial state starts on section baseline at t=0
-    p = list(profile_vector_at(profile, 0.0)) if (profile is not None and profile_vector_at(profile, 0.0)) else [0.0] * 6
+    n_ev = len(sorted_ev)
+    g_vec = _global_vector(profile) if profile is not None else None
+    has_arc = bool(profile is not None and profile.arc)
+    init_vec = (profile_vector_at(profile, 0.0, global_vec=g_vec) if has_arc else g_vec) or ZERO_VEC
+    p = list(init_vec)
     v = [0.0] * 6
+    static_base = ZERO_VEC if has_arc else (g_vec or ZERO_VEC)
 
     steps_per_frame = max(1, round(240.0 / rate_hz))
     ev_idx = 0
@@ -130,39 +107,53 @@ def build_momentum(
         t_frame = fi / rate_hz
         for sub in range(steps_per_frame):
             t = t_frame + sub * SIM_DT
-            while ev_idx < len(sorted_ev) and sorted_ev[ev_idx][0] <= t + 0.25:
+            while ev_idx < n_ev and sorted_ev[ev_idx][0] <= t + 0.25:
                 active.append(sorted_ev[ev_idx])
                 ev_idx += 1
-            active = [e for e in active if e[1] + 0.45 >= t]
+            if active:
+                active = [e for e in active if e[1] + 0.45 >= t]
 
-            base = (
-                profile_vector_at(profile, t)
-                if profile is not None
-                else None
-            ) or ZERO_VEC
+            base = (profile_vector_at(profile, t, global_vec=g_vec) or ZERO_VEC) if has_arc else static_base
 
             if active:
                 w_tot = 0.0
-                acc = [0.0] * 6
+                a0 = a1 = a2 = a3 = a4 = a5 = 0.0
                 for b0, b1, vec, sal in active:
                     if t < b0 - 0.15:
                         continue
                     w = sal * (0.4 if t > b1 else 1.0)
                     w_tot += w
-                    for k in range(6):
-                        acc[k] += w * vec[k]
+                    a0 += w * vec[0]
+                    a1 += w * vec[1]
+                    a2 += w * vec[2]
+                    a3 += w * vec[3]
+                    a4 += w * vec[4]
+                    a5 += w * vec[5]
                 if w_tot > 1e-6:
                     push = min(1.0, w_tot)
-                    target = [
-                        base[k] * (1.0 - push) + (acc[k] / w_tot) * push
-                        for k in range(6)
-                    ]
+                    rem = 1.0 - push
+                    inv = push / w_tot
+                    target = (
+                        base[0] * rem + a0 * inv,
+                        base[1] * rem + a1 * inv,
+                        base[2] * rem + a2 * inv,
+                        base[3] * rem + a3 * inv,
+                        base[4] * rem + a4 * inv,
+                        base[5] * rem + a5 * inv,
+                    )
                 else:
-                    target = list(base)
+                    target = base
             else:
-                target = list(base)
+                target = base
 
             for k in range(6):
-                p[k], v[k] = step_spring(p[k], v[k], target[k], freq_hz, 1.0, SIM_DT)
+                gk = target[k]
+                ok = p[k] - gk
+                vk = v[k]
+                if abs(ok) < 1e-12 and abs(vk) < 1e-12:
+                    p[k], v[k] = gk, 0.0
+                else:
+                    p[k] = a11 * ok + a12 * vk + gk
+                    v[k] = a21 * ok + a22 * vk
 
     return MomentumCurve(samples=out, rate_hz=rate_hz, tau_s=tau)

@@ -6,6 +6,7 @@ Sobre fondo oscuro la palabra se aclara (hacia blanco, como siempre); sobre fond
 from dataclasses import replace
 from functools import lru_cache
 
+from marea.wordfx._math import smoothstep as _smooth
 from marea.wordfx.fxtypes import RGB, FxParams
 
 TARGET = 3.0  # razón de contraste mínima (WCAG para texto grande y grueso)
@@ -30,11 +31,6 @@ def luminance(rgb: RGB) -> float:
 def contrast(a: RGB, b: RGB) -> float:
     la, lb = luminance(a), luminance(b)
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-
-
-def _smooth(a: float, b: float, x: float) -> float:
-    u = min(1.0, max(0.0, (x - a) / (b - a)))
-    return u * u * (3.0 - 2.0 * u)
 
 
 @lru_cache(maxsize=4096)
