@@ -36,7 +36,15 @@ class ExportRunner(QObject):
         if self._cancel:
             self._cancel.set()  # el worker mata ffmpeg y borra el mp4 a medias
 
-    def _poll(self):
+    def shutdown(self, timeout: float = 2.0):
+        """Cancel and wait briefly for an active render worker during app shutdown."""
+        if not self._proc:
+            return
+        self.cancel()
+        self._proc.join(timeout=timeout)
+        self._cleanup()
+
+    def _drain_messages(self) -> bool:
         try:
             while True:
                 msg = self._queue.get_nowait()
@@ -47,13 +55,21 @@ class ExportRunner(QObject):
                 self._cleanup()
                 {"done": lambda: self.finished.emit(msg[1]), "cancelled": self.cancelled.emit,
                  "error": lambda: self.failed.emit(msg[1], msg[2])}[kind]()
-                return
+                return True
         except queue_mod.Empty:
-            pass
-        if self._proc and not self._proc.is_alive() and self._queue.empty():  # murió sin avisar
-            self._cleanup()
-            self._job.out_path.unlink(missing_ok=True)
-            self.failed.emit("El proceso de render se cerró inesperadamente.", "")
+            return False
+
+    def _poll(self):
+        if self._drain_messages():
+            return
+        if self._proc and not self._proc.is_alive():
+            self._proc.join(timeout=0.1)
+            if self._drain_messages():
+                return
+            if self._queue.empty():  # murió sin avisar
+                self._cleanup()
+                self._job.out_path.unlink(missing_ok=True)
+                self.failed.emit("El proceso de render se cerró inesperadamente.", "")
 
     def _cleanup(self):
         self._timer.stop()

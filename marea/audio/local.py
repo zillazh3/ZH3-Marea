@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 
-from marea.audio.align import apply_fades
+from marea.audio.align import slice_padded
 from marea.audio.loopback import AudioError
-from marea.export.ffmpeg import NO_WINDOW, find_ffmpeg
+from marea.sysutil import run_ffmpeg
 
 RATE = 48000
 CHANNELS = 2
@@ -15,8 +15,8 @@ CHANNELS = 2
 def decode(path: str | Path) -> np.ndarray:
     """Archivo de audio -> (n, 2) float32 a 48 kHz. Levanta AudioError con un mensaje claro si no se puede leer."""
     try:
-        r = subprocess.run([find_ffmpeg(), "-v", "error", "-i", str(path), "-vn", "-f", "f32le", "-ac", str(CHANNELS),
-                            "-ar", str(RATE), "-"], capture_output=True, creationflags=NO_WINDOW, timeout=600)
+        r = run_ffmpeg(["-v", "error", "-i", str(path), "-vn", "-f", "f32le", "-ac", str(CHANNELS),
+                        "-ar", str(RATE), "-"], timeout=600)
     except FileNotFoundError as e:
         raise AudioError(str(e)) from e
     except subprocess.TimeoutExpired as e:
@@ -40,11 +40,7 @@ def segment(samples: np.ndarray, start_ms: float, end_ms: float, offset_ms: floa
     (se lee más adelante en el archivo). Fuera del archivo rellena con silencio."""
     a = round((start_ms + offset_ms) / 1000 * RATE)
     n = round((end_ms - start_ms) / 1000 * RATE)
-    out = np.zeros((n, samples.shape[1]), np.float32)
-    lo, hi = max(a, 0), min(a + n, len(samples))
-    if hi > lo:
-        out[lo - a:hi - a] = samples[lo:hi]
-    return apply_fades(out, RATE, fade_ms)
+    return slice_padded(samples, RATE, a, n, fade_ms)
 
 
 def write_wav(path: str | Path, samples: np.ndarray, rate: int = RATE):

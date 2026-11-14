@@ -1,4 +1,5 @@
 """Cola de exportaciones: de una en una; cada trabajo puede grabar/preparar su audio y luego renderizar el video."""
+import logging
 import os
 import tempfile
 import threading
@@ -8,13 +9,16 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 
+from marea.async_util import run_async
 from marea.audio import local
 from marea.audio.session import RecordingCancelled, record_song_range
 from marea.export import history
-from marea.export.job import ExportJob, unique_path
+from marea.export.job import ExportJob
 from marea.export.runner import ExportRunner
 from marea.providers.errors import ProviderError
-from marea.ui.net import run_async
+from marea.sysutil import unique_path
+
+log = logging.getLogger(__name__)
 
 QUEUED, AUDIO, RENDER, DONE, FAILED, CANCELLED = "queued", "audio", "render", "done", "failed", "cancelled"
 ACTIVE = (AUDIO, RENDER)
@@ -107,6 +111,9 @@ class ExportQueue(QObject):
         for it in list(self.items):
             if not it.finished:
                 self.cancel(it)
+        stop_runner = getattr(self._runner, "shutdown", None)
+        if stop_runner:
+            stop_runner()
 
     @property
     def busy(self) -> bool:
@@ -142,8 +149,13 @@ class ExportQueue(QObject):
         item._audio_duration_ms = len(samples) / max(1, rate) * 1000.0
         fd, name = tempfile.mkstemp(suffix=".wav", prefix="marea_audio_")
         os.close(fd)
-        local.write_wav(name, samples, rate)  # sobrescribe el archivo temporal vacío
-        return Path(name)
+        wav = Path(name)
+        try:
+            local.write_wav(wav, samples, rate)  # sobrescribe el archivo temporal vacío
+        except Exception:
+            wav.unlink(missing_ok=True)
+            raise
+        return wav
 
     def _audio_ready(self, item: QueueItem, wav: Path):
         item.wav = wav
@@ -180,12 +192,24 @@ class ExportQueue(QObject):
     def _on_render_done(self, path: str):
         item = self._active
         self._finish(item, DONE, "Listo")
-        run_async(lambda: self._record_history(item), lambda thumb: self._thumb_ready(item, thumb), lambda e: None)
+        run_async(
+            lambda: self._record_history(item),
+            lambda thumb: self._thumb_ready(item, thumb),
+            lambda e: (log.exception("Failed post-export history step for %s", item.out_path, exc_info=e),
+                       self._thumb_ready(item, None)),
+        )
 
     def _record_history(self, item: QueueItem):
-        thumb = history.make_thumbnail(item.out_path)
-        history.add({"path": str(item.out_path), "title": item.title, "artist": item.artist,
-                     "thumb": str(thumb) if thumb else ""})
+        thumb = None
+        try:
+            thumb = history.make_thumbnail(item.out_path)
+        except Exception:
+            log.exception("Failed thumbnail generation for %s", item.out_path)
+        try:
+            history.add({"path": str(item.out_path), "title": item.title, "artist": item.artist,
+                         "thumb": str(thumb) if thumb else ""})
+        except Exception:
+            log.exception("Failed history entry for %s", item.out_path)
         return thumb
 
     def _thumb_ready(self, item: QueueItem, thumb):

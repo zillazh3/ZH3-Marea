@@ -30,7 +30,7 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
     total_s = (end_ms - begin) / 1000 + TAIL_S
     rec = recorder_factory(device)
     rec.start()  # primero la captura: así no se pierde nada de lo que suene tras el play
-    samples, bad = [], 0
+    samples, bad, aborted = [], 0, True
     try:
         client.play(track.uri, begin)
         t_play = clock()
@@ -44,7 +44,15 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
                 break
             progress(elapsed / total_s, "Grabando audio…")
             if now >= next_poll:
-                pb, sample = client.position_sample()
+                try:
+                    pb, sample = client.position_sample()
+                except SpotifyError:
+                    bad += 1
+                    if bad >= 3 and elapsed > 3:
+                        raise
+                    next_poll = now + (0.25 if elapsed < DENSE_S else 2.0)
+                    sleep(0.05)
+                    continue
                 if pb is not None and pb.track.id == track.id and pb.is_playing:
                     bad = 0
                     if sample and sample.progress_ms >= begin - 300:  # descarta lecturas viejas de antes del seek
@@ -55,13 +63,17 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
                         raise AudioError("La reproducción en Spotify se interrumpió mientras grabábamos. Evita pausar o cambiar de canción durante la exportación.")
                 next_poll = now + (0.25 if elapsed < DENSE_S else 2.0)
             sleep(0.05)
+        aborted = False
     finally:
         try:
             client.pause()
         except SpotifyError:
             pass  # si falló el play o se perdió la red, este error taparía la causa real; la captura se cierra de todos modos
         finally:
-            recording = rec.stop()
+            if aborted and isinstance(rec, LoopbackRecorder):
+                recording = rec.stop(assemble=False)
+            else:
+                recording = rec.stop()
     if len(samples) < MIN_SAMPLES:
         raise AudioError("No pude medir la posición de Spotify para alinear el audio. Revisa tu conexión y vuelve a intentar.")
     try:

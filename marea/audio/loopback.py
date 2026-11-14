@@ -7,7 +7,6 @@ import numpy as np
 
 from marea.providers.errors import ProviderError
 
-LOOPBACK_SUFFIX = " [Loopback]"
 GAP_S = 0.02  # un hueco mayor entre bloques se rellena con silencio; menos es jitter y se ignora
 
 
@@ -71,20 +70,11 @@ def probe_level(device_name: str = "", seconds: float = 1.5) -> float:
     """Pico (0..1) de lo que suena en el dispositivo durante `seconds`. No reproduce nada: sirve para comprobar que la captura oye."""
     rec = LoopbackRecorder(device_name)
     rec.start()
-    time.sleep(seconds)
-    r = rec.stop()
-    return float(np.abs(r.samples).max()) if r.samples.size else 0.0
-
-
-def default_loopback_name() -> str:
-    import pyaudiowpatch as pa
-    p = pa.PyAudio()
     try:
-        return p.get_default_wasapi_loopback()["name"]
-    except (OSError, LookupError) as e:
-        raise AudioError("No encontré un dispositivo de audio para capturar. Revisa que tengas una salida de audio activa.") from e
+        time.sleep(seconds)
     finally:
-        p.terminate()
+        r = rec.stop()
+    return float(np.abs(r.samples).max()) if r.samples.size else 0.0
 
 
 class LoopbackRecorder:
@@ -94,11 +84,13 @@ class LoopbackRecorder:
         self.device_name = device_name  # vacío = el loopback de la salida por defecto de Windows
         self._chunks: list[tuple[float, np.ndarray]] = []
         self._pa = self._stream = None
+        self._pa_continue = 0
         self._lock = threading.Lock()
         self.rate, self.channels, self.started, self.overflows = 0, 2, 0.0, 0
 
     def start(self):
         import pyaudiowpatch as pa
+        self._pa_continue = pa.paContinue
         self._pa = pa.PyAudio()
         try:
             dev = self._find_device()
@@ -106,12 +98,15 @@ class LoopbackRecorder:
             self._stream = self._pa.open(format=pa.paFloat32, channels=self.channels, rate=self.rate, input=True,
                                          input_device_index=dev["index"], frames_per_buffer=512,
                                          stream_callback=self._callback)
+            self.started = time.perf_counter()
+            self._stream.start_stream()
         except OSError as e:
-            self._pa.terminate()
+            self.stop(assemble=False)
             raise AudioError(f"No pude abrir «{self.device_name or 'el dispositivo de audio'}» para capturar. Revisa que esté "
                              "conectado y activo, o elige otro en Ajustes > Audio.") from e
-        self.started = time.perf_counter()
-        self._stream.start_stream()
+        except BaseException:
+            self.stop(assemble=False)
+            raise
 
     def _find_device(self) -> dict:
         if not self.device_name:
@@ -132,23 +127,26 @@ class LoopbackRecorder:
         raise AudioError(f"No encontré el dispositivo «{self.device_name}». Elige otro en Ajustes > Audio.")
 
     def _callback(self, data, frames, time_info, status):
-        import pyaudiowpatch as pa
         arrival = time.perf_counter()
-        if status:
-            self.overflows += 1
         chunk = np.frombuffer(data, dtype=np.float32).reshape(-1, self.channels).copy()
         with self._lock:
+            if status:
+                self.overflows += 1
             self._chunks.append((arrival, chunk))
-        return (None, pa.paContinue)
+        return (None, self._pa_continue)
 
-    def stop(self) -> Recording:
+    def stop(self, *, assemble: bool = True) -> Recording | None:
         try:
             if self._stream:
                 self._stream.stop_stream()
                 self._stream.close()
         finally:
+            self._stream = None
             if self._pa:
                 self._pa.terminate()
+                self._pa = None
+        if not assemble:
+            return None
         with self._lock:
             chunks = list(self._chunks)
         return assemble_chunks(chunks, self.rate or 48000, self.channels, self.started)

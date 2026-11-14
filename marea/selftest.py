@@ -1,6 +1,8 @@
 """`ZH3 Marea.exe --selftest`: exporta un clip de 1 s por el mismo camino que la app (proceso aparte, GPU, ffmpeg) y deja el
 resultado en data/selftest.txt. Sirve para comprobar el .exe en un equipo limpio sin abrir la ventana."""
 import multiprocessing as mp
+import queue
+import time
 from pathlib import Path
 
 from marea.demo_cover import demo_cover
@@ -18,12 +20,22 @@ def run() -> int:
     q = ctx.Queue()
     p = ctx.Process(target=worker_main, args=(job, q, ctx.Event()))
     p.start()
-    result = "sin respuesta"
-    while True:
-        msg = q.get()
+    result, msg = "sin respuesta", ("error", "crashed", "")
+    deadline = time.monotonic() + 120.0
+    while time.monotonic() < deadline:
+        try:
+            msg = q.get(timeout=0.5)
+        except queue.Empty:
+            if not p.is_alive():
+                result = f"worker exited unexpectedly (code={p.exitcode})"
+                break
+            continue
         if msg[0] != "progress":
             result = msg[1] if msg[0] == "done" else f"{msg[0]}: {msg[1:]}"
             break
+    else:
+        p.terminate()
+        result = "timeout"
     p.join(10)
     ok = msg[0] == "done" and out.is_file() and out.stat().st_size > 10_000
     extra = []

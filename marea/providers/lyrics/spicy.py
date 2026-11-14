@@ -4,10 +4,7 @@ GET /v1/lyrics/{id} con `Authorization: Bearer sl_pk_…` (llave de cliente: se 
 un Origin, hay que activar «Allow requests with no Origin header»). La respuesta trae `Body.Type` = Syllable | Line | Static y
 `Body.source` = apple_music | spicy_lyrics | spotify; los tiempos vienen en segundos. Cada respuesta debe mostrar su crédito (`Lyrics.credit`).
 """
-import json
-import math
 import re
-import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -15,9 +12,9 @@ from typing import Callable
 import httpx
 
 from marea.model.lyrics import BgVocal, Line, Lyrics, Syllable, spread
-from marea.paths import app_data
 from marea.providers.errors import ProviderError
 from marea.providers.lyrics.base import TrackQuery
+from marea.providers.lyrics.http_cache import ThrottledHttpCache
 
 BASE = "https://api.spicylyrics.org/v1"
 USER_AGENT = "ZH3 Marea/0.1"
@@ -101,10 +98,16 @@ class SpicyLyricsProvider:
                  clock=time.monotonic, sleep=time.sleep):
         """`key()` se consulta en cada petición: si el usuario cambia la llave en Ajustes, aplica sin reiniciar."""
         self.key = key
-        self.http = http or httpx.Client(timeout=10, headers={"User-Agent": USER_AGENT})
-        self.cache_dir = cache_dir if cache_dir is not None else app_data() / "cache" / "spicy"
-        self.clock, self.sleep = clock, sleep
-        self._lock, self._last, self._blocked_until = threading.Lock(), 0.0, 0.0
+        self._client = ThrottledHttpCache(
+            "spicy", USER_AGENT, http=http, cache_dir=cache_dir,
+            min_interval=MIN_INTERVAL, found_ttl=FOUND_TTL, miss_ttl=MISS_TTL,
+            clock=clock, sleep=sleep,
+        )
+        self.http = self._client.http
+        self.cache_dir = self._client.cache_dir
+
+    def close(self):
+        self._client.close()
 
     # ---- API pública ----
     def fetch(self, query: TrackQuery | None = None) -> Lyrics | None:
@@ -124,18 +127,12 @@ class SpicyLyricsProvider:
 
     # ---- red y caché ----
     def _get(self, track_id: str, key: str) -> httpx.Response:
-        with self._lock:  # un hilo a la vez y con pausa mínima; si el servidor dijo «espera», ni se intenta
-            now = self.clock()
-            if now < self._blocked_until:
-                raise ProviderError(f"Spicy Lyrics pidió esperar. Intenta de nuevo en {math.ceil(self._blocked_until - now)} s.")
-            self.sleep(max(0.0, self._last + MIN_INTERVAL - now))
-            try:
-                r = self.http.get(f"{BASE}/lyrics/{track_id}", headers={"Authorization": f"Bearer {key}"})
-            except httpx.HTTPError as e:
-                raise ProviderError("Spicy Lyrics no respondió. Revisa tu conexión y vuelve a intentar.") from e
-            finally:
-                self._last = self.clock()
-            self._note_limits(r)
+        r = self._client.get(
+            f"{BASE}/lyrics/{track_id}",
+            headers={"Authorization": f"Bearer {key}"},
+            service_name="Spicy Lyrics",
+            on_response=self._note_limits,
+        )
         if r.status_code == 429:
             raise ProviderError(f"Spicy Lyrics pide esperar {self._wait(r):.0f} s antes de volver a consultar. Intenta de nuevo en un momento.")
         if r.status_code in (401, 403):
@@ -156,29 +153,22 @@ class SpicyLyricsProvider:
     def _note_limits(self, r: httpx.Response):
         """El servidor informa cuántas peticiones quedan en la ventana; al agotarlas, se deja de consultar hasta que se renueve."""
         if r.status_code == 429 or r.headers.get("ratelimit-remaining") == "0":
-            self._blocked_until = self.clock() + self._wait(r)
+            self._client.block_for(self._wait(r))
 
     def _cache_path(self, track_id: str) -> Path:
         return self.cache_dir / f"{track_id}.json"
 
     def _lookup(self, track_id: str, key: str) -> dict | None:
         path = self._cache_path(track_id)
-        try:
-            cached = json.loads(path.read_text(encoding="utf-8"))
-            if time.time() - cached["t"] < (FOUND_TTL if cached["data"] else MISS_TTL):
-                return cached["data"]
-        except (OSError, ValueError, KeyError):
-            pass
+        hit, cached = self._client.read_cache(path)
+        if hit:
+            return cached
         r = self._get(track_id, key)
         try:
             raw = r.json() if r.status_code == 200 else None
         except ValueError:
             raw = None
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"t": time.time(), "data": raw}), encoding="utf-8")
-        except OSError:
-            pass  # sin caché también funciona
+        self._client.write_cache(path, raw)
         return raw
 
     # ---- respuesta -> modelo ----

@@ -4,8 +4,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from marea.export.ffmpeg import NO_WINDOW, find_ffmpeg
 from marea.paths import app_data
+from marea.sysutil import run_ffmpeg
 
 MAX_ENTRIES = 50
 
@@ -40,8 +40,8 @@ def make_thumbnail(video: Path, out_dir: Path | None = None, at_s: float = 1.0) 
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (video.stem[:80] + ".png")
     try:
-        r = subprocess.run([find_ffmpeg(), "-y", "-loglevel", "error", "-ss", str(at_s), "-i", str(video), "-frames:v", "1",
-                            "-vf", "scale=270:-2", str(out)], capture_output=True, creationflags=NO_WINDOW, timeout=30)
+        r = run_ffmpeg(["-y", "-loglevel", "error", "-ss", str(at_s), "-i", str(video), "-frames:v", "1",
+                        "-vf", "scale=270:-2", str(out)], timeout=30)
     except (FileNotFoundError, subprocess.SubprocessError):
         return None
     return out if r.returncode == 0 and out.exists() else None

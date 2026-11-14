@@ -16,10 +16,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-import keyring
 
-from marea.audio.align import PositionSample
-from marea.providers.errors import ProviderError
+from marea.providers.errors import PositionSample, ProviderError
+from marea.secrets import KeyringSecrets
 
 REDIRECT_PORT = 8765
 REDIRECT_URI = f"http://127.0.0.1:{REDIRECT_PORT}/callback"  # exactamente lo registrado en el dashboard de Spotify
@@ -84,21 +83,21 @@ def make_pkce() -> tuple[str, str]:
 class TokenStore:
     """Tokens en el keyring de Windows, nunca en texto plano ni en el repo."""
 
+    def __init__(self, secrets: KeyringSecrets | None = None):
+        self._secrets = secrets or KeyringSecrets()
+
     def load(self) -> dict | None:
-        raw = keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
+        raw = self._secrets.get(KEYRING_USER)
         try:
             return json.loads(raw) if raw else None
         except ValueError:
             return None
 
     def save(self, token: dict):
-        keyring.set_password(KEYRING_SERVICE, KEYRING_USER, json.dumps(token))
+        self._secrets.set(KEYRING_USER, json.dumps(token))
 
     def clear(self):
-        try:
-            keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
-        except keyring.errors.PasswordDeleteError:
-            pass
+        self._secrets.delete(KEYRING_USER)
 
 
 class _Server(HTTPServer):
@@ -159,11 +158,22 @@ class SpotifyClient:
         self.http = http or httpx.Client(timeout=10)
         self.now = now
         self._token = self.store.load()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+
+    def close(self):
+        self.http.close()
+
+    @staticmethod
+    def _json(r: httpx.Response, default=None):
+        try:
+            return r.json()
+        except ValueError:
+            return {} if default is None else default
 
     @property
     def connected(self) -> bool:
-        return bool(self._token and self._token.get("refresh_token"))
+        with self._lock:
+            return bool(self._token and self._token.get("refresh_token"))
 
     # ---- autorización ----
     def authorize(self, open_browser=webbrowser.open, timeout: float = 180):
@@ -184,7 +194,7 @@ class SpotifyClient:
             raise SpotifyError("No recibí la autorización de Spotify a tiempo. Vuelve a intentar y acepta los permisos.")
         if result.get("state") != state:
             raise SpotifyError("La respuesta de Spotify no corresponde a esta solicitud. Vuelve a intentar.")
-        if "error" in result:
+        if "error" in result or "code" not in result:
             raise SpotifyError("Spotify no autorizó la conexión. Vuelve a intentar y acepta los permisos.")
         self._grant({"grant_type": "authorization_code", "code": result["code"], "redirect_uri": REDIRECT_URI,
                      "code_verifier": verifier})
@@ -200,11 +210,13 @@ class SpotifyClient:
         except httpx.HTTPError as e:
             raise SpotifyError("Spotify no respondió. Revisa tu conexión y vuelve a intentar.") from e
         if r.status_code != 200:
-            err = (r.json() if r.headers.get("content-type", "").startswith("application/json") else {}).get("error", "")
+            err = (self._json(r) if r.headers.get("content-type", "").startswith("application/json") else {}).get("error", "")
             if err == "invalid_client":
                 raise SpotifyError("Spotify no reconoce ese Client ID. Revísalo en Ajustes (Dashboard de Spotify > tu app > Settings).")
             raise SpotifyError("Spotify rechazó la conexión. Vuelve a conectar la cuenta desde Ajustes.")
-        data = r.json()
+        data = self._json(r)
+        if not isinstance(data, dict) or "access_token" not in data:
+            raise SpotifyError("Spotify rechazó la conexión. Vuelve a conectar la cuenta desde Ajustes.")
         with self._lock:
             old = self._token or {}
             self._token = {"access_token": data["access_token"],
@@ -213,12 +225,19 @@ class SpotifyClient:
             self.store.save(self._token)
 
     # ---- peticiones ----
-    def _access_token(self) -> str:
-        if not self.connected:
+    def _refresh_locked(self) -> str:
+        if not self._token or not self._token.get("refresh_token"):
             raise SpotifyError("Spotify no está conectado. Conéctalo en Ajustes.")
-        if self.now() >= self._token["expires_at"] - EXPIRY_MARGIN:
-            self._grant({"grant_type": "refresh_token", "refresh_token": self._token["refresh_token"]})
+        self._grant({"grant_type": "refresh_token", "refresh_token": self._token["refresh_token"]})
         return self._token["access_token"]
+
+    def _access_token(self) -> str:
+        with self._lock:
+            if not self._token or not self._token.get("refresh_token"):
+                raise SpotifyError("Spotify no está conectado. Conéctalo en Ajustes.")
+            if self.now() >= self._token["expires_at"] - EXPIRY_MARGIN:
+                return self._refresh_locked()
+            return self._token["access_token"]
 
     def _request(self, method: str, url: str, allow: tuple = (), **kw) -> httpx.Response:
         """`allow`: códigos que el llamador interpreta él mismo (en los comandos de reproducción, 403 y 404 significan cosas distintas)."""
@@ -228,7 +247,8 @@ class SpotifyClient:
             except httpx.HTTPError as e:
                 raise SpotifyError("Spotify no respondió. Revisa tu conexión y vuelve a intentar.") from e
             if r.status_code == 401 and attempt == 1:  # token revocado o caducado antes de lo esperado: renovar una vez
-                self._grant({"grant_type": "refresh_token", "refresh_token": self._token["refresh_token"]})
+                with self._lock:
+                    self._refresh_locked()
                 continue
             if r.status_code == 429:
                 wait = r.headers.get("Retry-After", "unos")
@@ -246,14 +266,14 @@ class SpotifyClient:
         if not query.strip():
             return []
         r = self._request("GET", f"{API}/search", params={"q": query, "type": "track", "limit": limit})
-        return [Track.from_api(i) for i in r.json().get("tracks", {}).get("items", []) if i]
+        return [Track.from_api(i) for i in self._json(r).get("tracks", {}).get("items", []) if i]
 
     def now_playing(self) -> Playback | None:
         """Lo que suena ahora, o None si no hay nada (o es un podcast)."""
         r = self._request("GET", f"{API}/me/player/currently-playing")
         if r.status_code in (204, 404) or not r.content:
             return None
-        d = r.json()
+        d = self._json(r)
         item = d.get("item")
         if not item or item.get("type") != "track":
             return None
@@ -297,7 +317,7 @@ class SpotifyClient:
     def _device_id(self) -> str | None:
         """Dispositivo al que mandar los comandos cuando ninguno está activo: prefiere el activo y luego un equipo de escritorio."""
         r = self._request("GET", f"{API}/me/player/devices")
-        devices = [d for d in (r.json().get("devices") or []) if d.get("id")] if r.status_code == 200 else []
+        devices = [d for d in (self._json(r).get("devices") or []) if d.get("id")] if r.status_code == 200 else []
         devices.sort(key=lambda d: (not d.get("is_active"), d.get("type") != "Computer"))
         return devices[0]["id"] if devices else None
 

@@ -8,22 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from marea.audio.loopback import Recording
-
-
-@dataclass
-class PositionSample:
-    progress_ms: float  # lo que reportó Spotify
-    t_sent: float  # perf_counter al enviar la consulta
-    t_recv: float  # perf_counter al recibir la respuesta
-
-    @property
-    def rtt(self) -> float:
-        return self.t_recv - self.t_sent
-
-    @property
-    def c(self) -> float:
-        """Constante del modelo implícita en esta muestra (s): posición - reloj local, en el punto medio del viaje."""
-        return self.progress_ms / 1000 - (self.t_sent + self.t_recv) / 2
+from marea.providers.errors import PositionSample
 
 
 def estimate_c(samples: list[PositionSample], max_rtt: float = 0.5) -> tuple[float, float]:
@@ -46,15 +31,20 @@ def song_time_to_index(rec: Recording, song_s: float, c: float, offset_ms: float
     return round((local_t - rec.t0) * rec.rate)
 
 
+def slice_padded(samples: np.ndarray, rate: int, start_sample: int, n_samples: int, fade_ms: float = 150.0) -> np.ndarray:
+    """Extract `n_samples` starting at `start_sample`, zero-padding out-of-range regions and applying symmetric fades."""
+    out = np.zeros((n_samples, samples.shape[1]), np.float32)
+    lo, hi = max(start_sample, 0), min(start_sample + n_samples, len(samples))
+    if hi > lo:
+        out[lo - start_sample:hi - start_sample] = samples[lo:hi]
+    return apply_fades(out, rate, fade_ms)
+
+
 def cut(rec: Recording, start_ms: float, end_ms: float, c: float, offset_ms: float = 0.0, fade_ms: float = 150.0) -> np.ndarray:
     """Audio exacto de [start_ms, end_ms] de la canción con fundido de entrada y salida. Rellena con silencio si falta."""
     a = song_time_to_index(rec, start_ms / 1000, c, offset_ms)
-    b = a + round((end_ms - start_ms) / 1000 * rec.rate)
-    out = np.zeros((b - a, rec.samples.shape[1]), np.float32)
-    lo, hi = max(a, 0), min(b, len(rec.samples))
-    if hi > lo:
-        out[lo - a:hi - a] = rec.samples[lo:hi]
-    return apply_fades(out, rec.rate, fade_ms)
+    n = round((end_ms - start_ms) / 1000 * rec.rate)
+    return slice_padded(rec.samples, rec.rate, a, n, fade_ms)
 
 
 def apply_fades(samples: np.ndarray, rate: int, fade_ms: float) -> np.ndarray:

@@ -1,6 +1,5 @@
 """Trabajo de export: rango del clip, nombre de archivo, render determinista de frames y codificación."""
 import queue
-import re
 import threading
 import time
 from collections import deque
@@ -17,6 +16,7 @@ from marea.model.cinematic import CinematicConfig
 from marea.model.lyrics import Lyrics
 from marea.render.gpu import make_context
 from marea.render.scene import Scene, Style
+from marea.sysutil import safe_filename, unique_path
 
 PRESETS = {"tiktok": ("TikTok 9:16 · 1080×1920", 1080, 1920), "square": ("Cuadrado 1:1 · 1080×1080", 1080, 1080),
            "wide": ("Horizontal 16:9 · 1920×1080", 1920, 1080)}
@@ -57,32 +57,12 @@ def clip_range(lyrics: Lyrics, first: int, last: int, tail_ms: float = TAIL_MS) 
     return chosen[0].start, max(l.end for l in chosen) + tail_ms
 
 
-_INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))}
-
-
-def safe_filename(text: str, fallback: str, limit: int = 100) -> str:
-    """Nombre de archivo válido en Windows: sin separadores ni caracteres prohibidos (no puede salir de su carpeta), sin nombres
-    reservados (CON, NUL, COM1…) y nunca vacío."""
-    name = _INVALID.sub("", text).strip(" .")[:limit].rstrip(" .") or fallback
-    return "_" + name if name.split(".")[0].rstrip().upper() in _RESERVED else name
-
-
 def clip_name(artist: str, title: str, first: int | None = None, last: int | None = None) -> str:
     """`Artista - Canción (versos X–Y) [ZH3 Marea].mp4`; first/last son índices de 0. Sin ellos: `(completa)`."""
     base = f"{artist.strip()} - {title.strip()}" if artist.strip() else title.strip() or "Sin título"
     base = safe_filename(base, "Sin título")
     span = "completa" if first is None else f"versos {first + 1}–{last + 1}"
     return f"{base} ({span}) [ZH3 Marea].mp4"
-
-
-def unique_path(folder: Path, name: str, taken=()) -> Path:
-    """`folder/name`, o `name (2)`… si ya existe en disco o está en `taken` (destinos reservados que aún no existen)."""
-    p, stem, suffix, n = folder / name, Path(name).stem, Path(name).suffix, 2
-    while p.exists() or p in taken:
-        p = folder / f"{stem} ({n}){suffix}"
-        n += 1
-    return p
 
 
 def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
@@ -171,6 +151,10 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
                 rendered = True
             finally:
                 stop_ev.set()
+                if not rendered or writer_err:
+                    abort = getattr(out, "abort", None)
+                    if abort:
+                        abort()
                 while True:
                     try:
                         frame_q.put(None, timeout=0.05)

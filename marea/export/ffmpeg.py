@@ -1,27 +1,11 @@
 """Codificación con ffmpeg: frames RGBA crudos por pipe -> H.264 (+ AAC), sin escribir PNGs a disco."""
-import os
-import shutil
-import subprocess
-import sys
+from collections import deque
 from functools import lru_cache
 from pathlib import Path
+import subprocess
+import threading
 
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # que ffmpeg no abra una consola en Windows
-
-
-def find_ffmpeg(name: str = "ffmpeg") -> str:
-    """MAREA_FFMPEG > carpeta ffmpeg/ junto al .exe (versión empaquetada) > PATH."""
-    exe = name + (".exe" if sys.platform == "win32" else "")
-    if name == "ffmpeg" and os.environ.get("MAREA_FFMPEG"):
-        return os.environ["MAREA_FFMPEG"]
-    if getattr(sys, "frozen", False):
-        bundled = Path(sys.executable).parent / "ffmpeg" / exe
-        if bundled.exists():
-            return str(bundled)
-    found = shutil.which(name)
-    if not found:
-        raise FileNotFoundError("No encontré ffmpeg. Instálalo o ponlo en la carpeta ffmpeg/ junto a la app.")
-    return found
+from marea.sysutil import NO_WINDOW, find_ffmpeg
 
 
 @lru_cache(maxsize=1)
@@ -73,6 +57,8 @@ class FfmpegWriter:
                  audio: Path | None = None):
         self.out, self.cmd = Path(out), build_command(out, w, h, fps, encoder, beep, audio)
         self.proc = None
+        self._err_chunks: deque[bytes] = deque(maxlen=64)
+        self._err_thread: threading.Thread | None = None
 
     def __enter__(self):
         self.out.parent.mkdir(parents=True, exist_ok=True)
@@ -85,10 +71,22 @@ class FfmpegWriter:
                 self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                 bufsize=16 * 1024 * 1024, creationflags=NO_WINDOW,
             )
+            self._err_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+            self._err_thread.start()
         except BaseException:
             self._discard()
             raise
         return self
+
+    def _drain_stderr(self):
+        pipe = self.proc.stderr if self.proc else None
+        if pipe is None:
+            return
+        try:
+            while chunk := pipe.read(4096):
+                self._err_chunks.append(chunk)
+        except OSError:
+            pass
 
     def write(self, frame):
         try:
@@ -96,11 +94,28 @@ class FfmpegWriter:
         except (BrokenPipeError, OSError) as e:
             raise RuntimeError(self._error() or "ffmpeg se cerró de forma inesperada.") from e
 
+    def abort(self):
+        """Forcefully terminate ffmpeg so a blocked pipe write unblocks on cancellation."""
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+        if self.proc and self.proc.stdin:
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
+
     def _error(self) -> str:
-        try:
-            return self.proc.stderr.read().decode(errors="replace").strip()
-        except Exception:
-            return ""
+        if self.proc:
+            try:
+                self.proc.wait(timeout=2.0)
+            except subprocess.SubprocessError:
+                pass
+        if self._err_thread:
+            self._err_thread.join(timeout=1.0)
+        return b"".join(self._err_chunks).decode(errors="replace").strip()
 
     def __exit__(self, exc_type, exc, tb):
         try:
@@ -108,12 +123,16 @@ class FfmpegWriter:
         except OSError:
             pass
         if exc_type:  # error o cancelación: no dejar un mp4 a medias
-            self.proc.kill()
+            if self.proc.poll() is None:
+                self.proc.kill()
             self.proc.wait()
+            if self._err_thread:
+                self._err_thread.join(timeout=1.0)
             self._discard()
             return False
-        err = self.proc.stderr.read().decode(errors="replace").strip()
-        if self.proc.wait() != 0:
+        code = self.proc.wait()
+        err = self._error()
+        if code != 0:
             self._discard()
             raise RuntimeError(f"ffmpeg no pudo codificar el video: {err}")
         return False

@@ -1,16 +1,13 @@
 """LRCLIB: letras públicas, sin llave. Sincronía por línea (LRC) y, cuando existe, por palabra (lyricsfile)."""
 import hashlib
-import json
-import threading
-import time
 from pathlib import Path
 
 import httpx
 
 from marea.model.lyrics import Lyrics, parse_lrc, parse_lyricsfile
-from marea.paths import app_data
 from marea.providers.errors import ProviderError
 from marea.providers.lyrics.base import TrackQuery
+from marea.providers.lyrics.http_cache import ThrottledHttpCache
 
 BASE = "https://lrclib.net/api"
 USER_AGENT = "ZH3 Marea/0.1"  # LRCLIB pide identificar la app
@@ -24,9 +21,15 @@ class LrclibProvider:
     name = "lrclib"
 
     def __init__(self, http: httpx.Client | None = None, cache_dir: Path | None = None):
-        self.http = http or httpx.Client(timeout=10, headers={"User-Agent": USER_AGENT})
-        self.cache_dir = cache_dir if cache_dir is not None else app_data() / "cache" / "lrclib"
-        self._lock, self._last = threading.Lock(), 0.0
+        self._client = ThrottledHttpCache(
+            "lrclib", USER_AGENT, http=http, cache_dir=cache_dir,
+            min_interval=MIN_INTERVAL, found_ttl=FOUND_TTL, miss_ttl=MISS_TTL,
+        )
+        self.http = self._client.http
+        self.cache_dir = self._client.cache_dir
+
+    def close(self):
+        self._client.close()
 
     # ---- API pública ----
     def fetch(self, query: TrackQuery | None = None) -> Lyrics | None:
@@ -41,14 +44,7 @@ class LrclibProvider:
 
     # ---- red y caché ----
     def _get(self, path: str, params: dict) -> httpx.Response:
-        with self._lock:  # un hilo a la vez y con pausa mínima: no abusar del servicio
-            time.sleep(max(0.0, self._last + MIN_INTERVAL - time.monotonic()))
-            try:
-                r = self.http.get(f"{BASE}{path}", params=params)
-            except httpx.HTTPError as e:
-                raise ProviderError("LRCLIB no respondió. Revisa tu conexión y vuelve a intentar.") from e
-            finally:
-                self._last = time.monotonic()
+        r = self._client.get(f"{BASE}{path}", params=params, service_name="LRCLIB")
         if r.status_code >= 500 or r.status_code == 429:
             raise ProviderError("LRCLIB está saturado o caído en este momento. Intenta de nuevo en unos minutos.")
         return r
@@ -59,27 +55,27 @@ class LrclibProvider:
 
     def _lookup(self, q: TrackQuery) -> dict | None:
         path = self._cache_path(q)
-        try:
-            cached = json.loads(path.read_text(encoding="utf-8"))
-            if time.time() - cached["t"] < (FOUND_TTL if cached["data"] else MISS_TTL):
-                return cached["data"]
-        except (OSError, ValueError, KeyError):
-            pass
+        hit, cached = self._client.read_cache(path)
+        if hit:
+            return cached
         params = {"track_name": q.title, "artist_name": q.artist}
         if q.album:
             params["album_name"] = q.album
         if q.duration_ms:
             params["duration"] = round(q.duration_ms / 1000)
         r = self._get("/get", params)
-        raw = r.json() if r.status_code == 200 else None
+        try:
+            raw = r.json() if r.status_code == 200 else None
+        except ValueError:
+            raw = None
         if raw is None:  # /get exige coincidencia casi exacta; /search es más tolerante
             found = self._get("/search", {"track_name": q.title, "artist_name": q.artist})
-            raw = self._best(found.json() if found.status_code == 200 else [], q)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"t": time.time(), "data": raw}), encoding="utf-8")
-        except OSError:
-            pass  # sin caché también funciona
+            try:
+                results = found.json() if found.status_code == 200 else []
+            except ValueError:
+                results = []
+            raw = self._best(results if isinstance(results, list) else [], q)
+        self._client.write_cache(path, raw)
         return raw
 
     @staticmethod

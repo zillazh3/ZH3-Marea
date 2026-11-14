@@ -3,8 +3,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
-
 
 def _portable_dir() -> Path | None:
     """Junto al .exe empaquetado (`data/`), si se puede escribir ahí: la app entera cabe en una carpeta que se mueve sola."""
@@ -35,8 +33,9 @@ def default_output_dir() -> Path:
     return Path.home() / "Videos" / "ZH3 Marea"
 
 
-def make_settings() -> QSettings:
+def make_settings():
     """Ajustes en un .ini dentro de la carpeta de datos (nada en el registro de Windows)."""
+    from PySide6.QtCore import QSettings
     return QSettings(str(app_data() / "settings.ini"), QSettings.IniFormat)
 
 
