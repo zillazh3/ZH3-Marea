@@ -19,8 +19,6 @@ def thumb_path(info: PresetInfo, folder: Path | None = None) -> Path:
 
 
 def render_thumb(info: PresetInfo, out: Path) -> Path:
-    import skia
-
     from marea.demo_cover import demo_cover
     from marea.demo_song import exact_lyrics
     from marea.render.scene import Scene, Style
@@ -30,7 +28,7 @@ def render_thumb(info: PresetInfo, out: Path) -> Path:
     bg = replace(bg, source="cover")  # una Corriente nunca trae el archivo de video: la miniatura usa la portada demo
     scene = Scene(exact_lyrics(), demo_cover(), THUMB_SIZE, params, style, gpu=False, background=bg)
     try:
-        data = scene.snapshot(THUMB_T_MS).encodeToData(skia.EncodedImageFormat.kPNG)
+        data = scene.snapshot(THUMB_T_MS).encodeToData()  # PNG por defecto, como en el resto del proyecto
     finally:
         scene.close()
     out.parent.mkdir(parents=True, exist_ok=True)

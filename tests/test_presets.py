@@ -246,3 +246,12 @@ def test_modified_indicator_compares_only_selected_keys():
     assert schema.changed_sections(info.preset, schema.current_values(s, p, b, f)) == []
     s.glow_gain += 0.5
     assert schema.changed_sections(info.preset, schema.current_values(s, p, b, f)) == ["color"]
+
+
+def test_render_thumb_writes_a_png_of_the_thumb_size(tmp_path):
+    from marea.presets.thumbs import THUMB_SIZE, ensure_thumb
+
+    path = ensure_thumb(PresetStore().get("Abisal"), tmp_path)
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert int.from_bytes(data[16:20], "big") == THUMB_SIZE[0] and int.from_bytes(data[20:24], "big") == THUMB_SIZE[1]
