@@ -20,7 +20,7 @@ Por eso este proyecto también es AGPL-3.0: si lo modificas y lo ofreces (inclus
 | [Lucide](https://lucide.dev) (íconos) | ISC (`assets/icons/LICENSE.txt`) |
 | [Qt for Python / PySide6](https://doc.qt.io/qtforpython-6/) | LGPL-3.0 |
 | [skia-python](https://github.com/kyamagu/skia-python) | BSD-3-Clause |
-| [ffmpeg](https://ffmpeg.org), build de [Gyan](https://www.gyan.dev/ffmpeg/builds/) | **GPL-3.0**; el código fuente está en <https://www.gyan.dev/ffmpeg/builds/> y <https://ffmpeg.org/download.html> |
+| [ffmpeg](https://ffmpeg.org), build de [Gyan](https://www.gyan.dev/ffmpeg/builds/) | **GPL-3.0**; el código fuente está en <https://www.gyan.dev/ffmpeg/builds/> y <https://ffmpeg.org/download.html>. Incluye los códecs de la exportación con transparencia: [libvpx](https://www.webmproject.org/code/) (BSD-3-Clause, WebM VP9), [libopus](https://opus-codec.org) (BSD-3-Clause) y el codificador `prores_ks` de FFmpeg (LGPL-2.1+, ProRes 4444) |
 | [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) | MIT |
 | keyring, numpy, httpx, defusedxml, fonttools, PyYAML | MIT / BSD (cada paquete trae su licencia en `_internal/*.dist-info/`) |
 | Python y PyInstaller | PSF / GPL con excepción para el bootloader |

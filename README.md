@@ -29,6 +29,9 @@ exactamente el mismo motor, así que lo que ves es lo que sale.
 
 - 🎤 **Letra por sílaba** con wipe, glow, bloom, micro-vibrato, letras que rebotan en palabras largas, duetos y voces de fondo.
 - 🫧 **Fondo vivo**: la portada difuminada en varias capas que se mueven despacio, con interludios en puntos que respiran.
+- 🎞️ **Tu video de fondo** o **fondo transparente**, y export con canal alfa (WebM VP9, ProRes 4444 o secuencia PNG).
+- 🌊 **Corrientes**: looks guardados (Bajamar, Pleamar, Niebla, Abisal y los tuyos) que se aplican con un clic y se comparten.
+- 🎣 **Anzuelo**: sugiere los mejores versos para un clip de 15, 30 o 60 s y encola variantes A/B.
 - 🎬 **Tres modos**: solo letra, clip con canción y canción completa.
 - 🎞️ **Export determinista**: pasos fijos de 1/60 s; el mismo trabajo da los mismos píxeles, siempre.
 - ⚡ **GPU** (OpenGL vía Skia) con respaldo en CPU, y NVENC opcional para codificar.
@@ -36,7 +39,7 @@ exactamente el mismo motor, así que lo que ves es lo que sale.
 - 🎧 **Audio alineado**: loopback de tu propia reproducción de Spotify o archivo propio con forma de onda para ajustar el desfase.
 - 🌅 **Outro ajustable**: el menú Outro extiende el rango del clip unos segundos más y desvanece el audio.
 - 📝 **Cambia la letra sin perder el proyecto**: «Reemplazar letra con .ttml» en el menú del Editor conserva portada y metadatos.
-- 🎨 **Efectos semánticos por palabra** (experimental, opcional): anima palabras clave en español e inglés según su significado (44 categorías entre emociones, elementos, estaciones y meses) con color adaptativo y partículas propias.
+- 🎨 **Efectos semánticos por palabra** (experimental, opcional): anima palabras clave en español e inglés según su significado (55 categorías: 23 emociones, 16 elementos, las 4 estaciones y los 12 meses) con color adaptativo y partículas propias.
 - 🎚️ **Sincronía automática de letras** (experimental, opcional): alinea una letra con el audio y te deja revisarla.
 - 📥 **Cola de exportaciones** con progreso, ETA, cancelar y abrir carpeta.
 - 🔐 **Credenciales seguras**: claves y tokens en el Credential Manager de Windows, nunca en archivos.
@@ -79,7 +82,7 @@ py -3.12 -m venv .venv
 ### 🏗️ Construir tu propio portable
 
 ```powershell
-.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ and dist\ZH3-Marea-v0.1.3-portable.zip
+.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ and dist\ZH3-Marea-v0.2.0-portable.zip
 ```
 
 > ⚖️ El ffmpeg que se empaqueta es una build GPL (Gyan): respeta su licencia si redistribuyes la carpeta.
@@ -92,8 +95,72 @@ py -3.12 -m venv .venv
 | 🎵 **Con canción** | loopback de Spotify o archivo propio | el rango de versos con el audio recortado, fundidos de 150 ms y **outro** opcional con fade out |
 | 💿 **Canción completa** | loopback de Spotify o archivo propio | de principio a fin, con cola, progreso y cancelación |
 
-**Formatos:** 1080×1920 (TikTok), 1080×1080 y 1920×1080 · 60 fps · H.264 (`libx264 -preset slow -crf 16` o NVENC) · AAC 320k ·
-etiquetado BT.709 y `+faststart`. El **marcador de inicio** (flash de 1 frame o pitido) te ayuda a sincronizar el sonido oficial.
+**Formatos de salida** (menú del Editor → **Archivo**):
+
+| Archivo | Códec | Transparencia | Audio |
+|---|---|:--:|---|
+| **MP4** | H.264 (`libx264 -preset slow -crf 16` o NVENC) · `yuv420p` · BT.709 · `+faststart` | no | AAC 320k |
+| **WebM** | VP9 (`libvpx-vp9`, `yuva420p`) | sí | Opus 192k |
+| **ProRes 4444 `.mov`** | `prores_ks -profile:v 4444`, `yuva444p10le` | sí | PCM 16 bit |
+| **Secuencia PNG** | carpeta de PNG RGBA numerados + `marea.json` (fps, resolución, rango) | sí | sin audio |
+
+**Tamaños:** 1080×1920 (TikTok), 1080×1080 y 1920×1080 · 60 fps. El **marcador de inicio** (flash de 1 frame o pitido) te ayuda a
+sincronizar el sonido oficial.
+
+## 🎞️ Fondo de video y export con transparencia
+
+Pestaña **Fondo** del Editor. El fondo puede ser:
+
+- **Portada** (por defecto): la portada difuminada que se mueve despacio.
+- **Video propio** (`.mp4`, `.mov`, `.webm`, `.mkv`): tu video detrás de la letra. Su audio se ignora. Controles: entrada y salida (recorte),
+  desfase respecto al inicio del clip, al terminar (**Repetir**, **Ida y vuelta** o **Congelar último cuadro**), ajuste (**Cubrir** o
+  **Contener**), zoom y posición, oscurecer, desenfoque, saturación, **velo de lectura** (degradado suave tras la letra) y un tinte opcional
+  de la portada difuminada por encima.
+- **Transparente**: sin fondo, para superponer la letra en tu editor de video. La vista previa muestra un tablero de ajedrez.
+
+El cuadro del video se calcula de forma determinista a partir del tiempo del clip (recorte, desfase y modo de repetición), a la tasa de
+cuadros del propio video, así que la vista previa y el export piden exactamente el mismo cuadro; los videos de velocidad variable (VFR) y
+con rotación de teléfono se normalizan al decodificar. «Adaptar color de efectos al fondo» mide el cuadro real del video. Si el video
+falta o cambió cuando abres el proyecto, la app vuelve a **Portada** y te avisa sin bloquearte.
+
+**Exportar con transparencia:** elige **WebM**, **ProRes 4444** o **Secuencia PNG** en el menú del Editor → **Archivo**; el fondo cambia solo
+a *Transparente* (y vuelve a MP4 si eliges otro fondo). El alfa sale **recto** (no premultiplicado), sin halos oscuros en el brillo, el
+bloom ni la marca de agua (que puedes incluir o no con **Marca de agua en exports con transparencia**). Los formatos con alfa no usan NVENC.
+
+> 📸 *Captura pendiente:* `docs/screenshots/fondo-video.png` (pestaña Fondo con video propio) y `docs/screenshots/alfa.png` (export sobre un editor de video).
+
+## 🌊 Corrientes
+
+Una **Corriente** es un look guardado: se aplica con un clic, se comparte como un `.json` y no incluye formato de exportación ni la ruta
+de ningún video. Panel **Corrientes** al inicio de la pestaña **Estilo**:
+
+- **Integradas:** **Bajamar** (el look de siempre, sin cambios), **Pleamar** (más atrevida: letra grande, brillo y bloom intensos),
+  **Niebla** (suave: fondo muy difuminado y movimiento calmado) y **Abisal** (oscura, con acentos azul eléctrico).
+- Cada una se ve con su **miniatura**, dibujada por el mismo motor sobre la canción demo.
+- **Aplicar**, **Guardar como…**, **Actualizar**, y en «⋯»: renombrar, duplicar, eliminar (solo las tuyas), **importar** y **exportar** `.json`.
+- **Aplicación parcial:** marca solo **Tipografía**, **Color**, **Fondo**, **Efectos** o **Marca de agua**.
+- Un indicador te dice cuando el look actual está **modificado** respecto a la Corriente aplicada; el proyecto recuerda cuál fue.
+- Tus Corrientes viven en `data/presets/` y se recargan solas al editar el archivo. Al importar se valida todo: se rechaza lo que pese más
+  de 256 KB, se ignoran claves desconocidas, se limitan los valores y una fuente que no tengas se sustituye por Inter Tight (con aviso).
+
+> 📸 *Captura pendiente:* `docs/screenshots/corrientes.png` (panel de Corrientes con las cuatro miniaturas).
+
+## 🎣 Anzuelo
+
+Botón **Sugerir rangos** en la pestaña **Anzuelo** del Editor: propone los mejores tramos de versos para un clip de **15, 30, 60 s** o una
+duración a medida.
+
+- Busca **bloques de versos repetidos** (el coro), versos con el **título**, los **picos de energía vocal** y la densidad de ataques (si hay audio
+  local), las subidas de energía que marcan una entrada de sección y, como señal ligera, los efectos por palabra. Penaliza empezar en la intro,
+  terminar en el outro o cortar una frase a medias.
+- Cada tramo empieza en un inicio de verso (con ~0.4 s de pre-roll) y termina en un final de verso más el outro; los resultados están
+  **diversificados** (sin solapes mayores al 50 %) y traen su puntaje, una explicación («coro repetido 3×, pico vocal en 1:12») y su **confianza**
+  (menor sin audio local; las letras de solo líneas también funcionan).
+- **Pasar el cursor** por una tarjeta resalta sus versos; **clic** la aplica al Editor. **Encolar** añade los tramos elegidos a la cola con los
+  ajustes actuales; **Encolar variantes…** añade el mismo tramo una vez por Corriente elegida (pruebas A/B), con el nombre de la Corriente en el archivo.
+- Los pesos están en `assets/hooks/weights.json` (se recarga solo; una copia en `data/hooks/` tiene prioridad).
+
+> 📸 *Captura pendiente:* `docs/screenshots/anzuelo.png` (tarjetas de sugerencias).
 
 ## 💧 Marca de agua
 
@@ -173,7 +240,7 @@ exactamente igual y no carga nada de esto.
 
 Reacciona al **significado y emoción** de palabras clave dentro de cada verso (en español e inglés) con animaciones suaves que se mantienen alineadas con la letra y salen **idénticas** en la vista previa y en el video exportado. Está **apagada por defecto**: actívala en **Ajustes → Funciones experimentales → Efectos semánticos por palabra**.
 
-- **Entiende contexto, no solo palabras sueltas:** reconoce **44 categorías** (15 emociones como tristeza, amor, alegría, angustia o sanación; 17 elementos y las 4 estaciones; y los 12 meses del año). Distingue frases (*para siempre*, *flor de papel*, *let go*), negaciones y giros (*sin miedo*, *no puedo respirar*, *volví a respirar*), palabras opuestas en el mismo verso y repeticiones que evolucionan a lo largo de la canción.
+- **Entiende contexto, no solo palabras sueltas:** reconoce **55 categorías** (23 emociones como tristeza, amor, alegría, angustia o sanación; 16 elementos como agua, fuego o luz; las 4 estaciones; y los 12 meses del año). Distingue frases (*para siempre*, *flor de papel*, *let go*), negaciones y giros (*sin miedo*, *no puedo respirar*, *volví a respirar*), palabras opuestas en el mismo verso y repeticiones que evolucionan a lo largo de la canción.
 - **Partículas y detalles visuales propios:**
   - **Estaciones y meses:** pétalos flotantes en primavera, luciérnagas cálidas en verano, hojas cayendo en otoño, copos de nieve en invierno y matices propios para cada mes.
   - **Elementos y emociones:** brasas de fuego, lluvia, lágrimas que resbalan y abren ondas abajo (*llorar* / *cry*), gotas carmesí desde un corte (*herida* / *wound*), costura dorada tipo *kintsugi* (*cicatriz* / *scar*), burbujas en el agua, bruma suave en nubes, esquirlas rotas, halos brillantes y semillas al viento.
