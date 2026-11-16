@@ -146,6 +146,7 @@ def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
 def build_qss(t: Theme) -> str:
     f, r = FONT_SIZES, RADIUS
     grad = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {t.accent}, stop:1 {t.accent2})"
+    grad_hover = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {t.accent_icon}, stop:1 {t.accent2})"
     return f"""
 * {{ font-family: "{FAMILY}"; font-size: {f['sm']}px; color: {t.text}; outline: none; }}
 QWidget#Root, QWidget#Page, QStackedWidget, QLabel {{ background: transparent; }}
@@ -163,19 +164,24 @@ QFrame#Sidebar {{ background: {t.surface}; border: none; border-right: {BORDER_P
 QFrame#Card {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['card']}px; }}
 QFrame#IconTile {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: 16px; }}
 QFrame#Cover {{ background: {t.surface_hover}; border-radius: {r['control']}px; }}
-QPushButton {{ border: none; background: transparent; }}
+QPushButton {{ background: transparent; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
+    padding: {SPACE[2]}px {SPACE[4]}px; font-weight: 500; }}
+QPushButton:hover {{ background: {t.hover}; }}
+QPushButton:focus {{ border-color: {t.accent_icon}; }}
+QPushButton:checked {{ background: {t.accent}; color: {t.on_accent}; border-color: {t.accent}; }}
+QPushButton:default {{ background: {grad}; color: {t.on_accent}; border-color: transparent; font-weight: 600; }}
+QPushButton:default:hover {{ background: {grad_hover}; }}
+QPushButton:default:focus {{ border-color: {t.text}; }}
+QPushButton#Chip {{ padding: {SPACE[1]}px {SPACE[3]}px; }}
+QPushButton#CaptionBtn, QPushButton#IconBtn {{ border: none; padding: 0; background: transparent; }}
 QPushButton#CaptionBtn {{ border-radius: 0; }}
 QPushButton#CaptionBtn:hover {{ background: {t.hover}; }}
 QPushButton#CaptionBtn[danger="true"]:hover {{ background: {t.danger}; }}
-QPushButton#IconBtn {{ border-radius: {r['control']}px; }}
-QPushButton#IconBtn:hover {{ background: {t.hover}; }}
-QPushButton#Primary {{ background: {grad}; color: {t.on_accent}; border-radius: {r['control']}px;
-    padding: {SPACE[2]}px {SPACE[4]}px; font-weight: 600; font-size: {f['sm']}px; }}
-QPushButton#Primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {t.accent_icon}, stop:1 {t.accent2}); }}
-QPushButton#Ghost {{ border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
-    padding: {SPACE[2]}px {SPACE[4]}px; font-weight: 500; }}
-QPushButton#Ghost:hover {{ background: {t.hover}; }}
-QPushButton#Ghost:checked {{ background: {t.accent}; color: {t.on_accent}; border-color: {t.accent}; }}
+QPushButton#IconBtn:hover, QPushButton#IconBtn:focus {{ background: {t.hover}; }}
+QPushButton#Primary {{ background: {grad}; color: {t.on_accent}; border: {BORDER_PX}px solid transparent;
+    border-radius: {r['control']}px; padding: {SPACE[2]}px {SPACE[4]}px; font-weight: 600; font-size: {f['sm']}px; }}
+QPushButton#Primary:hover {{ background: {grad_hover}; }}
+QPushButton#Primary:focus {{ border-color: {t.text}; }}
 QLineEdit#Search {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['card']}px;
     padding: {SPACE[3]}px {SPACE[4]}px; font-size: {f['md']}px; selection-background-color: {t.accent}; }}
 QLineEdit#Search:focus {{ border: {BORDER_PX}px solid {t.accent}; }}
@@ -189,7 +195,10 @@ QToolTip {{ background: {t.bg}; color: {t.text}; border: {BORDER_PX}px solid {t.
     border-radius: {r['control']}px; padding: {SPACE[1]}px {SPACE[2]}px; font-size: {f['xs']}px; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: {t.border}; border-radius: 3px; min-height: 24px; }}
-QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ height: 0; background: none; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {t.border}; border-radius: 3px; min-width: 24px; }}
+QScrollBar::handle:hover {{ background: {t.text_faint}; }}
+QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ height: 0; width: 0; background: none; }}
 QSpinBox {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
     padding: {SPACE[2]}px {SPACE[3]}px; min-width: 80px; }}
 QDoubleSpinBox {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px;
@@ -199,10 +208,10 @@ QLineEdit, QPlainTextEdit {{ background: {t.surface}; border: {BORDER_PX}px soli
     padding: {SPACE[2]}px {SPACE[3]}px; selection-background-color: {t.accent}; }}
 QLineEdit:focus, QPlainTextEdit:focus {{ border: {BORDER_PX}px solid {t.accent}; }}
 QPushButton::menu-indicator {{ image: none; width: 0; }}
-QPushButton#Primary:disabled {{ background: {t.surface_hover}; color: {t.text_faint}; }}
-QPushButton#Ghost:disabled {{ color: {t.text_faint}; }}
+QPushButton:disabled {{ color: {t.text_faint}; }}
+QPushButton:default:disabled, QPushButton#Primary:disabled {{ background: {t.surface_hover}; color: {t.text_faint}; border-color: transparent; }}
 QTabWidget::pane {{ border: none; }}
-QTabBar::tab {{ padding: {SPACE[2]}px {SPACE[3]}px; color: {t.text_muted}; border: none;
+QTabBar::tab {{ padding: {SPACE[2]}px {SPACE[2]}px; color: {t.text_muted}; border: none;
     border-bottom: 2px solid transparent; font-weight: 500; }}
 QTabBar::tab:hover {{ color: {t.text}; }}
 QTabBar::tab:selected {{ color: {t.text}; border-bottom: 2px solid {t.accent}; }}
@@ -221,6 +230,10 @@ QMenu::item:selected {{ background: {t.pill}; }}
 QMenu::item:disabled {{ color: {t.text_faint}; }}
 QMenu::separator {{ height: 1px; background: {t.border}; margin: {SPACE[1]}px {SPACE[2]}px; }}
 QListWidget {{ background: transparent; border: none; }}
+QListWidget#Presets::item {{ padding: {SPACE[1]}px; border: {BORDER_PX}px solid transparent; border-radius: {r['control']}px;
+    color: {t.text_muted}; }}
+QListWidget#Presets::item:hover {{ background: {t.surface_hover}; color: {t.text}; }}
+QListWidget#Presets::item:selected {{ background: {t.pill}; border: {BORDER_PX}px solid {t.accent}; color: {t.text}; }}
 QListWidget#Intervals {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px; padding: {SPACE[1]}px; }}
 QListWidget#Intervals::item {{ padding: {SPACE[1]}px {SPACE[2]}px; border-radius: 6px; color: {t.text_muted}; }}
 QListWidget#Intervals::item:hover {{ background: {t.hover}; color: {t.text}; }}

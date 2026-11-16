@@ -3,18 +3,26 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListView,
-                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QListView,
+                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QWidget, QWidgetAction)
 
 from marea.async_util import run_async
 from marea.presets.schema import SECTION_LABELS, SECTIONS, PresetError, apply, changed_sections, current_values
 from marea.presets.store import PresetStore
 from marea.presets.thumbs import ensure_thumb
 from marea.ui.editor._pkg import pkg_attr
+from marea.ui import theme
 from marea.ui.editor.wordfx_controller import WordFXWatcher
 from marea.ui.widgets import make_button
 
-THUMB_ICON = QSize(72, 128)
+THUMB_ICON = QSize(60, 75)  # recorte 4:5 del centro del cuadro 9:16: se ve el verso, no el teléfono entero
+THUMB_CELL = QSize(THUMB_ICON.width() + 16, THUMB_ICON.height() + 34)
+
+
+def crop_thumb(px: QPixmap) -> QPixmap:
+    """Recorta el cuadro vertical a 4:5 centrado."""
+    h = round(px.width() * THUMB_ICON.height() / THUMB_ICON.width())
+    return px.copy(0, max(0, (px.height() - h) // 2), px.width(), h)
 
 
 class PresetsController:
@@ -34,12 +42,17 @@ class PresetsController:
         title.setObjectName("H2")
         form.addRow(title)
         self.list = QListWidget()
+        self.list.setObjectName("Presets")
         self.list.setViewMode(QListView.IconMode)
         self.list.setFlow(QListView.LeftToRight)
         self.list.setWrapping(False)
         self.list.setMovement(QListView.Static)
         self.list.setIconSize(THUMB_ICON)
-        self.list.setFixedHeight(THUMB_ICON.height() + 52)
+        self.list.setSpacing(theme.SPACE[1])
+        self.list.setWordWrap(False)
+        self.list.setTextElideMode(Qt.ElideRight)
+        self.list.setUniformItemSizes(True)
+        self.list.setFixedHeight(THUMB_CELL.height() + 2 * theme.SPACE[1] + 14)  # + scrollbar horizontal
         self.list.setHorizontalScrollMode(QListWidget.ScrollPerPixel)
         self.list.setSelectionMode(QListWidget.SingleSelection)
         self.list.itemSelectionChanged.connect(self._selection_changed)
@@ -50,8 +63,25 @@ class PresetsController:
         self.btn_apply = make_button("Aplicar", "Primary", self.apply_selected)
         self.btn_save = make_button("Guardar como…", "Ghost", self.save_as, "Guarda el look actual como una Corriente nueva")
         self.btn_update = make_button("Actualizar", "Ghost", self.update_selected, "Reemplaza la Corriente elegida con el look actual")
-        self.btn_more = make_button("⋯", "Ghost", tooltip="Renombrar, duplicar, eliminar, importar y exportar")
+        self.btn_more = make_button("", "Ghost", tooltip="Aplicar solo a…, renombrar, duplicar, eliminar, importar y exportar")
+        self._more_icon()
+        theme.signals.changed.connect(self._more_icon)
         menu = QMenu(self.btn_more)
+        self.cb_sections = {}
+        header = menu.addAction("Aplicar solo a")
+        header.setEnabled(False)
+        for sec in SECTIONS:  # QWidgetAction: el menú sigue abierto mientras se marcan varias secciones
+            cb = QCheckBox(SECTION_LABELS[sec])
+            cb.setChecked(True)
+            cb.toggled.connect(self._sections_changed)
+            holder = QWidget()
+            QHBoxLayout(holder).addWidget(cb)
+            holder.layout().setContentsMargins(theme.SPACE[3], theme.SPACE[1], theme.SPACE[3], theme.SPACE[1])
+            wa = QWidgetAction(menu)
+            wa.setDefaultWidget(holder)
+            menu.addAction(wa)
+            self.cb_sections[sec] = cb
+        menu.addSeparator()
         self.act_rename = menu.addAction("Renombrar…", self.rename_selected)
         self.act_dup = menu.addAction("Duplicar", self.duplicate_selected)
         self.act_del = menu.addAction("Eliminar", self.delete_selected)
@@ -63,18 +93,6 @@ class PresetsController:
             row.addWidget(b)
         form.addRow(row)
 
-        grid = QGridLayout()
-        self.cb_sections = {}
-        for i, sec in enumerate(SECTIONS):
-            cb = QCheckBox(SECTION_LABELS[sec])
-            cb.setChecked(True)
-            cb.setToolTip("Marca solo lo que quieres que cambie al aplicar")
-            self.cb_sections[sec] = cb
-            grid.addWidget(cb, i // 3, i % 3)
-        holder = QWidget()
-        holder.setLayout(grid)
-        grid.setContentsMargins(0, 0, 0, 0)
-        form.addRow(holder)
         self.lb_state = QLabel("")
         self.lb_state.setObjectName("Caption")
         self.lb_state.setWordWrap(True)
@@ -102,7 +120,7 @@ class PresetsController:
             it = QListWidgetItem(info.name + ("" if info.builtin else " ·"))
             it.setData(Qt.UserRole, info.name)
             it.setToolTip(info.preset.get("description", "") or info.name)
-            it.setSizeHint(QSize(THUMB_ICON.width() + 24, THUMB_ICON.height() + 40))
+            it.setSizeHint(THUMB_CELL)
             self.list.addItem(it)
             if info.name == keep or (not keep and info.name == self.applied):
                 self.list.setCurrentItem(it)
@@ -121,7 +139,7 @@ class PresetsController:
             for i in range(self.list.count()):
                 it = self.list.item(i)
                 if it.data(Qt.UserRole) == info.name:
-                    it.setIcon(QIcon(QPixmap(str(path))))
+                    it.setIcon(QIcon(crop_thumb(QPixmap(str(path)))))
 
         pkg_attr("run_async", run_async)(lambda: ensure_thumb(info, self.store.user_dir / "thumbs"), done, lambda _e: None)
 
@@ -147,6 +165,15 @@ class PresetsController:
 
     def sections(self) -> tuple[str, ...]:
         return tuple(s for s in SECTIONS if self.cb_sections[s].isChecked())
+
+    def _more_icon(self):
+        self.btn_more.setIcon(theme.icon("ellipsis", theme.current.text_muted, 16))
+
+    def _sections_changed(self):
+        n = len(self.sections())
+        partial = n < len(SECTIONS)
+        self.btn_apply.setText(f"Aplicar ({n}/{len(SECTIONS)})" if partial else "Aplicar")
+        self.btn_apply.setToolTip("Solo cambia las secciones marcadas en el menú de opciones (Aplicar solo a)" if partial else "")
 
     # ---------------- acciones ----------------
     def apply_selected(self):

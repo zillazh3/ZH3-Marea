@@ -99,6 +99,7 @@ class HooksController:
 
     def _add_chip(self, layout, target: float, text: str):
         b = QPushButton(text)
+        b.setObjectName("Chip")
         b.setCheckable(True)
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda _=False, t=target: self._chip_clicked(t))

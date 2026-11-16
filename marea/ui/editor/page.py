@@ -50,7 +50,7 @@ from marea.ui.editor.wordfx_controller import WordFXController
 from marea.ui.preview import PreviewWidget
 from marea.ui.widgets import CoalescedAction, EmptyState, blocked_signals, fmt_ms
 
-PANEL_W = 404
+PANEL_W = 448  # las 6 pestañas (con Anzuelo) caben sin botones de desplazamiento
 DEFAULT_VERSES = 6
 PROJECT_FILTER = "Proyecto ZH3 Marea (*.marea.json);;Todos los archivos (*.*)"
 

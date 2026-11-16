@@ -54,6 +54,7 @@ def test_partial_apply_only_touches_checked_sections(win):
     pc = pick(e, "Abisal")
     for sec, cb in pc.cb_sections.items():
         cb.setChecked(sec == "fondo")
+    assert pc.btn_apply.text() == "Aplicar (1/5)"  # el estado parcial queda visible aunque las casillas vivan en el menú ⋯
     before = e.style.glow_rgb
     pc.apply_selected()
     assert e.style.bg_veil == pytest.approx(0.5) and e.style.glow_rgb == before and e.sl_fx.value() == 100
