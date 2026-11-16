@@ -3,6 +3,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog
 
+from marea.hooks.analyze import load_weights, suggest
 from marea.project import load_project_file, save_project
 
 
@@ -13,6 +14,13 @@ def win(make_window, qapp):
     w.load_demo()
     qapp.processEvents()
     return w
+
+
+@pytest.fixture
+def captured(win, monkeypatch):
+    items = []
+    monkeypatch.setattr(win.queue, "add", items.append)
+    return items
 
 
 def pick(editor, name):
@@ -107,3 +115,64 @@ def test_old_project_state_without_new_fields_still_restores(win, make_window, q
     assert e.style.bloom is False and e.params.motion == "onda"
     assert e.style.wm_text != "viejo"  # sin los campos nuevos, la marca de agua sigue viniendo de los ajustes globales
     assert e.style.glow_gain == 1.0
+
+
+# ---------------- Anzuelo ----------------
+
+def run_suggestions(editor, targets=(15, 30)):
+    editor._hooks.results = suggest(editor.project.lyrics, editor.project.title, targets, weights=load_weights())
+    editor._hooks.chip_target = float(targets[-1])
+    editor._hooks.show_results()
+
+
+def test_suggestion_cards_apply_range_and_highlight(win, qapp):
+    e = win.editor
+    run_suggestions(e)
+    hk = e._hooks
+    assert hk.list.count() > 0
+    s = hk.list.item(0).data(Qt.UserRole)
+    hk._hover(s)
+    assert e.hook_hover == (s.first, s.last)
+    hk._hover(None)
+    assert e.hook_hover is None
+    hk.apply(s)
+    assert (e.first, e.last) == (s.first, s.last)
+
+
+def test_enqueue_selected_uses_the_suggested_range_with_preroll(win, captured):
+    e = win.editor
+    run_suggestions(e)
+    hk = e._hooks
+    hk.list.selectAll()
+    n = hk.list.count()
+    hk.enqueue_selected()
+    assert len(captured) == n
+    for item, s in zip(captured, [hk.list.item(i).data(Qt.UserRole) for i in range(n)]):
+        assert (item.job.start_ms, item.job.end_ms) == (s.start_ms, s.end_ms) and item.audio is None
+        assert f"versos {s.first + 1}–{s.last + 1}" in item.job.out_path.name
+
+
+def test_enqueue_variants_makes_one_job_per_preset_with_its_name_in_the_file(win, captured, monkeypatch):
+    e = win.editor
+    run_suggestions(e)
+    hk = e._hooks
+    infos = [i for i in hk.store.list() if i.name in ("Pleamar", "Abisal")]
+    monkeypatch.setattr(hk, "pick_presets", lambda: infos)
+    hk.list.setCurrentRow(0)
+    hk.list.item(0).setSelected(True)
+    hk.enqueue_variants()
+    assert len(captured) == 2
+    names = [i.job.out_path.name for i in captured]
+    assert any("[Pleamar]" in n for n in names) and any("[Abisal]" in n for n in names)
+    pleamar = next(i for i in captured if "[Pleamar]" in i.job.out_path.name)
+    assert pleamar.job.style.glow_gain == pytest.approx(1.6) and pleamar.job.style.font_frac == pytest.approx(0.076)
+    assert e.style.glow_gain == 1.0  # el editor no cambió: las variantes aplican sobre copias
+
+
+def test_variants_cancelled_dialog_enqueues_nothing(win, captured, monkeypatch):
+    e = win.editor
+    run_suggestions(e)
+    monkeypatch.setattr(e._hooks, "pick_presets", lambda: [])
+    e._hooks.list.item(0).setSelected(True)
+    e._hooks.enqueue_variants()
+    assert captured == []

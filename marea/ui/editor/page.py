@@ -42,6 +42,7 @@ from marea.ui.editor._pkg import pkg_attr
 from marea.ui.editor.audio_tab import AudioController
 from marea.ui.editor.cinematic_tab import CinematicController
 from marea.ui.editor.export_bar import ExportBarController
+from marea.ui.editor.hooks_panel import HooksController
 from marea.ui.editor.meta_tabs import build_background_tab, build_watermark_tab
 from marea.ui.editor.presets_panel import PresetsController
 from marea.ui.editor.style_tab import build_style_tab
@@ -77,13 +78,14 @@ class VerseDelegate(QStyledItemDelegate):
     def paint(self, p: QPainter, opt, index):
         t, e, row = theme.current, self.editor, index.row()
         inside = e.first <= row <= e.last
+        hover = e.hook_hover is not None and e.hook_hover[0] <= row <= e.hook_hover[1]
         r = QRectF(opt.rect).adjusted(2, 1, -2, -1)
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         if inside:
             p.setBrush(theme.qc(t.pill))
-        elif opt.state & QStyle.State_MouseOver:
+        elif hover or opt.state & QStyle.State_MouseOver:
             p.setBrush(theme.qc(t.hover))
         else:
             p.setBrush(Qt.NoBrush)
@@ -118,7 +120,9 @@ class EditorPage(QWidget):
         self._scrubbing = False
         self._last_time_text = ""
 
+        self.hook_hover: tuple[int, int] | None = None  # rango de versos resaltado por una sugerencia de Anzuelo
         self._presets = PresetsController(self)
+        self._hooks = HooksController(self)
         self._cinematic = CinematicController(self)
         self._audio = AudioController(self)
         self._export_bar = ExportBarController(self)
@@ -289,6 +293,7 @@ class EditorPage(QWidget):
         self.tabs.addTab(self._cinematic.build_tab(), "Cinemático")
         self.tabs.addTab(self._audio.build_tab(), "Audio")
         self.tabs.addTab(build_watermark_tab(self), "Marca de agua")
+        self.tabs.addTab(self._hooks.build_tab(), "Anzuelo")
         tl.addWidget(self.tabs)
         right.addWidget(tabs_card, 2)
         container = QWidget()
@@ -340,6 +345,7 @@ class EditorPage(QWidget):
         if editor_state:
             self._restore_editor_controls(editor_state, n)
         self._presets.applied = str((editor_state or {}).get("preset") or "")
+        self._hooks.reset()
         self._presets.refresh_list()
         self.subtitle.setText(self._title_text())
         self.stack.setCurrentIndex(1)
@@ -452,6 +458,21 @@ class EditorPage(QWidget):
         if rebuild:
             self._wordfx_sync(rebuild=False)
             self.preview.rebuild()
+
+    def select_range(self, first: int, last: int):
+        """Elige el rango de versos (p. ej. desde una sugerencia de Anzuelo) y lo muestra en la lista."""
+        n = len(self.project.lyrics.lines) if self.project else 0
+        if not n:
+            return
+        self.first = max(0, min(n - 1, first))
+        self.last = max(self.first, min(n - 1, last))
+        self._anchor = self.first
+        self.list.scrollToItem(self.list.item(self.first), QListWidget.PositionAtTop)
+        self._range_changed()
+
+    def set_hover_range(self, rng: tuple[int, int] | None):
+        self.hook_hover = rng
+        self.list.viewport().update()
 
     def _load_saved_audio(self, project: ClipProject, audio_path: Path):
         def done(samples):

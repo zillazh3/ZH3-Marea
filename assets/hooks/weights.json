@@ -1,0 +1,19 @@
+{
+  "_help": "Pesos de Anzuelo (sugerir rangos). Se recarga solo al guardar. Una copia con el mismo nombre en data/hooks/ tiene prioridad sobre esta. Los valores se limitan a su rango; lo desconocido se ignora.",
+  "repetition": 3.0,
+  "title": 1.5,
+  "energy": 2.0,
+  "onset": 1.0,
+  "section_entry": 1.0,
+  "wordfx": 0.5,
+  "chorus_section": 3.0,
+  "duration_fit": 1.0,
+  "penalty_intro_outro": 1.5,
+  "penalty_mid_phrase": 1.0,
+  "tol_low": 0.75,
+  "tol_high": 1.05,
+  "preroll_ms": 400,
+  "similarity": 0.85,
+  "max_overlap": 0.5,
+  "top_n": 5
+}
