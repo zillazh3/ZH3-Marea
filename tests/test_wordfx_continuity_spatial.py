@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from marea.engine.tuning import TUNING
 from marea.model.lyrics import BgVocal, Interlude, Line, Lyrics, Syllable
 from marea.wordfx import library
 from marea.wordfx.bleed import BLEED_KERNEL, handoff_overlap_s, line_bleed_donors, spring_bleed_arrival
@@ -81,9 +82,9 @@ def test_ambient_layer_populates_non_semantic_words_and_caps_at_15_pct(lib):
 def test_line_handoff_overlap_keeps_continuous_singing_alive(lib):
     ol = handoff_overlap_s(2400, 2500)
     assert 0.25 <= ol <= 0.40
-    # Outgoing line word ending at 2.4 s still has non-zero release/fade overlap at 2.55 s when incoming line begins anticipation
+    # Outgoing line word ending at 2.4 s still has non-zero release/fade overlap at 2.55 s when incoming line begins anticipation (TUNING.anticipation_s before its onset)
     e_out = sample_envelope(2.55, 2.0, 2.4, is_hero=True, line_end_s=2.4, fade_s=ol)
-    e_in = sample_envelope(2.35, 2.5, 2.9, is_hero=True, line_end_s=3.2, fade_s=ol)
+    e_in = sample_envelope(2.5 - TUNING.anticipation_s * 0.6, 2.5, 2.9, is_hero=True, line_end_s=3.2, fade_s=ol)
     assert e_out.motion_amp > 0.0 and e_in.motion_amp > 0.0
 
 

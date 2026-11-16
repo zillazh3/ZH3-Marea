@@ -223,6 +223,7 @@ def _letter_state_with_ctx(
             reduce=reduce,
         )
         dy += carrier.y_em
+        dx += carrier.x_em
 
     if not reduce:
         if carrier is not None and env is not None:
@@ -265,10 +266,11 @@ def _letter_state_with_ctx(
                     dy = carrier.y_em + max_off
                 elif sem_dy < -max_off:
                     dy = carrier.y_em - max_off
-                if dx > max_off:
-                    dx = max_off
-                elif dx < -max_off:
-                    dx = -max_off
+                sem_dx = dx - carrier.x_em  # the carrier's own shift is never clipped, only the semantic effect on top of it
+                if sem_dx > max_off:
+                    dx = carrier.x_em + max_off
+                elif sem_dx < -max_off:
+                    dx = carrier.x_em - max_off
         else:
             go = smoothstep(begin_s, begin_s + 0.12, t)
             dy += p.drift_em * smoothstep(begin_s, end_s + DRIFT_TAIL_S, t)

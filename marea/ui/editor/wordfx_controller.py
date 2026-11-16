@@ -165,6 +165,7 @@ class WordFXController:
             self._rev("audio_samples", p.audio_samples) if p else None,
             self._rev("stats", stats),
             self._files_key() if on and p else None,
+            float(p.audio_offset_ms) if p else 0.0,
         )
         if p is None or (rebuild and state == self.state):
             return
@@ -176,8 +177,12 @@ class WordFXController:
             prev_state is not None
             and self.plan is not None
             and prev_state[0] == state[0]
-            and prev_state[2:] == state[2:]
+            and prev_state[2:10] == state[2:10]
         ):
+            if prev_state[10] != state[10]:
+                from dataclasses import replace
+
+                self.plan = replace(self.plan, audio_offset_ms=state[10])
             self.state = state
         else:
             from marea.model.cinematic import cached_audio_analysis
@@ -214,6 +219,7 @@ class WordFXController:
                     adapt_bg=ed.cb_fxbg.isChecked(),
                     rules=rls,
                     matches=raw_matches,
+                    audio_offset_ms=float(p.audio_offset_ms),
                 )
                 self.profile = profile
                 self.state = state

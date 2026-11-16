@@ -92,6 +92,7 @@ class CarrierLetter:
     scale: float = 1.0  # base syllable/letter scale
     glow_a: float = 0.0
     glow_r: float = 0.0
+    x_em: float = 0.0  # shift that makes per-letter scaling land where the base renderer's syllable-centred scale puts the letter
 
 
 @dataclass(frozen=True, slots=True)

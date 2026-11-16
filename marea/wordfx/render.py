@@ -8,7 +8,8 @@ from functools import lru_cache
 
 import skia
 
-from marea.wordfx._math import smoothstep
+from marea.engine.tuning import TUNING
+from marea.wordfx._math import lerp_rgb, smoothstep
 from marea.wordfx.anim import LetterState, echoes, particles, strain_boost, word_letter_states
 from marea.wordfx.contrast import adapt_params
 from marea.wordfx.fxtypes import CarrierWord, FxParams, FxWord
@@ -780,7 +781,9 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Lette
         add_inner = df > 0.05 and p.glow_spread >= 0.45 and not reduce
         plus_paint = skia.Paint(BlendMode=skia.BlendMode.kPlus) if add_inner else None
         for i, st in enumerate(states):
-            a = min(1.0, st.glow * 0.7) * st.alpha * wipe_alpha
+            a = min(1.0, st.glow * 0.7 * TUNING.fx_glow_gain) * st.alpha * wipe_alpha
+            if c_letters is not None:
+                a *= min(1.0, 4.0 * c_letters[i].fill_p)  # the halo follows the fill: unsung letters do not glow
             if a < 0.01:
                 continue
             gcol = p.glow_color if p.glow_color is not None else st.color
@@ -792,7 +795,7 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Lette
             if plus_paint is not None and st.glow > 0.25:
                 a_plus = min(0.45, a * 0.42 * df * p.glow_spread)
                 if a_plus >= 0.01:
-                    inner_col = (255, 224, 150) if p.particle_kind == "ember" else gcol
+                    inner_col = (255, 224, 150) if p.particle_kind == "ember" else lerp_rgb(gcol, (255, 255, 255), TUNING.glow_core_white)
                     img0, pad0 = _glow_image(fonts, letters[i].ch, size, letters[i].w, 0)
                     plus_paint.setAlphaf(a_plus)
                     plus_paint.setColorFilter(_tint_cf(_argb(inner_col, 1.0)))

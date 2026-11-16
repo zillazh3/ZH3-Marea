@@ -5,6 +5,8 @@ import skia
 
 from marea.demo_cover import demo_cover
 from marea.demo_song import exact_lyrics
+from marea.engine.tuning import TUNING, Tuning
+from marea.render import scene as scene_mod
 from marea.render.scene import Scene, Style
 from marea.wordfx import library
 from marea.wordfx.composer import seed_for
@@ -76,7 +78,7 @@ def test_envelope_six_phases():
     b0, b1 = 2.0, 2.6  # normal 600 ms word
     kw = dict(is_hero=True, release_s=0.6, residue_level=0.18, line_end_s=4.0, fade_s=0.4)
     idle = sample_envelope(1.5, b0, b1, **kw)
-    anti = sample_envelope(1.92, b0, b1, **kw)
+    anti = sample_envelope(b0 - TUNING.anticipation_s * 0.6, b0, b1, **kw)
     atk = sample_envelope(2.05, b0, b1, **kw)
     sus = sample_envelope(2.50, b0, b1, **kw)
     rel = sample_envelope(2.90, b0, b1, **kw)
@@ -93,7 +95,7 @@ def test_envelope_six_phases():
 
 
 def test_non_hero_has_no_anticipation():
-    s = sample_envelope(1.92, 2.0, 2.6, is_hero=False)
+    s = sample_envelope(2.0 - TUNING.anticipation_s * 0.6, 2.0, 2.6, is_hero=False)
     assert s.phase == "idle" and s.motion_amp == 0.0
 
 
@@ -112,3 +114,27 @@ def test_base_parity_at_zero_intensity(lib):
         a = s_base.snapshot(t_ms).toarray(colorType=skia.kRGBA_8888_ColorType)
         b = s_zero.snapshot(t_ms).toarray(colorType=skia.kRGBA_8888_ColorType)
         assert np.array_equal(a, b), f"Parity mismatch at {t_ms} ms"
+
+
+def test_idle_fx_word_looks_the_same_on_the_cheap_and_the_full_path(lib, monkeypatch):
+    """Before its onset an FX word is drawn by the cheap base path; switching to the full FX path must not move a single letter."""
+    lyrics, cover = exact_lyrics(), demo_cover()
+    plan = build_plan(lyrics, lib, track_id="idle-switch")
+    calls = []
+
+    def frames(anticipation):
+        monkeypatch.setattr(scene_mod, "TUNING", Tuning(anticipation_s=anticipation))
+        out = []
+        for t_ms in (7000, 10500, 14500, 22500):
+            scene = Scene(lyrics, cover, (270, 480), style=Style(), wordfx=plan)
+            orig = scene._fx_word
+            scene._fx_word = lambda *a, **k: calls.append(1) or orig(*a, **k)
+            out.append(scene.snapshot(t_ms).toarray(colorType=skia.kRGBA_8888_ColorType).astype(int))
+        return out, len(calls)
+
+    cheap, cheap_calls = frames(TUNING.anticipation_s)
+    calls.clear()
+    full, full_calls = frames(10.0)  # a huge anticipation switches the cheap path off: every FX word takes the full path
+    assert full_calls > cheap_calls, "the cheap path was never exercised"
+    for a, b in zip(cheap, full):
+        assert np.abs(a - b).max() <= 3

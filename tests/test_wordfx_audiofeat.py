@@ -188,3 +188,14 @@ def test_find_cached_stem_corrupt_or_missing(tmp_path):
     np.save(d / "separate-ok.npy", np.full(5, 0.5, np.float32))
     assert af.find_cached_stem(audio, root)[0] == pytest.approx(0.5)  # el lead corrupto se salta
     assert af.find_cached_stem(tmp_path / "missing.mp3", root) is None
+
+
+def test_fxplan_strain_and_rms_apply_audio_offset_ms():
+    from marea.wordfx.plan import FxPlan
+
+    rms = np.arange(500, dtype=np.float32) / 500.0
+    strain = np.arange(250, dtype=np.float32) / 250.0
+    plan = FxPlan({}, rms=rms, rms_rate=100.0, strain=strain, strain_rate=50.0, audio_offset_ms=500.0)
+    # At song t=1.0 s with +500 ms audio delay, audio time is 1.5 s
+    assert plan.rms_at(1.0) == pytest.approx(rms[150])
+    assert plan.strain_at(1.0) == pytest.approx(strain[75])

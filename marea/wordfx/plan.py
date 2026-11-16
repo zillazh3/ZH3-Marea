@@ -31,6 +31,7 @@ class FxPlan:
     ambient: dict[tuple[int, int], FxWord] = field(default_factory=dict)
     bg_words: dict[tuple[int, int], FxWord] = field(default_factory=dict)
     momentum: MomentumCurve | None = None
+    audio_offset_ms: float = 0.0
 
     def get(self, line: int, word: int) -> FxWord | None:
         return self.words.get((line, word))
@@ -55,13 +56,15 @@ class FxPlan:
         """Tensión vocal en t (0..1); 0 si no se conoce: los efectos que la siguen quedan en reposo."""
         if self.strain is None or len(self.strain) == 0:
             return 0.0
-        return float(self.strain[min(max(int(t_s * self.strain_rate), 0), len(self.strain) - 1)])
+        t_aud = t_s + self.audio_offset_ms / 1000.0
+        return float(self.strain[min(max(int(t_aud * self.strain_rate), 0), len(self.strain) - 1)])
 
     def rms_at(self, t_s: float) -> float:
         """Energía del audio en t (0..1+); 0.5 neutro si no hay audio, para que el efecto no dependa de él."""
         if self.rms is None or len(self.rms) == 0:
             return 0.5
-        return float(self.rms[min(max(int(t_s * self.rms_rate), 0), len(self.rms) - 1)])
+        t_aud = t_s + self.audio_offset_ms / 1000.0
+        return float(self.rms[min(max(int(t_aud * self.rms_rate), 0), len(self.rms) - 1)])
 
 
 def track_key(lyrics: Lyrics, track_id: str = "") -> str:
@@ -77,7 +80,8 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
                palette: tuple[RGB, ...] = (), analysis=None, overrides: list[songs.Override] | None = None,
                profile=None, audio_stats=None, adapt_bg: bool = True,
                rules: rules_mod.Rules | None = None,
-               matches: dict[tuple[int, int], Match] | None = None) -> FxPlan:
+               matches: dict[tuple[int, int], Match] | None = None,
+               audio_offset_ms: float = 0.0) -> FxPlan:
     """analysis: `marea.model.cinematic.AudioAnalysis` del audio local (RMS y pulso) o None.
     profile: `marea.wordfx.profile.SongProfile` (ánimo de la canción: línea base por tramo del arco y raw_vocals) o None.
     audio_stats: `fxtypes.AudioStats` (aporta la curva de tensión vocal) o None.
@@ -213,4 +217,5 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         words, intensity, rms, rate or 100.0, strain,
         float(getattr(audio_stats, "strain_rate", 50.0)), adapt_bg,
         ambient=ambient, bg_words=bg_words, momentum=momentum,
+        audio_offset_ms=audio_offset_ms,
     )

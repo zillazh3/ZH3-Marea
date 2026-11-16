@@ -13,6 +13,7 @@ import numpy as np
 import skia
 
 from marea.engine.engine import Engine, Params
+from marea.engine.tuning import TUNING
 from marea.model.cinematic import CinematicConfig
 from marea.render.background import Background
 from marea.render.cinematic import CinematicBackground
@@ -24,7 +25,8 @@ PROBE_HZ = 10
 PROBE_W, PROBE_H = 32, 56  # miniatura del fondo que se promedia bajo cada palabra con efecto (mismo aspecto 9:16)
 FW_SOFT = 1.3  # borde del wipe en letra por línea (em): degradado ancho, como Spicy Lyrics sin sílabas
 ORIGIN_SYL, ORIGIN_CH = 0.81, 0.75  # transform-origin vertical (em desde el borde superior de la línea)
-BLOOM = ((0.28, 0.16), (0.06, 0.22))  # (radio em, alpha) de las dos sombras
+BLOOM = ((0.28, 0.16), (0.06, 0.22))  # (radius em, alpha) of the two independent halos (outer soft, inner tight); x TUNING.bloom_gain
+BLOOM_STEPS = 16  # the bloom fades with L.act in this many cached levels (1/16 of its alpha is invisible)
 WHITE = skia.ColorSetARGB(255, 255, 255, 255)
 
 
@@ -107,7 +109,8 @@ class Scene:
         self._hdr_geom = (cs, hx + cs + 0.035 * self.ref, hy, self.stage.right() - 0.04 * self.ref - (hx + cs + 0.035 * self.ref))
         self._hdr_cache: tuple | None = None
         self._wm_wave_cache: tuple | None = None
-        self._bloom_cache: dict[float, object] = {}
+        self._bloom_cache: dict[tuple[float, int], object] = {}
+        self._glow_tint: tuple[int, int, int] | None = None
         self._mask_blur_cache: dict[int, object] = {}
         self._blur_filter_cache: dict[int, object] = {}
         self._wfx_lyrics_ref = weakref.ref(lyrics)
@@ -188,6 +191,43 @@ class Scene:
             s = key / 200.0
             bf = self._blur_filter_cache[key] = skia.ImageFilters.Blur(s, s)
         return bf
+
+    def _glow_rgb(self) -> tuple[int, int, int]:
+        """Halo colour: the cover's dominant colour pulled toward white, so it belongs to the background without looking muddy."""
+        if self._glow_tint is None:
+            from marea.wordfx.palette import dominant_colors
+            img = self.cover.makeRasterImage() if self.cover.isTextureBacked() else self.cover  # a GPU texture cannot be read by the CPU sampler
+            dom = dominant_colors(img, 1)
+            base = dom[0] if dom else (255, 255, 255)
+            mix = TUNING.glow_white_mix
+            self._glow_tint = tuple(round(c + (255 - c) * mix) for c in base)
+        return self._glow_tint
+
+    def _bloom(self, size: float, act: float):
+        """Image filter for the soft bloom of a line, or None. Two independent halos (no shadow of a shadow) around ONLY the sung text:
+        the alpha of the line is remapped so unsung text (alpha `da`) contributes nothing and sung text (`ba`) everything. The whole
+        bloom scales with `act`, so it fades in and out with the line instead of popping."""
+        lvl = round(min(1.0, max(0.0, act)) * BLOOM_STEPS)
+        if lvl == 0 or TUNING.bloom_gain <= 0.0:
+            return None
+        key = (size, lvl)
+        f = self._bloom_cache.get(key)
+        if f is None:
+            if len(self._bloom_cache) >= 256:
+                self._bloom_cache.clear()
+            k = lvl / BLOOM_STEPS
+            dim, unsung = TUNING.dim_alpha, TUNING.unsung_alpha_active
+            da, ba = dim + (unsung - dim) * k, dim + (1.0 - dim) * k
+            gain = 1.0 / (ba - da)
+            only_sung = skia.ImageFilters.ColorFilter(skia.ColorFilters.Matrix(
+                [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, gain, -da * gain]), None)
+            outer_rgb = self._glow_rgb()
+            inner_rgb = tuple(round(c + (255 - c) * 0.5) for c in outer_rgb)
+            halos = [skia.ImageFilters.DropShadowOnly(0, 0, r * size / 2, r * size / 2,
+                                                      _argb(min(1.0, a * TUNING.bloom_gain * k), rgb), only_sung)
+                     for (r, a), rgb in zip(BLOOM, (outer_rgb, inner_rgb))]
+            f = self._bloom_cache[key] = skia.ImageFilters.Merge(halos + [None])
+        return f
 
     def close(self):
         if self.cinematic_bg is not None:
@@ -445,15 +485,10 @@ class Scene:
         canvas.restore()
 
     def _line(self, canvas, L, lay):
-        size, ba, da = lay.size, 0.2 + 0.8 * L.act, 0.2 + 0.2 * L.act
-        bloom = None
-        if L.on and self.style.bloom:  # dos drop-shadow encadenados sobre lo ya cantado
-            bloom = self._bloom_cache.get(size)
-            if bloom is None:
-                f = None
-                for r, a in BLOOM:
-                    f = skia.ImageFilters.DropShadow(0, 0, r * size / 2, r * size / 2, _argb(a), f)
-                bloom = self._bloom_cache[size] = f
+        size = lay.size
+        dim, unsung = TUNING.dim_alpha, TUNING.unsung_alpha_active
+        ba, da = dim + (1.0 - dim) * L.act, dim + (unsung - dim) * L.act
+        bloom = self._bloom(size, L.act) if self.style.bloom else None
         m = BLOOM[0][0] * size * 2
         top = PAD_V * size
         lp = self._p_layer
@@ -493,7 +528,7 @@ class Scene:
                     self._word(canvas, word, x0 + wx, lt, ww, size, ba, da)
                     continue
                 p_fx = fx_item.params
-                anti_s = 0.25 if p_fx.is_hero else 0.0
+                anti_s = TUNING.anticipation_s if p_fx.is_hero else 0.0  # same value the envelope uses to leave "idle"
                 if (
                     word.p == 0.0
                     and not self.wordfx_debug
@@ -533,11 +568,13 @@ class Scene:
             else:
                 front_px = u.p * pw
                 cx = 0.0
+                grow = (u.scale - 1.0) / size  # base renderer scales the whole syllable about its centre: each letter drifts by this share of its offset
                 for j, cw in enumerate(_part_char_widths(self.fonts, u.text, size)):
                     lp = min(1.0, max(0.0, (front_px - cx) / max(1.0, cw)))
                     dy = u.y + (u.wdy[j] if u.wdy else 0.0)
                     sc = u.scale * (1.0 + (u.wds[j] if u.wds else 0.0))
-                    c_letters.append(CarrierLetter(lp, u.b + (u.e - u.b) * j / k, dy, sc, u.glow_a, u.glow_r))
+                    c_letters.append(CarrierLetter(lp, u.b + (u.e - u.b) * j / k, dy, sc, u.glow_a, u.glow_r,
+                                                   (cx + cw / 2 - pw / 2) * grow + u.x))
                     cx += cw
         front_u = min(1.0, max(0.0, filled / total_w)) if total_w > 0.0 else word.p
         return CarrierWord(tuple(c_letters), front_u, L.act, L.on, L.opacity, L.blur * self.k, L.start, L.end, word.bg), front_u
@@ -548,7 +585,7 @@ class Scene:
         render, _, _, _ = self._get_wfx_mods()
         fx_use = fx_item if fx_item is not None else word.fx
         p_fx = fx_use.params
-        pad = 0.6 * size
+        pad = TUNING.glow_pad_em * size  # a layer smaller than the widest halo clips it into a visible box
         bounds = skia.Rect.MakeLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
         carrier, front_u = self._carrier_word(L, word, size)
         t_now = self.engine.t
@@ -593,15 +630,16 @@ class Scene:
                                        onsets=onsets, backdrop=backdrop, carrier=carrier, wipe_alpha=p_wipe_a,
                                        adapted_params=p_adapted, dark_factor=dark_factor)
 
-    def _wipe(self, x, w, p, ba, da, size, a=1.0, fw=FW):
+    def _wipe(self, x, w, p, ba, da, size, a=1.0, fw=FW, rgb=(255, 255, 255)):
         """Máscara del prototipo: gradiente horizontal de alpha ba→da con borde de `fw` em que avanza con p."""
         x1 = x + p * (w + fw * size) - fw * size
-        return skia.GradientShader.MakeLinear([(x1, 0), (x1 + fw * size, 0)], [_argb(a * ba), _argb(a * da)])
+        return skia.GradientShader.MakeLinear([(x1, 0), (x1 + fw * size, 0)], [_argb(a * ba, rgb), _argb(a * da, rgb)])
 
     def _word(self, canvas, word, x, line_top, ww, size, ba, da):
         base = line_top + self.fonts.baseline(size)
         p_fill, p_wipe_fill = self._p_fill, self._p_wipe_fill
         p_glow, p_wipe_glow = self._p_glow, self._p_wipe_glow
+        tint = self._glow_rgb()
         if not word.emph:
             fw = FW_SOFT if word.soft else FW
             for u in word.parts:
@@ -609,17 +647,12 @@ class Scene:
                 if u.p <= 0.0:
                     p_fill.setColor(_argb(da))
                     text = p_fill
-                    if u.glow_a > 0:
-                        p_glow.setColor(_argb(u.glow_a * da))
-                        p_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
-                        glow = p_glow
-                    else:
-                        glow = None
+                    glow = None  # nothing sung yet, nothing glows
                 elif u.p >= 1.0:
                     p_fill.setColor(_argb(ba))
                     text = p_fill
                     if u.glow_a > 0:
-                        p_glow.setColor(_argb(u.glow_a * ba))
+                        p_glow.setColor(_argb(u.glow_a * ba, tint))
                         p_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
                         glow = p_glow
                     else:
@@ -628,7 +661,7 @@ class Scene:
                     p_wipe_fill.setShader(self._wipe(x, pw, u.p, ba, da, size, fw=fw))
                     text = p_wipe_fill
                     if u.glow_a > 0:
-                        p_wipe_glow.setShader(self._wipe(x, pw, u.p, ba, da, size, u.glow_a, fw))
+                        p_wipe_glow.setShader(self._wipe(x, pw, u.p, ba, 0.0, size, u.glow_a, fw, tint))  # unsung side of the syllable: no halo
                         p_wipe_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
                         glow = p_wipe_glow
                     else:
@@ -637,7 +670,7 @@ class Scene:
                 x += pw
             return
         # palabra con énfasis: una sola máscara para la palabra, las letras se animan dentro
-        pad = 0.6 * size
+        pad = TUNING.glow_pad_em * size
         bounds = self._scratch_rect
         bounds.setLTRB(x - pad, line_top - pad, x + ww + pad, line_top + LINE_H * size + pad)
         canvas.saveLayer(bounds, None)
@@ -645,7 +678,7 @@ class Scene:
         for c in word.parts:
             blob, pw = self.fonts.text(c.text, size)
             if c.glow_a > 0:
-                p_glow.setColor(_argb(c.glow_a))
+                p_glow.setColor(_argb(c.glow_a, tint))
                 p_glow.setMaskFilter(self._mask_blur(c.glow_r * self.k / 2))
                 glow = p_glow
             else:

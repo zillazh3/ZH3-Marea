@@ -1,7 +1,7 @@
 """Continuous 6-phase word/letter envelope and duration modes for Semantic Word FX.
 
 Phases:
-1. anticipation (~150-250 ms before word start, hero words only): 10-15% amplitude
+1. anticipation (`TUNING.anticipation_s` before word start, default 50 ms, hero words only): ~13% amplitude
 2. attack (per letter, keyed to fill-front crossing): spring rise to sustain target
 3. sustain (word duration d): Accent (<250ms), Normal (250-700ms), Held (>700ms, log(d) capped)
 4. release (400-900 ms after word end): category-dependent decay into residue
@@ -12,6 +12,7 @@ import math
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from marea.engine.tuning import TUNING
 from marea.wordfx._math import clamp as _clamp, smoothstep
 from marea.wordfx.springs import CachedSpringCurve
 
@@ -22,7 +23,7 @@ ACCENT_MAX_S = 0.25
 HELD_MIN_S = 0.70
 ACCENT_AMP = 0.40
 HELD_AMP_CAP = 1.85
-ANTICIPATION_S = 0.20
+ANTICIPATION_S = TUNING.anticipation_s  # same constant as the line lookahead: word and line react together
 ANTICIPATION_AMP = 0.13
 MIN_RELEASE_S = 0.40
 MAX_RELEASE_S = 0.90
@@ -114,7 +115,7 @@ def sample_envelope(
     on_t = b0 if letter_on_t is None else (b0 if letter_on_t < b0 else (b1_eff if letter_on_t > b1_eff else letter_on_t))
     rel_s = MIN_RELEASE_S if release_s < MIN_RELEASE_S else (MAX_RELEASE_S if release_s > MAX_RELEASE_S else release_s)
     res = MIN_RESIDUE if residue_level < MIN_RESIDUE else (MAX_RESIDUE if residue_level > MAX_RESIDUE else residue_level)
-    anti_s = (0.15 if anticipation_s < 0.15 else (0.25 if anticipation_s > 0.25 else anticipation_s)) if is_hero else 0.0
+    anti_s = _clamp(anticipation_s, 0.0, 0.25) if is_hero else 0.0
     l_end = (b1_eff + rel_s + 1.5) if line_end_s is None else (b1_eff if line_end_s < b1_eff else line_end_s)
 
     t_origin = b0 - anti_s - 0.05
