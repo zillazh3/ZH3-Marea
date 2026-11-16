@@ -521,6 +521,9 @@ class EditorPage(QWidget):
     def _open_fx_profile(self):
         self._wordfx.open_profile_dialog()
 
+    def _open_fx_gallery(self):
+        self._wordfx.open_gallery()
+
     def _credit_toggled(self, on: bool):
         self.style.credit = on
         self.preview.rebuild()

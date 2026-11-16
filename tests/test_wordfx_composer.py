@@ -1,6 +1,6 @@
 import colorsys
 import hashlib
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import pytest
 
@@ -128,13 +128,19 @@ def test_time_staggers_with_trail_and_inactive_primitives_stay_zero(lib):
         assert p.glow >= 0.3 and (p.jitter_em > 0) == ("jitter" in p.primitives)
 
 
-def test_repeat_grows_intensity_and_adds_sparkle(lib):
-    ps = [compose(M("amor", "love"), lib, repeat_n=n) for n in (0, 1, 2)]
-    assert ps[0].scale_amp < ps[1].scale_amp < ps[2].scale_amp
-    assert ps[1].scale_amp == pytest.approx(ps[0].scale_amp * 1.25)
-    assert ps[0].sparkle == 0 and ps[1].sparkle == 0 and 4 <= ps[2].sparkle <= 9
-    assert ps[2].repeat_n == 2
-    assert compose(M("amor", "love"), lib, repeat_n=9).scale_amp == pytest.approx(ps[0].scale_amp * 2)  # tope x2
+def test_repeat_does_not_change_the_look(lib):
+    """A chorus that comes back must look exactly like its first time: repeat_n is only a debug label."""
+    first = compose(M("amor", "love"), lib, track_id="t", line_key="a b c", repeat_n=0)
+    for n in (1, 2, 9):
+        again = compose(M("amor", "love"), lib, track_id="t", line_key="a b c", repeat_n=n)
+        assert replace(again, repeat_n=0) == first and again.repeat_n == n
+
+
+def test_same_line_text_at_another_index_gets_the_same_look(lib):
+    a = compose(M("amor", "love", line=1, word=2), lib, track_id="t", line_key="a b c")
+    b = compose(M("amor", "love", line=9, word=2), lib, track_id="t", line_key="a b c")
+    assert a == b
+    assert compose(M("amor", "love", line=1, word=3), lib, track_id="t", line_key="a b c").seed != a.seed
 
 
 def test_intensity_zero_turns_everything_off_but_keeps_colour(lib):

@@ -7,6 +7,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from marea.engine.tuning import TUNING
+from marea.wordfx import config
 from marea.wordfx._math import lerp_rgb as _lerp, smoothstep
 from marea.wordfx.bleed import spring_bleed_arrival
 from marea.wordfx.envelope import sample_envelope
@@ -14,12 +16,6 @@ from marea.wordfx.fxtypes import RGB, CarrierLetter, FxParams
 from marea.wordfx.signatures import CUSTOM_PARTICLE_KINDS, eval_waveform
 
 _M = (1 << 64) - 1
-ENTER_S = 0.12  # duración del fundido de entrada de cada letra
-ERODE_TAIL = 0.4  # fracción final del intervalo cantado en la que se disuelven las letras erosionadas (sin vanish_s)
-VANISH_S = 1.0  # con vanish_s, duración de la disolución desde que arranca el verso siguiente
-DRIFT_TAIL_S = 0.15  # el drift sigue un poco más allá del final de la palabra
-ECHO_HZ = 0.35  # oscilación de los ecos de la estela
-GRAVITY = 1.2  # em/s² de las partículas de polvo
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +28,7 @@ class LetterState:
     color: RGB
     blur_em: float
     glow: float
+    stretch: float = 0.0  # squash & stretch: >0 taller and narrower, <0 shorter and wider; the area (scale^2) is kept
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +117,7 @@ def echoes(p: FxParams, t: float, reduce: bool = False) -> list[tuple[float, flo
         if reduce:
             out.append((0.0, 0.0, a * p.trail))
         else:
-            u = 2.0 * math.pi * (ECHO_HZ * t + ph) + k * 1.7
+            u = 2.0 * math.pi * (config.FX.echo_hz * t + ph) + k * 1.7
             out.append((0.025 * math.sin(u * 0.8 + 1.0), 0.05 * math.sin(u), a * p.trail))
     return out
 
@@ -164,7 +161,8 @@ def _word_ctx(p: FxParams, n: int, t: float, begin_s: float, end_s: float,
         phase = hash01(_key(p, 0, 4))
         osc = 0.5 + 0.5 * math.sin(2.0 * math.pi * (t * 0.7 + phase))
         sung = smoothstep(begin_s, begin_s + dur / 2, t) * (1.0 - smoothstep(begin_s + dur / 2, end_s, t))
-        opacity_factor = 1.0 - (1.0 - max(p.opacity_min, 0.0)) * (0.5 * osc + 0.5 * sung)
+        life = smoothstep(begin_s, begin_s + 0.12, t) * (1.0 - smoothstep(end_s, end_s + max(0.05, p.release_s), t))  # the breathing lives only while the word does
+        opacity_factor = 1.0 - (1.0 - max(p.opacity_min, 0.0)) * (0.5 * osc * life + 0.5 * sung)
     else:
         opacity_factor = 1.0
     blur = p.blur_em * (1.0 - smoothstep(begin_s, end_s, t)) if p.blur_em > 0.0 else 0.0
@@ -203,6 +201,7 @@ def _letter_state_with_ctx(
     beat_phase: float | None,
 ) -> LetterState:
     dur, end_s, ow, sg = ctx.dur, ctx.end_s, ctx.ow, ctx.sg
+    fx = config.FX
     dx = dy = rot = 0.0
     on = (begin_s + dur * i / n if onset is None else onset) if carrier is None else carrier.onset_s
     scale = 1.0 if carrier is None else carrier.scale
@@ -232,7 +231,7 @@ def _letter_state_with_ctx(
                 m_amp = 1.0 if env.motion_amp > 1.0 else env.motion_amp
                 go = m_amp * fp
                 if p.drift_em != 0.0:
-                    dy += math.copysign(0.04 if abs(p.drift_em) > 0.04 else abs(p.drift_em), p.drift_em) * go
+                    dy += math.copysign(min(abs(p.drift_em), fx.drift_max_em), p.drift_em) * go
                 if p.jitter_em > 0.0 or p.osc_jitter_em > 0.0 or sg > 0.0:
                     jdx, jdy = _apply_jitter(p, i, t, rms, ow, sg, go, 1.2, 0.010, 10.0, 1.6, True)
                     dx += jdx
@@ -240,7 +239,7 @@ def _letter_state_with_ctx(
                 if p.sig_amp_em > 0.0:
                     mode_gain = 1.0 if env.mode == "held" else 0.65
                     sig_scale = env.motion_amp * mode_gain * fp
-                    w_val = eval_waveform(p.waveform, t, p.sig_freq_hz, i, ctx.sig_seed_u, beat_phase=beat_phase)
+                    w_val = eval_waveform(p.waveform, t, p.sig_freq_hz, i, ctx.sig_seed_u, beat_phase=beat_phase, age=t - on)
                     s_disp = p.sig_amp_em * sig_scale * w_val
                     axis = p.sig_axis
                     if axis == "y":
@@ -251,17 +250,20 @@ def _letter_state_with_ctx(
                         scale += s_disp * 0.7
                     elif axis == "rot":
                         rot += s_disp * 35.0
+                    elif axis == "arc":  # sideways along a gentle arc: it rises a little at the far end of the move
+                        dx += s_disp
+                        dy -= 0.45 * abs(s_disp)
                 elif p.wave_em > 0.0:
-                    w_em = 0.035 if p.wave_em > 0.035 else p.wave_em
+                    w_em = min(p.wave_em, fx.wave_max_em)
                     dy += go * w_em * math.sin(2.0 * math.pi * p.wave_hz * t - 0.9 * i)
                 if p.scale_amp > 0.0 and p.scale_period_s > 0.0 and t >= begin_s:
-                    s_am = 0.06 if p.scale_amp > 0.06 else p.scale_amp
+                    s_am = min(p.scale_amp, fx.scale_amp_max)
                     scale += s_am * fp * m_amp * math.sin(math.pi * (t - begin_s) / p.scale_period_s) ** 2
                 if p.rotation_deg > 0.0:
-                    r_deg = 4.0 if p.rotation_deg > 4.0 else p.rotation_deg
+                    r_deg = min(p.rotation_deg, fx.rotation_max_deg)
                     rot += (hash01(_key(p, i, 3)) * 2.0 - 1.0) * r_deg * go
                 sem_dy = dy - carrier.y_em
-                max_off = 0.08 if p.is_hero and env.mode == "held" else 0.05
+                max_off = fx.offset_max_held_em if p.is_hero and env.mode == "held" else fx.offset_max_em
                 if sem_dy > max_off:
                     dy = carrier.y_em + max_off
                 elif sem_dy < -max_off:
@@ -273,7 +275,7 @@ def _letter_state_with_ctx(
                     dx = carrier.x_em - max_off
         else:
             go = smoothstep(begin_s, begin_s + 0.12, t)
-            dy += p.drift_em * smoothstep(begin_s, end_s + DRIFT_TAIL_S, t)
+            dy += p.drift_em * smoothstep(begin_s, end_s + config.FX.drift_tail_s, t)
             if p.jitter_em > 0.0 or p.osc_jitter_em > 0.0 or sg > 0.0:
                 jdx, jdy = _apply_jitter(p, i, t, rms, ow, sg, go, 1.5, 0.012, 12.0, 2.0, False)
                 dx += jdx
@@ -287,14 +289,34 @@ def _letter_state_with_ctx(
                 rot += (hash01(_key(p, i, 3)) * 2.0 - 1.0) * p.rotation_deg * r_env
             if p.stagger_ms > 0.0 or p.letter_offset_em > 0.0:
                 t0 = begin_s + i * p.stagger_ms / 1000.0 if onset is None else onset
-                k = smoothstep(t0, t0 + ENTER_S, t)
+                k = smoothstep(t0, t0 + config.FX.enter_s, t)
                 alpha *= k
                 dy += p.letter_offset_em * (1.0 - k)
+
+    stretch = 0.0
+    tier_k = 1.0 if p.tier == "strong" else fx.light_scale if p.tier == "light" else 0.0  # ambient / background words get no accent
+    if carrier is not None and env is not None and not reduce and tier_k > 0.0:
+        anti = TUNING.anticipation_s
+        if fx.anticipation_dip_em > 0.0 and anti > 0.0 and on - anti < t < on:  # a tiny counter-motion right before the main move
+            dy += (-1.0 if p.drift_em > 0.0 else 1.0) * fx.anticipation_dip_em * tier_k * math.sin(math.pi * (t - (on - anti)) / anti)
+        if fx.stretch_amt > 0.0 and 0.0 < t - on < fx.stretch_s:  # stretch, then squash, back to 0: eased in and out
+            u = (t - on) / fx.stretch_s
+            stretch = fx.stretch_amt * tier_k * min(1.0, env.motion_amp) * math.sin(2.0 * math.pi * u) * (1.0 - u)
+
+        mot = min(1.0, env.motion_amp)
+        if p.scatter_em > 0.0 and 0.0 < t - on < 0.4:  # letters drift out along a small arc and reassemble, each in its own direction
+            u = math.sin(math.pi * (t - on) / 0.4) ** 2
+            ang = hash01(_key(p, i, 12)) * 2.0 * math.pi
+            dx += p.scatter_em * tier_k * mot * u * math.cos(ang)
+            dy += p.scatter_em * tier_k * mot * u * (math.sin(ang) - 0.4)
+        if p.glitch > 0.0 and p.tier == "strong" and env.phase == "sustain":  # rare, soft, only inside the sustain
+            if hash01(_key(p, i, 14), int(t * 10.0)) < 0.10 * p.glitch:
+                dx += (1.0 if hash01(_key(p, i, 15), int(t * 10.0)) < 0.5 else -1.0) * 0.02 * p.glitch
 
     ne = ctx.ne
     if ne and i >= n - ne:
         j = i - (n - ne)
-        w0, wl = (p.vanish_s, VANISH_S) if p.vanish_s > 0.0 else (end_s - ERODE_TAIL * dur, ERODE_TAIL * dur)
+        w0, wl = (p.vanish_s, fx.vanish_s) if p.vanish_s > 0.0 else (end_s - fx.erode_tail * dur, fx.erode_tail * dur)
         s0 = w0 + (j / ne) * 0.4 * wl
         e = smoothstep(s0, s0 + 0.6 * wl, t)
         alpha *= 1.0 - e
@@ -308,6 +330,8 @@ def _letter_state_with_ctx(
         ma = glow * (1.0 if env.motion_amp > 1.0 else env.motion_amp)
         g2 = ma if ma > carrier.glow_a else carrier.glow_a
         glow = 1.0 if g2 > 1.0 else g2
+        if p.shimmer > 0.0 and p.tier == "strong" and not reduce:  # the light passes across the word: brightest where the fill is
+            glow = min(1.0, glow + p.shimmer * 4.0 * carrier.fill_p * (1.0 - carrier.fill_p) * min(1.0, env.motion_amp))
     if sg > 0.0:
         glow = min(1.0, glow + 0.25 * sg)
     if glow > 0.0 and not reduce:
@@ -325,12 +349,15 @@ def _letter_state_with_ctx(
         if fg < 0.25 and env.phase in ("anticipation", "fade"):
             fg = 0.25
         tw = p.fill_tint * ta * fg
+        if p.tint_spread and n > 1:  # frost: left to right; ink: from the centre out
+            d = i / (n - 1) if p.tint_spread == "frost" else abs(2.0 * i / (n - 1) - 1.0)
+            tw *= smoothstep(0.7 * d, 0.7 * d + 0.3, 1.4 * (t - begin_s) / max(ctx.dur, 0.3))
         tint_w = 0.0 if tw < 0.0 else (0.60 if tw > 0.60 else tw)
         col = _lerp((255, 255, 255), target_col, tint_w)
     else:
         col = target_col
     a_out = 0.0 if alpha < 0.0 else (1.0 if alpha > 1.0 else alpha)
-    return LetterState(dx, dy, scale, rot, a_out, col, ctx.blur, glow)
+    return LetterState(dx, dy, scale, rot, a_out, col, ctx.blur, glow, stretch)
 
 
 def letter_state(p: FxParams, i: int, n: int, t: float, begin_s: float, end_s: float,
@@ -752,6 +779,7 @@ def particles(p: FxParams, letters_x_em: Sequence[float], letters_w_em: Sequence
     if reduce or n == 0 or p.duration_mode == "accent" or dur < 0.25 or (p.particles <= 0 and p.sparkle <= 0):
         return []
     end_s = begin_s + dur
+    fx = config.FX
     out: list[Particle] = []
 
     if p.particle_kind in CUSTOM_PARTICLE_KINDS:
@@ -769,7 +797,7 @@ def particles(p: FxParams, letters_x_em: Sequence[float], letters_w_em: Sequence
             if onsets is not None and len(onsets) == n:
                 spawn = onsets[li] + u0 * min(0.25, max(0.05, end_s - onsets[li]))
             else:
-                spawn = (p.vanish_s + u0 * VANISH_S if p.vanish_s > 0.0 else end_s - ERODE_TAIL * dur + u0 * (ERODE_TAIL * dur + DRIFT_TAIL_S))
+                spawn = (p.vanish_s + u0 * fx.vanish_s if p.vanish_s > 0.0 else end_s - fx.erode_tail * dur + u0 * (fx.erode_tail * dur + fx.drift_tail_s))
             life = 1.0 + 0.4 * u1
             age = t - spawn
             if not 0.0 <= age < life:
@@ -784,7 +812,7 @@ def particles(p: FxParams, letters_x_em: Sequence[float], letters_w_em: Sequence
                 x = max(letters_x_em[n - ne], x)
             y0 = p.drift_em - 0.1 - 0.5 * u5  # las letras erosionadas ya bajaron/subieron con el drift
             if p.drift_em >= 0.0:
-                y = y0 - 0.1 * u6 * age + 0.5 * GRAVITY * age * age
+                y = y0 - 0.1 * u6 * age + 0.5 * fx.gravity * age * age
             else:
                 y = y0 - (0.2 + 0.2 * u6) * age
             col = _color(p, li, n)

@@ -6,12 +6,11 @@ La clave de una palabra es (índice del verso en `lyrics.lines`, índice de pala
 from dataclasses import dataclass, field, replace
 
 from marea.model.lyrics import Line, Lyrics, Syllable
-from marea.wordfx import rules as rules_mod
+from marea.wordfx import config, rules as rules_mod
 from marea.wordfx.lexicon import guess_lang, lemma_candidates, line_lang, normalize
 from marea.wordfx.library import Library
 from marea.wordfx.rules import Cond, Phrase, Rules, SenseCond, SenseRule
 
-MAX_PER_LINE = 2
 NEGATION_WINDOW = 2  # palabras por delante en las que un negador afecta
 HOLD_CAP_S = 3.0  # una nota larguísima no debe ganar siempre al de mayor prioridad
 _NEG_CLITICS = {
@@ -433,16 +432,18 @@ def _cached_phrases(lib: Library, rules: Rules) -> tuple[list[Phrase], dict[str,
     return table, buckets
 
 
-def match_line(line: Line, line_idx: int, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> list[Match]:
+def match_line(line: Line, line_idx: int, lib: Library, max_fx: int | None = None, *, rules: Rules | None = None) -> list[Match]:
     """`rules=None` carga las reglas del usuario o las incluidas; pasa `Rules()` para desactivarlas."""
     rules = rules if rules is not None else rules_mod.load()
     table, buckets = _cached_phrases(lib, rules)
+    max_fx = config.FX.max_fx_per_line if max_fx is None else max_fx
     return _match_line(line, line_idx, lib, max_fx, rules, table, buckets)
 
 
-def match_lyrics(lyrics: Lyrics, lib: Library, max_fx: int = MAX_PER_LINE, *, rules: Rules | None = None) -> dict[tuple[int, int], Match]:
+def match_lyrics(lyrics: Lyrics, lib: Library, max_fx: int | None = None, *, rules: Rules | None = None) -> dict[tuple[int, int], Match]:
     rules = rules if rules is not None else rules_mod.load()
     table, buckets = _cached_phrases(lib, rules)
+    max_fx = config.FX.max_fx_per_line if max_fx is None else max_fx
     out = {}
     for li, line in enumerate(lyrics.lines):
         for m in _match_line(line, li, lib, max_fx, rules, table, buckets):

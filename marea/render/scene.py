@@ -624,8 +624,11 @@ class Scene:
             self._p_dstin.setShader(self._wipe(x, ww, front_u, ba, da, size, fw=fw))
             canvas.drawRect(bounds, self._p_dstin)
             canvas.restore()
+        p_wipe_a = da + (ba - da) * min(1.0, max(0.0, front_u))
+        if p_fx.streak > 0.0 and not self.engine.p.reduce:  # overlay light, outside the wipe mask; thickness follows the output size
+            render.draw_word_streak(canvas, fx_use, x, base, ww, size, t_now, front_u, res_scale=self.ref / 1080.0,
+                                    wipe_alpha=p_wipe_a, adapted_params=p_adapted, dark_factor=dark_factor)
         if p_fx.particles > 0 or p_fx.sparkle > 0:
-            p_wipe_a = da + (ba - da) * min(1.0, max(0.0, front_u))
             render.draw_word_particles(canvas, fx_use, letters, x, base, size, t_now, self.engine.p.reduce,
                                        onsets=onsets, backdrop=backdrop, carrier=carrier, wipe_alpha=p_wipe_a,
                                        adapted_params=p_adapted, dark_factor=dark_factor)

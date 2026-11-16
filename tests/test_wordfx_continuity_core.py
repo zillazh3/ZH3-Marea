@@ -8,9 +8,9 @@ from marea.demo_song import exact_lyrics
 from marea.engine.tuning import TUNING, Tuning
 from marea.render import scene as scene_mod
 from marea.render.scene import Scene, Style
-from marea.wordfx import library
+from marea.wordfx import config, library
 from marea.wordfx.composer import seed_for
-from marea.wordfx.envelope import ANTICIPATION_AMP, PAST_LINE_TINT, duration_mode, sample_envelope
+from marea.wordfx.envelope import duration_mode, sample_envelope
 from marea.wordfx.plan import build_plan
 from marea.wordfx.springs import SIM_DT, SpringChannel, eval_spring_240hz, step_spring
 
@@ -75,6 +75,20 @@ def test_duration_modes_and_log_cap():
 
 
 def test_envelope_six_phases():
+    prev = config.set_fx(config.with_fx(residue_gain=1.0, past_line_tint=0.05))  # the category residue, to see every phase
+    try:
+        _six_phases()
+    finally:
+        config.set_fx(prev)
+
+
+def test_default_envelope_returns_to_the_plain_look_after_the_release():
+    kw = dict(is_hero=True, release_s=0.6, residue_level=0.18, line_end_s=4.0, fade_s=0.4)
+    after = sample_envelope(2.6 + 0.6 + 0.8, 2.0, 2.6, **kw)  # well after the release, the line still active
+    assert after.motion_amp < 0.01 and after.tint_amp < 0.01
+
+
+def _six_phases():
     b0, b1 = 2.0, 2.6  # normal 600 ms word
     kw = dict(is_hero=True, release_s=0.6, residue_level=0.18, line_end_s=4.0, fade_s=0.4)
     idle = sample_envelope(1.5, b0, b1, **kw)
@@ -86,12 +100,12 @@ def test_envelope_six_phases():
     fade = sample_envelope(5.50, b0, b1, **kw)
 
     assert idle.phase == "idle" and idle.motion_amp == 0.0
-    assert anti.phase == "anticipation" and 0.0 < anti.motion_amp <= ANTICIPATION_AMP + 0.02
+    assert anti.phase == "anticipation" and 0.0 < anti.motion_amp <= config.FX.anticipation_amp + 0.02
     assert atk.phase == "attack" and atk.motion_amp > anti.motion_amp
     assert sus.phase == "sustain" and sus.motion_amp > 0.7
     assert rel.phase == "release" and 0.18 < rel.motion_amp < sus.motion_amp
     assert res.phase == "residue" and res.motion_amp == pytest.approx(0.18, abs=0.02)
-    assert fade.phase == "fade" and fade.motion_amp < 0.01 and fade.tint_amp == pytest.approx(PAST_LINE_TINT)
+    assert fade.phase == "fade" and fade.motion_amp < 0.01 and fade.tint_amp == pytest.approx(config.FX.past_line_tint)
 
 
 def test_non_hero_has_no_anticipation():
@@ -99,9 +113,10 @@ def test_non_hero_has_no_anticipation():
     assert s.phase == "idle" and s.motion_amp == 0.0
 
 
-def test_seed_for_includes_repetition_index():
-    assert seed_for("song", 1, 2, 0) != seed_for("song", 1, 2, 1)
-    assert seed_for("song", 1, 2, 1) != seed_for("song", 1, 2, 2)
+def test_seed_for_depends_on_line_text_and_word_not_on_repetition():
+    assert seed_for("song", "a b c", 2) == seed_for("song", "a b c", 2)
+    assert seed_for("song", "a b c", 2) != seed_for("song", "a b d", 2)
+    assert seed_for("song", "a b c", 2) != seed_for("song", "a b c", 3)
 
 
 def test_base_parity_at_zero_intensity(lib):

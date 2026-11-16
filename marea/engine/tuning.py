@@ -53,10 +53,8 @@ class Tuning:
     glow_peak_at: float = 0.85  # point of the syllable (0..1) where the glow is strongest: later = it builds longer, then settles
     glow_end_level: float = 0.7  # glow level when the syllable ends, before it fades out (1 = no settling dip)
     glow_white_mix: float = 0.6  # 0 = halo in the cover's dominant colour, 1 = pure white; between them it stays tinted but soft
-    glow_core_white: float = 0.5  # how far the bright core of a semantic-FX glow is pulled toward white (0 = full FX colour)
     bloom_gain: float = 1.25  # strength of the soft bloom around the active line (prototype 1.0); 0 = no bloom
-    fx_glow_gain: float = 1.25  # strength of the glow of semantic-FX words (prototype 1.0)
-    glow_pad_em: float = 0.8  # room around a word for its glow before it is clipped; must exceed ~3 sigma of the widest halo (0.65)
+    glow_pad_em: float = 0.8  # room around a word for its glow before it is clipped; must exceed 3 x the widest FX glow sigma (marea/wordfx/config.py: 0.645)
 
     # ---------------- stability / diagnostics ----------------
     # Seconds a line that scrolled out of the active neighbourhood keeps animating, so its last bounce, glow and wave ease to rest

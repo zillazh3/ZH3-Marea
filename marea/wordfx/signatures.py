@@ -33,7 +33,11 @@ class MotionSignature:
     release_ms: float = 650.0  # 400..900 ms
     residue_level: float = 0.16  # 0.10..0.25
     zeta: float = 1.0  # 1.0 critically damped; 0.75..0.9 for joy/love/tenderness
-    motif: str = ""  # optional word-level atmospheric motif (threshold | gust | corona | equinox | vigil)
+    motif: str = ""  # optional word-level atmospheric motif (threshold | gust | corona | equinox | vigil | ripple)
+    tint_spread: str = ""  # frost | ink: the colour spreads letter by letter instead of arriving all at once
+    scatter_em: float = 0.0  # letters scatter along a small arc on the attack and reassemble
+    glitch: float = 0.0  # rare soft glitch in the sustain (electric / digital)
+    shimmer: float = 0.0  # light sweeping across the word with the fill
 
 
 _MS = MotionSignature
@@ -42,7 +46,7 @@ _MS = MotionSignature
 SIGNATURES: dict[str, MotionSignature] = {
     "time": _MS(waveform="tick", freq_range_hz=(1.0, 2.0), amp_range_em=(0.010, 0.022), glow_spread=0.22, fill_edge_softness=0.55, fill_tint=0.38, release_ms=550.0, residue_level=0.15),
     "loss": _MS(waveform="erode", freq_range_hz=(0.4, 0.8), amp_range_em=(0.012, 0.028), glow_spread=0.15, fill_edge_softness=1.15, fill_tint=0.45, particle_kind="dust", particle_max=8, release_ms=850.0, residue_level=0.22),
-    "love": _MS(waveform="breath", freq_range_hz=(0.7, 1.2), axis="scale", amp_range_em=(0.015, 0.032), glow_spread=0.55, fill_edge_softness=1.20, fill_tint=0.48, particle_kind="spark", particle_max=5, sparkle_style="bokeh", release_ms=700.0, residue_level=0.20, zeta=0.82),
+    "love": _MS(waveform="heartbeat", freq_range_hz=(1.1, 1.5), axis="scale", amp_range_em=(0.030, 0.050), glow_spread=0.55, fill_edge_softness=1.20, fill_tint=0.48, particle_kind="spark", particle_max=5, sparkle_style="bokeh", release_ms=700.0, residue_level=0.20, zeta=0.82),
     "spring": _MS(waveform="breath", freq_range_hz=(0.8, 1.3), axis="scale", amp_range_em=(0.014, 0.028), glow_spread=0.55, fill_edge_softness=1.15, fill_tint=0.48, particle_kind="petal", particle_max=18, sparkle_style="buoyant", release_ms=750.0, residue_level=0.20, zeta=0.82),
     "summer": _MS(waveform="flicker", freq_range_hz=(1.1, 2.0), amp_range_em=(0.012, 0.026), glow_spread=0.72, fill_edge_softness=1.10, fill_tint=0.52, particle_kind="firefly", particle_max=18, sparkle_style="bokeh", residue_level=0.20, zeta=0.85),
     "autumn": _MS(freq_range_hz=(0.45, 0.85), axis="rot", amp_range_em=(0.014, 0.030), glow_spread=0.30, fill_edge_softness=1.20, fill_tint=0.50, particle_kind="leaf", particle_max=18, release_ms=850.0, residue_level=0.22, zeta=0.95),
@@ -50,13 +54,13 @@ SIGNATURES: dict[str, MotionSignature] = {
     "sadness": _MS(waveform="erode", freq_range_hz=(0.35, 0.65), amp_range_em=(0.010, 0.022), glow_spread=0.20, fill_edge_softness=1.25, fill_tint=0.45, particle_kind="raindrop", particle_max=16, release_ms=900.0, residue_level=0.22),
     "anguish": _MS(waveform="flicker", freq_range_hz=(1.8, 3.0), amp_range_em=(0.012, 0.024), fill_edge_softness=0.65, fill_tint=0.50, release_ms=520.0),
     "fear": _MS(waveform="flicker", freq_range_hz=(2.0, 3.4), axis="x", amp_range_em=(0.010, 0.022), glow_spread=0.20, fill_edge_softness=0.70, release_ms=460.0, residue_level=0.14),
-    "anger": _MS(waveform="step", freq_range_hz=(2.2, 3.6), axis="x", amp_range_em=(0.014, 0.028), glow_spread=0.40, fill_edge_softness=0.45, fill_tint=0.55, release_ms=420.0, residue_level=0.15),
+    "anger": _MS(waveform="shake", freq_range_hz=(7.0, 9.0), axis="x", amp_range_em=(0.022, 0.038), glow_spread=0.40, fill_edge_softness=0.45, fill_tint=0.55, release_ms=420.0, residue_level=0.15),
     "joy": _MS(waveform="orbit", freq_range_hz=(1.2, 2.0), axis="scale", amp_range_em=(0.018, 0.034), glow_spread=0.68, fill_edge_softness=1.05, fill_tint=0.52, particle_kind="spark", particle_max=6, sparkle_style="buoyant", release_ms=600.0, residue_level=0.20, zeta=0.78),
     "healing": _MS(waveform="breath", freq_range_hz=(0.6, 1.0), axis="scale", amp_range_em=(0.014, 0.026), glow_spread=0.55, fill_edge_softness=1.25, fill_tint=0.46, particle_kind="wisp", particle_max=10, sparkle_style="bokeh", release_ms=820.0, residue_level=0.21, zeta=0.85),
     "calm": _MS(waveform="breath", freq_range_hz=(0.4, 0.75), amp_range_em=(0.010, 0.020), glow_spread=0.45, fill_edge_softness=1.35, fill_tint=0.38, release_ms=880.0, residue_level=0.20),
     "intoxication": _MS(freq_range_hz=(0.75, 1.3), axis="rot", amp_range_em=(0.016, 0.030), glow_spread=0.52, fill_edge_softness=1.35, fill_tint=0.50, release_ms=780.0, residue_level=0.20, zeta=0.86),
-    "celestial": _MS(waveform="orbit", freq_range_hz=(0.6, 1.1), amp_range_em=(0.014, 0.028), glow_spread=0.75, fill_edge_softness=1.25, fill_tint=0.50, particle_kind="spark", particle_max=7, sparkle_style="celestial", release_ms=800.0, residue_level=0.22, zeta=0.88),
-    "air": _MS(freq_range_hz=(0.6, 1.1), axis="x", amp_range_em=(0.016, 0.030), glow_spread=0.35, fill_edge_softness=1.25, fill_tint=0.40, particle_kind="seed", particle_max=14, release_ms=800.0, residue_level=0.18, zeta=0.90),
+    "celestial": _MS(waveform="orbit", freq_range_hz=(0.6, 1.1), amp_range_em=(0.014, 0.028), shimmer=0.6, glow_spread=0.75, fill_edge_softness=1.25, fill_tint=0.50, particle_kind="spark", particle_max=7, sparkle_style="celestial", release_ms=800.0, residue_level=0.22, zeta=0.88),
+    "air": _MS(freq_range_hz=(0.6, 1.1), axis="arc", amp_range_em=(0.016, 0.030), glow_spread=0.35, fill_edge_softness=1.25, fill_tint=0.40, particle_kind="seed", particle_max=14, release_ms=800.0, residue_level=0.18, zeta=0.90),
     "cloud": _MS(waveform="breath", freq_range_hz=(0.35, 0.7), amp_range_em=(0.014, 0.028), glow_spread=0.58, fill_edge_softness=1.40, fill_tint=0.40, particle_kind="mist", particle_max=14, release_ms=900.0, residue_level=0.22),
     "water": _MS(freq_range_hz=(0.65, 1.15), amp_range_em=(0.016, 0.032), glow_spread=0.42, fill_edge_softness=1.22, fill_tint=0.48, particle_kind="bubble", particle_max=16, release_ms=780.0, residue_level=0.20, zeta=0.88),
     "fire": _MS(waveform="flicker", freq_range_hz=(1.8, 3.0), amp_range_em=(0.014, 0.028), glow_spread=0.80, fill_edge_softness=0.75, fill_tint=0.55, particle_kind="ember", particle_max=18, sparkle_style="ember", release_ms=480.0, residue_level=0.18, zeta=0.92),
@@ -84,6 +88,18 @@ SIGNATURES: dict[str, MotionSignature] = {
     "october": _MS(waveform="shimmer", freq_range_hz=(0.6, 1.05), axis="x", amp_range_em=(0.012, 0.024), glow_spread=0.46, glow_color=(196, 152, 248), fill_edge_softness=1.28, fill_tint=0.48, particle_kind="spectral", particle_max=16, sparkle_style="celestial", release_ms=840.0, residue_level=0.22, zeta=0.92),
     "november": _MS(waveform="breath", freq_range_hz=(0.4, 0.7), amp_range_em=(0.009, 0.018), glow_spread=0.56, glow_color=(255, 186, 88), fill_edge_softness=1.25, fill_tint=0.46, particle_kind="lantern", particle_max=14, sparkle_style="bokeh", release_ms=860.0, residue_level=0.24, zeta=0.96, motif="vigil"),
     "december": _MS(waveform="breath", freq_range_hz=(0.3, 0.55), amp_range_em=(0.007, 0.015), glow_spread=0.52, glow_color=(214, 238, 255), fill_edge_softness=1.35, fill_tint=0.44, particle_kind="snow_star", particle_max=18, sparkle_style="celestial", release_ms=900.0, residue_level=0.25),
+    # --- v2 categories ---
+    "hope": _MS(waveform="breath", freq_range_hz=(0.5, 0.9), amp_range_em=(0.014, 0.026), glow_spread=0.62, fill_edge_softness=1.25, fill_tint=0.48, particle_kind="wisp", particle_max=8, sparkle_style="buoyant", shimmer=0.5, release_ms=800.0, residue_level=0.20, zeta=0.84),
+    "loneliness": _MS(waveform="orbit", freq_range_hz=(0.3, 0.55), axis="x", amp_range_em=(0.008, 0.016), glow_spread=0.12, fill_edge_softness=1.35, fill_tint=0.34, tint_spread="ink", release_ms=900.0, residue_level=0.18, zeta=0.98),
+    "desire": _MS(waveform="heartbeat", freq_range_hz=(1.2, 1.6), axis="scale", amp_range_em=(0.028, 0.044), glow_spread=0.60, fill_edge_softness=1.10, fill_tint=0.52, particle_kind="spark", particle_max=6, sparkle_style="ember", shimmer=0.4, release_ms=640.0, residue_level=0.20, zeta=0.84),
+    "freedom": _MS(waveform="sine", freq_range_hz=(0.5, 0.9), axis="arc", amp_range_em=(0.018, 0.034), glow_spread=0.50, fill_edge_softness=1.20, fill_tint=0.44, particle_kind="seed", particle_max=10, sparkle_style="buoyant", scatter_em=0.04, release_ms=760.0, residue_level=0.18, zeta=0.88),
+    "light": _MS(waveform="orbit", freq_range_hz=(0.6, 1.0), amp_range_em=(0.012, 0.026), glow_spread=0.85, fill_edge_softness=1.15, fill_tint=0.46, particle_kind="spark", particle_max=6, sparkle_style="flare", motif="corona", shimmer=0.8, release_ms=720.0, residue_level=0.22, zeta=0.86),
+    "electric": _MS(waveform="flicker", freq_range_hz=(3.0, 4.5), axis="x", amp_range_em=(0.012, 0.024), glow_spread=0.70, fill_edge_softness=0.45, fill_tint=0.55, particle_kind="spark", particle_max=8, sparkle_style="flare", glitch=0.6, release_ms=420.0, residue_level=0.14, zeta=0.95),
+    "cold": _MS(waveform="tick", freq_range_hz=(0.8, 1.4), amp_range_em=(0.006, 0.014), glow_spread=0.40, glow_color=(190, 225, 255), fill_edge_softness=0.85, fill_tint=0.50, particle_kind="snow", particle_max=12, tint_spread="frost", release_ms=800.0, residue_level=0.18),
+    "death": _MS(waveform="erode", freq_range_hz=(0.25, 0.5), amp_range_em=(0.008, 0.016), glow_spread=0.10, fill_edge_softness=1.30, fill_tint=0.36, particle_kind="mist", particle_max=8, tint_spread="ink", release_ms=900.0, residue_level=0.12, zeta=1.0),
+    "scream": _MS(waveform="shake", freq_range_hz=(9.0, 11.0), axis="x", amp_range_em=(0.026, 0.042), glow_spread=0.60, fill_edge_softness=0.50, fill_tint=0.55, scatter_em=0.05, release_ms=450.0, residue_level=0.14),
+    "whisper": _MS(waveform="breath", freq_range_hz=(0.3, 0.6), amp_range_em=(0.006, 0.012), glow_spread=0.25, fill_edge_softness=1.40, fill_tint=0.34, particle_kind="mist", particle_max=6, release_ms=900.0, residue_level=0.16, zeta=0.98),
+    "breath": _MS(waveform="breath", freq_range_hz=(0.5, 0.8), axis="scale", amp_range_em=(0.020, 0.034), glow_spread=0.40, fill_edge_softness=1.35, fill_tint=0.38, particle_kind="mist", particle_max=8, release_ms=900.0, residue_level=0.16, zeta=0.95),
 }
 
 
@@ -146,15 +162,26 @@ def signature_for(categories: Sequence[str], vector: Sequence[float], weights: S
         residue_level=sum(w * s.residue_level for w, s in zip(ws, sigs)),
         zeta=sum(w * s.zeta for w, s in zip(ws, sigs)),
         motif=sigs[lead].motif,
+        tint_spread=sigs[lead].tint_spread, scatter_em=sigs[lead].scatter_em, glitch=sigs[lead].glitch, shimmer=sigs[lead].shimmer,
     )
 
 
 def eval_waveform(waveform: str, t: float, freq_hz: float, letter_idx: int, seed_u: float = 0.0,
-                  beat_phase: float | None = None) -> float:
+                  beat_phase: float | None = None, age: float | None = None) -> float:
     """Return normalized oscillation in [-1, 1] (or [0, 1] for breath) for continuous motion signatures."""
     ph = 2.0 * math.pi * (freq_hz * t + seed_u) - 0.65 * letter_idx
     if waveform == "sine":
         return math.sin(ph)
+    if waveform == "heartbeat":  # lub-dub, at most two beats from the letter's onset (`age`), then still
+        a = (t if age is None else age) - 0.05 * letter_idx
+        u = a * freq_hz
+        if u < 0.0 or u >= 2.0:
+            return 0.0
+        u %= 1.0
+        return math.exp(-((u - 0.14) / 0.07) ** 2) + 0.6 * math.exp(-((u - 0.36) / 0.08) ** 2)
+    if waveform == "shake":  # a short sharp shake on the attack that dies away on its own
+        a = (t if age is None else age) - 0.02 * letter_idx
+        return math.exp(-max(0.0, a) / 0.14) * math.sin(2.0 * math.pi * freq_hz * a + 1.7 * seed_u) if a >= 0.0 else 0.0
     if waveform == "breath":
         u = (freq_hz * t + seed_u - 0.12 * letter_idx) % 1.0
         p1 = math.exp(-((u - 0.18) / 0.11) ** 2)

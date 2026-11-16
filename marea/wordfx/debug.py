@@ -14,7 +14,8 @@ def label_lines(fx: FxWord) -> list[str]:
     bleed = f"contagio {p.bleed:.2f} ({p.bleed_from})" if p.bleed else "sin contagio"
     rep = f" · rep {p.repeat_n}" if p.repeat_n else ""
     note = f" · {m.note}" if m.note else ""
-    return [f"[{m.line}.{m.word}] {m.lemma} · {m.lang} · {'+'.join(m.categories)}{rep}{note}", vec,
+    var = f" · {p.variant}" if p.variant else ""
+    return [f"[{m.line}.{m.word}] {m.lemma} · {m.lang} · {'+'.join(m.categories)}{var}{rep}{note}", vec,
             f"{bleed} · {', '.join(p.primitives)}"]
 
 

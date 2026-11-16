@@ -4,7 +4,9 @@ traduce a `FxParams`. Puro y determinista: toda la variación sale de `seed_for`
 import colorsys
 import hashlib
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
+from marea.wordfx import config, variants
 from marea.wordfx._math import MAX_AMBIENT_AMP, ambient_vector_color, clamp as _clamp, lerp_rgb as _mix, luma
 from marea.wordfx.envelope import duration_mode
 from marea.wordfx.fxtypes import AXES, RGB, FxParams
@@ -52,9 +54,10 @@ def _u(seed: int, key: str) -> float:
     return int.from_bytes(hashlib.sha1(f"{seed}:{key}".encode()).digest()[:4], "big") / 2**32
 
 
-def seed_for(track_id: str, line: int, word: int, repeat_n: int = 0) -> int:
-    """Deterministic 64-bit integer seed for `(track_id, line, word, repeat_n)`."""
-    raw = f"{track_id}:{line}:{word}" if repeat_n == 0 else f"{track_id}:{line}:{word}:{repeat_n}"
+def seed_for(track_id: str, line: int | str, word: int) -> int:
+    """Deterministic 64-bit integer seed for `(track_id, line, word)`. `line` is the normalised line text (plan.line_key), so a
+    chorus that comes back gets exactly the same look; a bare line index is only the fallback when no text is known."""
+    raw = f"{track_id}:{line}:{word}"
     return int.from_bytes(hashlib.sha1(raw.encode()).digest()[:8], "big")
 
 
@@ -117,8 +120,8 @@ def _hue(rgb: RGB, deg: float) -> RGB:
     return tuple(round(c * 255) for c in colorsys.hsv_to_rgb((h + deg / 360) % 1.0, s, v))
 
 
-def _primitives(match: Match, lib: Library, vec: Vector, repeat_n: int, seed: int) -> tuple[list[str], float]:
-    """Primitivos activos (categorías + implícitos + repetición + variación por seed) y el extra de ascenso por repetición."""
+def _primitives(match: Match, lib: Library, vec: Vector, seed: int) -> list[str]:
+    """Primitivos activos (categorías + implícitos + variación por seed)."""
     prims: list[str] = []
 
     def add(p: str):
@@ -132,20 +135,11 @@ def _primitives(match: Match, lib: Library, vec: Vector, repeat_n: int, seed: in
         add("letter_offset")  # las letras se revelan entrando desde abajo (la biblioteca solo pide mask_reveal en «love»)
         if abs(vec[2]) >= 0.28 and not {"displacement", "gravity_drift"} & set(prims):
             add("displacement")  # el asiento de la palabra sigue la gravedad del vector
-    rise = 0.0
-    if repeat_n >= 1:
-        if _u(seed, "rep") < 0.5:
-            add("scale")
-        else:
-            add("displacement")
-            rise = 0.07
-    if repeat_n >= 2:
-        add("sparkle")
-    if _u(seed, "extra") < 0.4:  # una pieza extra compatible con el vector: dos apariciones de la misma palabra difieren
+    if _u(seed, "extra") < 0.4:  # una pieza extra compatible con el vector: dos palabras iguales en versos distintos difieren
         pool = [p for p, ok in (("glow", vec[0] > 0), ("jitter", vec[1] > 0.5), ("trail", vec[5] > 0.3)) if ok and p not in prims]
         if pool:
             add(pool[int(_u(seed, "pick") * len(pool))])
-    return prims, rise
+    return prims
 
 
 def _blend_word_vector(
@@ -257,12 +251,12 @@ def _resolve_word_colors(
 
 def _build_amplitudes(
     on: set[str], match: Match, val: float, aro: float, gra: float, tem: float, fra: float, blu: float,
-    hold_s: float, rise: float, raw_vocals: bool, intensity: float, repeat_n: int, base_seed: int,
+    hold_s: float, raw_vocals: bool, intensity: float, base_seed: int,
 ) -> dict[str, float]:
     hf = _clamp(hold_s / 1.2, 0.3, 1.5)  # shortcut: erosión/partículas calibradas con «perdido» a 1.2 s
     amp: dict[str, float] = {}
     if on & {"displacement", "gravity_drift"}:
-        amp["drift_em"] = gra * 0.26 * (1 + 0.3 * _clamp(hold_s / 2.4, 0, 1)) - rise
+        amp["drift_em"] = gra * 0.26 * (1 + 0.3 * _clamp(hold_s / 2.4, 0, 1))
     if "letter_offset" in on:
         amp["letter_offset_em"] = 0.15 + 0.25 * fra
     if "scale" in on:
@@ -293,26 +287,28 @@ def _build_amplitudes(
         for key in ("jitter_em", "chromatic_em"):
             if key in amp:
                 amp[key] *= 1.2
-    k = intensity * min(2.0, 1 + 0.25 * repeat_n) * (0.85 + 0.3 * _u(base_seed, "mag"))
+    k = intensity * (0.85 + 0.3 * _u(base_seed, "mag"))
     return {key: _clamp(v * k, -LIMITS[key], LIMITS[key]) for key, v in amp.items()}, k  # type: ignore[return-value]
 
 
 def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequence[tuple[Match, int]] = (),
             line_mood: Vector | None = None, song_mood: Vector | None = None, palette: Sequence[RGB] = (),
-            repeat_n: int = 0, intensity: float = 1.0, bleed: float = 0.3, beat_period_ms: float | None = None,
+            repeat_n: int = 0, line_key: str = "", intensity: float = 1.0, bleed: float = 0.3, beat_period_ms: float | None = None,
             partner: Match | None = None, osc_phase: float = 0.0, vector_override: Mapping[str, float] | None = None,
             raw_vocals: bool = False, bleed_donors: Sequence[tuple[Match, float]] | None = None,
-            is_bg: bool = False, handoff_overlap_s: float = 0.32) -> FxParams:
-    """Parámetros de una aparición de `match`. `neighbors` = (palabra con efecto del mismo verso, distancia en tokens)."""
-    base_seed = seed_for(track_id, match.line, match.word, 0)
-    seed = seed_for(track_id, match.line, match.word, repeat_n)
-    intensity = _clamp(intensity, 0.0, 1.5) * (0.40 if is_bg else 1.0)
+            is_bg: bool = False, handoff_overlap_s: float = 0.32, avoid_variant: str = "", light: bool = False) -> FxParams:
+    """Parámetros de una aparición de `match`. `avoid_variant`: id de la variante de la palabra con efecto anterior del verso (no se repite).
+    `light`: versión suave (staging): menos amplitud y sin partículas, destellos, aberración ni estela de luz.
+     `neighbors` = (palabra con efecto del mismo verso, distancia en tokens)."""
+    # repeat_n is only the debug label: a repeated line must look identical to its first occurrence (same seed, same amplitudes)
+    seed = base_seed = seed_for(track_id, line_key or match.line, match.word)
+    intensity = _clamp(intensity, 0.0, 1.5) * (0.40 if is_bg else config.FX.light_scale if light else 1.0)
     vec, bleed_total, bleed_from, strongest_donor = _blend_word_vector(
         match, lib, bleed_donors, neighbors, bleed, line_mood, song_mood, vector_override,
     )
     val, aro, gra, tem, fra, blu = vec
     hold_s = max(0.0, (match.end_ms - match.begin_ms) / 1000)
-    prims, rise = _primitives(match, lib, vec, repeat_n, base_seed)
+    prims = _primitives(match, lib, vec, base_seed)
     on = set(prims)
     strain, forced = _apply_raw_vocals(match, lib, on, prims, raw_vocals, intensity, aro)
 
@@ -328,7 +324,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
 
     hf = _clamp(hold_s / 1.2, 0.3, 1.5)
     f, k = _build_amplitudes(
-        on, match, val, aro, gra, tem, fra, blu, hold_s, rise, raw_vocals, intensity, repeat_n, base_seed,
+        on, match, val, aro, gra, tem, fra, blu, hold_s, raw_vocals, intensity, base_seed,
     )
     if forced:
         f["chromatic_em"] = max(f.get("chromatic_em", 0.0), 0.02)
@@ -336,7 +332,7 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     if "particles" in on:
         f["particles"] = round(_clamp(30 * fra * hf * k, 0, 28))
     if "sparkle" in on:
-        f["sparkle"] = round(_clamp((4 + max(0, repeat_n - 2) + int(_u(seed, "spk") * 4)) * intensity, 4, 9))
+        f["sparkle"] = round(_clamp((4 + int(_u(seed, "spk") * 4)) * intensity, 4, 9))
     if "opacity" in on:
         f["opacity_min"] = 1 - _clamp((0.15 + 0.5 * fra) * k, 0, 0.9)
     if "jitter" in on:
@@ -360,6 +356,12 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
 
     d_mode, _ = duration_mode(hold_s)
     sig = signature_for(match.categories, vec)
+    lead = match.categories[0] if match.categories else ""
+    glow_gain = config.FX.glow_by_category.get(lead, 1.0)
+    streak = _clamp(config.FX.streak_by_category.get(lead, config.FX.streak_default) * min(1.0, intensity), 0.0, 1.0)
+    variant = variants.pick(lead, _u(base_seed, "variant"), avoid_variant) if lead else None
+    if variant is not None and variant.sig:
+        sig = replace(sig, **variant.sig)
     p_kind, p_max = sig.particle_kind, sig.particle_max
     amb = min(1.0, max(0.0, getattr(match, "ambiguity", 0.0)))
     calm_damp = 0.72 + 0.28 * _clamp(aro / 0.35, 0.0, 1.0)
@@ -398,9 +400,11 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
         sig_waveform, sig_axis = "flicker", "y"
         glow_spread, glow_color = max(glow_spread, 0.8), (255, 146, 48)
 
-    if d_mode == "accent":
+    if d_mode == "accent" or light:
         f["particles"] = 0
         f["sparkle"] = 0
+        if light:
+            f["chromatic_em"] = 0.0
     elif "particles" in on and p_kind in CUSTOM_PARTICLE_KINDS and intensity > 0.0:
         scaled_pmax = p_max * min(1.5, intensity) * calm_damp * amb_damp
         f["particles"] = round(_clamp(max(f.get("particles", 0) * amb_damp, scaled_pmax), 0, 28))
@@ -408,13 +412,16 @@ def compose(match: Match, lib: Library, *, track_id: str = "", neighbors: Sequen
     donor_b0 = (strongest_donor.begin_ms / 1000.0) if strongest_donor is not None else -1.0
     donor_b1 = (strongest_donor.end_ms / 1000.0) if strongest_donor is not None else -1.0
     f.update(
-        release_s=release_s, residue_level=residue_level, zeta=zeta, is_hero=not is_bg, is_bg=is_bg,
-        tier="support" if is_bg else "hero", bleed_donor_s=donor_b0, bleed_donor_end_s=donor_b1,
+        release_s=release_s, residue_level=residue_level, zeta=zeta, is_hero=not is_bg and not light, is_bg=is_bg,
+        tier="support" if is_bg else "light" if light else "strong",
+        glow_gain=min(1.0, glow_gain) if light else glow_gain, streak=0.0 if light or is_bg else streak, bleed_donor_s=donor_b0, bleed_donor_end_s=donor_b1,
         handoff_overlap_s=handoff_overlap_s, duration_mode=d_mode, waveform=sig_waveform, sig_freq_hz=sig_freq,
         sig_axis=sig_axis, sig_amp_em=sig_amp, fill_tint=sig.fill_tint, fill_edge_softness=sig.fill_edge_softness,
         glow_spread=glow_spread, glow_color=glow_color,
         particle_kind=p_kind if p_kind in CUSTOM_PARTICLE_KINDS else "dust",
-        sparkle_style=sparkle_style, motif=sig.motif,
+        sparkle_style=sparkle_style, motif=sig.motif, tint_spread=sig.tint_spread,
+        scatter_em=0.0 if light else sig.scatter_em, glitch=0.0 if light else sig.glitch, shimmer=0.0 if light else sig.shimmer,
+        variant=variants.variant_id(lead, variant.name) if variant is not None else "",
     )
     return FxParams(primitives=tuple(prims), **meta, **f)
 
@@ -424,6 +431,7 @@ def compose_ambient(
     *,
     track_id: str = "",
     line_i: int = 0,
+    line_key: str = "",
     word_i: int = 0,
     hold_s: float = 0.4,
     intensity: float = 1.0,
@@ -445,7 +453,7 @@ def compose_ambient(
     softness = _clamp(1.0 + 0.12 * (vec[5] if len(vec) > 5 else 0.0), 0.85, 1.25)
     d_mode, _ = duration_mode(max(0.05, hold_s))
     return FxParams(
-        seed=seed_for(track_id, line_i, word_i, 0),
+        seed=seed_for(track_id, line_key or line_i, word_i),
         vector=tuple(float(x) for x in vec[:6]),
         primitives=(),
         bleed=round(bleed_weight, 4),

@@ -5,7 +5,7 @@ import skia
 from marea.demo_cover import demo_cover
 from marea.model.lyrics import Line, Lyrics, Syllable
 from marea.render.scene import Scene, Style
-from marea.wordfx import library
+from marea.wordfx import config, library
 from marea.wordfx.anim import particles
 from marea.wordfx.matcher import match_line
 from marea.wordfx.plan import build_plan
@@ -14,6 +14,14 @@ from marea.wordfx.plan import build_plan
 @pytest.fixture(scope="module")
 def lib():
     return library.load(library.BUNDLED)
+
+
+@pytest.fixture(autouse=True)
+def every_fx_word_is_strong():
+    """These tests check each category's own FX; staging (one strong word per line) is covered in test_wordfx_staging.py."""
+    prev = config.set_fx(config.with_fx(max_strong_per_line=9))
+    yield
+    config.set_fx(prev)
 
 
 def _line(text: str, start: int = 1000, dur: int = 1200) -> Line:

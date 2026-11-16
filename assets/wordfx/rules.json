@@ -729,6 +729,19 @@
     ],
     "dryness": [
       "water"
+    ],
+    "hope": [],
+    "loneliness": [],
+    "desire": [],
+    "freedom": [],
+    "light": [],
+    "electric": [],
+    "cold": [],
+    "death": [],
+    "scream": [],
+    "whisper": [],
+    "breath": [
+      "anguish"
     ]
   },
   "_reversals": "Construcciones de recuperación: lemas pegados a la palabra (side before, por defecto) o justo detrás (after). Si la palabra tiene una categoría de `map`, se sustituye y el disparador deja de contar como palabra suelta.",
@@ -800,16 +813,19 @@
       }
     },
     {
-      "_note": "solo: adverbio («solo quiero») vs. adjetivo «solitario» («estoy solo»).",
+      "_note": "solo/sola: «solo quiero» (= solamente) no cuenta; «estoy solo» (= sin compañía) activa loneliness. «es solo» NO es compañía: no está en la lista.",
       "word": "solo",
       "lang": "es",
       "keep_if": {
         "prev": [
           "estar",
-          "ser",
           "sentir",
           "quedar",
           "dejar",
+          "andar",
+          "vivir",
+          "caminar",
+          "dormir",
           "me",
           "te",
           "se",
@@ -817,6 +833,211 @@
           "muy"
         ],
         "line_end": true
+      },
+      "drop_if": {
+        "next": [
+          "un",
+          "una",
+          "unos",
+          "unas",
+          "para",
+          "por",
+          "que",
+          "porque",
+          "si",
+          "cuando",
+          "quiero",
+          "necesito",
+          "tengo"
+        ]
+      }
+    },
+    {
+      "_note": "sol: astro vs. nota musical («fa sol», «sol mayor»).",
+      "word": "sol",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "fa",
+          "re",
+          "do"
+        ],
+        "next": [
+          "mayor",
+          "menor",
+          "sostenido",
+          "bemol"
+        ]
+      }
+    },
+    {
+      "_note": "rose: flor («a rose», «red rose») vs. pasado de rise («the sun rose»). Solo cuenta con un determinante/adjetivo de flor delante.",
+      "word": "rose",
+      "lang": "en",
+      "keep_if": {
+        "prev": [
+          "a",
+          "the",
+          "red",
+          "white",
+          "yellow",
+          "pink",
+          "black",
+          "blue",
+          "wild",
+          "dead",
+          "one",
+          "every",
+          "each",
+          "single",
+          "this",
+          "that",
+          "paper",
+          "desert",
+          "her",
+          "his",
+          "my",
+          "your",
+          "our",
+          "their",
+          "wilted",
+          "fresh",
+          "beautiful",
+          "thorny"
+        ],
+        "next": [
+          "petal",
+          "thorn",
+          "garden",
+          "bush",
+          "bud",
+          "stem",
+          "tattoo",
+          "bloom"
+        ]
+      }
+    },
+    {
+      "_note": "rosa: color («color rosa», «vestido rosa», «labios rosa») vs. flor.",
+      "word": "rosa",
+      "lang": "es",
+      "drop_if": {
+        "prev": [
+          "color",
+          "vestido",
+          "labio",
+          "camisa",
+          "falda",
+          "pelo",
+          "cabello",
+          "tono",
+          "pantera",
+          "cuarzo",
+          "vino"
+        ],
+        "next": [
+          "color",
+          "pastel",
+          "claro",
+          "palido",
+          "fuerte",
+          "intenso",
+          "chicle",
+          "fucsia"
+        ]
+      }
+    },
+    {
+      "_note": "seas: subjuntivo de ser («no seas», «que seas feliz») vs. plural inglés de sea («seven seas»). La lengua del token sale 'en' porque 'sea' es lema inglés.",
+      "word": "seas",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "que",
+          "no",
+          "cuando",
+          "donde",
+          "como",
+          "quien",
+          "aunque",
+          "ojala",
+          "si",
+          "cual",
+          "mientras",
+          "sin",
+          "para"
+        ],
+        "next": [
+          "lo",
+          "tu",
+          "mi",
+          "feliz",
+          "libre",
+          "quien"
+        ]
+      }
+    },
+    {
+      "_note": "sea: subjuntivo de ser («o sea», «lo que sea», «sea como sea») vs. mar inglés.",
+      "word": "sea",
+      "lang": "en",
+      "drop_if": {
+        "prev": [
+          "o",
+          "que",
+          "como",
+          "cual",
+          "cuando",
+          "donde",
+          "quien",
+          "aunque",
+          "ojala"
+        ],
+        "next": [
+          "como",
+          "que",
+          "lo",
+          "el",
+          "la",
+          "tu",
+          "mi",
+          "feliz",
+          "quien"
+        ]
+      }
+    },
+    {
+      "_note": "lives: plural de life («nine lives») vs. tercera persona de live («she lives»). Solo cuenta con determinante o cuantificador delante.",
+      "word": "lives",
+      "lang": "en",
+      "keep_if": {
+        "prev": [
+          "our",
+          "my",
+          "your",
+          "their",
+          "his",
+          "her",
+          "its",
+          "these",
+          "those",
+          "many",
+          "all",
+          "two",
+          "three",
+          "nine",
+          "countless",
+          "other",
+          "whose",
+          "both",
+          "the",
+          "ten",
+          "hundred",
+          "thousand",
+          "innocent",
+          "past",
+          "whole"
+        ]
       }
     },
     {

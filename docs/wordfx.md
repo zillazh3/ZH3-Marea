@@ -9,7 +9,7 @@ Enable it in **Settings → Experimental features → Semantic word effects**. I
 `marea.wordfx` is imported. The Editor's *Style* tab then shows the **FX intensity** slider and **Debug word effects**.
 
 Preview and export use the same pre-composed plan and every random value is a pure function of
-`(track id, line, word, letter, time)`, so a recorded clip is pixel-identical to what you saw.
+`(track id, line text, word, letter, time)`, so a recorded clip is pixel-identical to what you saw.
 
 ## Where the pieces live
 
@@ -17,6 +17,9 @@ Preview and export use the same pre-composed plan and every random value is a pu
 |---|---|
 | `assets/wordfx/library.json` | Vocabulary: categories, lemmas, vectors, primitives (bundled default) |
 | `assets/wordfx/rules.json` | Context rules: phrases, negation, reversal, POS guards, contrast pairs |
+| `marea/wordfx/config.py` | **Every look tunable** (`FX`): glow, micro light streak, staging, motion clamps, envelope |
+| `marea/wordfx/variants.py` | Named variants per category (2-3 each), picked deterministically |
+| `marea/wordfx/signatures.py` | Base motion signature of every category (waveform, axis, glow, particles, release) |
 | `<app data>/wordfx/library.json`, `rules.json` | Your copies. If present they **replace** the bundled ones |
 | `<app data>/wordfx/songs/<track id>.json` | Per-song overrides (track id = Spotify id; TTML projects use a hash of the lyrics) |
 
@@ -69,12 +72,61 @@ Color comes from the valence × temperature anchors, scaled by arousal and valen
 colors** and lifted to a minimum luminance so it stays readable on the blurred background.
 
 How an occurrence is composed: its categories, bleed from FX words within 2 tokens (30%), line mood (15%), song mood (15%), how long
-the word is held (longer holds erode and drift more), and repetition: the same word or line coming back evolves (more intensity,
-then a rising drift or breathing, then sparkles) instead of repeating itself.
+the word is held (longer holds erode and drift more). Repetition does **not** change the look: every random choice is a pure
+function of `(track id, normalised line text, word index)`, so a chorus that comes back looks exactly like its first time. The
+debug overlay still counts repetitions (`rep N`).
+
+## How a word looks (v2)
+
+The Apple Music look is the base; the FX is a layer on top and **the word returns exactly to the plain Apple Music state after its
+release** (`residue_gain = 0`, no leftover tint, the opacity breathing stops with the word). Everything moves with transform, opacity,
+colour and glow only: no FX ever changes the layout.
+
+**Lifecycle** (tied to the word's own timing): a tiny anticipation (a 1 px counter-dip, strong words only) → attack at the word's start
+(the letters stretch and squash by up to 3 %, area kept) → sustain (follows the fill, short words get a quick small accent, held
+words a slow build) → release (eased, 0.4-0.9 s). Letters peak one after another (follow-through), drifts follow small arcs.
+
+**Staging and density.** At most `max_fx_per_line` (2) words per line get an FX; of those only `max_strong_per_line` (1, the highest
+scoring; contrast pairs stay together) get the **strong** version. The others are **light**: `light_scale` of the amplitude, no
+particles, sparkles, chromatic split, streak, glitch, shimmer or scatter, and never more glow than the base.
+
+**Variants.** Every category has 2-3 looks (`base` plus its variants in `variants.py`; a variant only overrides some fields of the
+category's signature). The pick is a pure function of the song, the **normalised line text** and the word index, so a chorus that
+comes back looks identical, and the previous FX word of the line is excluded so neighbours never repeat a variant (when the
+category has a choice). The debug overlay prints `category.variant`. `variant_weights` in the config re-weights them.
+
+**Glow.** Per-category gain (`glow_by_category`): bright categories (light, celestial, fire, electric, joy, love, hope, summer) are
++30-50 %, calm/dark ones (sadness, loneliness, shadow, fear, death, numbness, loss) at or below the base glow, anything unlisted
+is 1.0. It follows the fill (unsung letters do not glow), builds from `glow_build_start` to its peak at the end of the word and
+settles with the release, and drops to `glow_bright_floor` on a bright background so the text stays legible. Words without FX keep
+the standard Apple Music glow.
+
+**Micro light streak.** A very thin, faint, near-white line through the *middle* of the letters (the x-height centre, never under
+them), anchored to the fill head: brightest at the head, a short taper in front, a longer trail behind that dissolves. It appears
+with the attack, travels with the fill and fades out completely in the release. It may overshoot the word by `streak_overshoot_em`
+and is the only thing drawn outside the sung area. Strength is per category (`streak_by_category`: strong on light, celestial,
+electric, fire, joy, love, hope; faint on sadness; off on fear, shadow and on words without FX). Thickness is `streak_thickness_px`
+at 1080p and scales with the output size. Light words and reduced motion draw no streak.
+
+**Primitives** added in v2 (all deterministic): `heartbeat` and `shake` waveforms (1-2 beats / a decaying shake from the attack),
+`arc` axis (sideways drift along an arc), `shimmer` (light sweeping across the word with the fill), `scatter` (letters drift out on
+an arc and reassemble), `tint_spread` = `frost` (left to right) or `ink` (from the centre), `glitch` (rare, sustain only, electric
+words), and the `ripple` motif (a thin line rippling *under* the word, unrelated to the streak).
+
+**New categories:** hope, loneliness, desire, freedom, light, electric, cold, death, scream, whisper, breath (Spanish and English;
+night/darkness extend `shadow`, sky/moon `celestial`, nostalgia `memory`, heart `love`, flowers `spring`).
+Classification fixes: `solo`/`sola` no longer trigger the sun (they mean *alone* only in clear contexts), `sol` as a music note,
+`rose`/`rosa` as verb/colour, Spanish `seas` and English `live` are guarded; `burning`/`burnt` resolve like `burn`.
+
+**Tuning.** All numbers live in `marea/wordfx/config.py`, commented. Start with `glow_gain`, `glow_by_category`,
+`streak_opacity` / `streak_thickness_px` / `streak_trail_em` / `streak_by_category`, `stretch_amt`, `max_strong_per_line`,
+`light_scale` and `variant_weights`. The **FX Gallery** (Editor menu → *Galería de efectos…*, or
+`python -m marea.ui.wordfx_gallery`) previews every category and variant on Spanish and English words in a loop, with sliders for
+intensity, glow and the streak, and copies the changed values as a config snippet.
 
 ## Context rules (`rules.json`)
 
-Order of application: **phrases → POS guards → reversal → negation → contrast → density limit (max 2 FX words per line)**.
+Order of application: **phrases → POS guards → reversal → negation → contrast → density limit (max 2 FX words per line, 1 strong)**.
 Keys starting with `_` are comments. Categories that do not exist in your library are ignored.
 
 - `phrases`: `{ "pattern": "otra vez", "lang": "es", "categories": ["longing"] }`. Consecutive words (forms or lemmas), `*` matches

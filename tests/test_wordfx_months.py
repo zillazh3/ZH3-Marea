@@ -10,7 +10,8 @@ from marea.render.scene import Scene, Style
 from marea.wordfx import library, rules
 from marea.wordfx.anim import letter_state, particles
 from marea.wordfx.composer import compose
-from marea.wordfx.matcher import MAX_PER_LINE, Match, match_line
+from marea.wordfx.config import FX
+from marea.wordfx.matcher import Match, match_line
 from marea.wordfx.plan import build_plan
 from marea.wordfx.signatures import SIGNATURES, eval_waveform
 
@@ -146,13 +147,13 @@ def test_month_priority_and_emotion_coexistence(lib, rule_set):
     # while a single emotion + month coexist on the same line.
     coexist = match_line(_line("sadness in december", dur=2000), 0, lib, rules=rule_set)
     cats = {cat for m in coexist for cat in m.categories}
-    assert len(coexist) <= MAX_PER_LINE
+    assert len(coexist) <= FX.max_fx_per_line
     assert "sadness" in cats
     assert "december" in cats
 
     # Two higher-priority emotions fill MAX_PER_LINE before a priority-5 month.
     crowded = match_line(_line("love sadness pain in december", dur=2000), 0, lib, rules=rule_set)
-    assert len(crowded) == MAX_PER_LINE
+    assert len(crowded) == FX.max_fx_per_line
     assert all(
         max(lib.categories[c].priority for c in m.categories) > lib.categories["december"].priority
         for m in crowded

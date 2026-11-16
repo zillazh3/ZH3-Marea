@@ -228,6 +228,18 @@ class WordFXController:
                 ed.notify(f"Efectos por palabra: {err} Se mantiene el plan anterior.", "error")
         ed.preview.set_wordfx(self.plan, state[1], rebuild=rebuild)
 
+    def open_gallery(self):
+        """Debug window: one forced-FX sample word in a loop with live tuning sliders (modal, so the editor never shows its values)."""
+        from marea.ui.wordfx_gallery import WordFxGallery
+        from marea.wordfx import library
+
+        try:
+            dlg = WordFxGallery(library.load(), self.editor)
+        except library.LibraryError as err:
+            self.editor.notify(f"Biblioteca de efectos no válida: {err}", "error")
+            return
+        dlg.exec()
+
     def open_profile_dialog(self):
         from PySide6.QtWidgets import QDialog
 

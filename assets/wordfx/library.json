@@ -1039,7 +1039,8 @@
         "vestigio",
         "reminiscencia",
         "bucle",
-        "pacto"
+        "pacto",
+        "añoranza"
       ],
       "en": [
         "memory",
@@ -2283,7 +2284,6 @@
         "stand up",
         "get up",
         "rise",
-        "live",
         "life",
         "alive",
         "survive",
@@ -2549,8 +2549,7 @@
         "waft",
         "vanish",
         "evaporate",
-        "gale",
-        "breath"
+        "gale"
       ]
     },
     "vector": {
@@ -2911,8 +2910,6 @@
         "glow",
         "ablaze",
         "set fire",
-        "burnt",
-        "burning",
         "fiery",
         "blazing",
         "smolder",
@@ -3224,7 +3221,8 @@
         "eclipsar",
         "escondite",
         "clandestino",
-        "agujero negro"
+        "agujero negro",
+        "tinieblas"
       ],
       "en": [
         "shadow",
@@ -3278,7 +3276,8 @@
         "shadowy",
         "hideout",
         "clandestine",
-        "black hole"
+        "black hole",
+        "shade"
       ]
     },
     "vector": {
@@ -3823,7 +3822,10 @@
         "fotosíntesis",
         "jardín",
         "germinación",
-        "floración"
+        "floración",
+        "flor",
+        "pétalo",
+        "capullo"
       ],
       "en": [
         "spring",
@@ -3857,7 +3859,10 @@
         "photosynthesis",
         "garden",
         "germination",
-        "flowering"
+        "flowering",
+        "flower",
+        "petal",
+        "bloom"
       ]
     },
     "vector": {
@@ -4121,6 +4126,809 @@
       "#EAF8FF"
     ],
     "priority": 5
+  },
+  "hope": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "esperanza",
+        "esperanzador",
+        "esperar",
+        "ilusión",
+        "amanecer",
+        "alba",
+        "albor",
+        "fe",
+        "optimismo",
+        "optimista",
+        "porvenir",
+        "plegaria",
+        "rezar",
+        "milagro",
+        "alentar",
+        "ánimo",
+        "creyente",
+        "ilusionar",
+        "confiar",
+        "aspirar",
+        "salvación",
+        "redimir",
+        "renovar"
+      ],
+      "en": [
+        "hope",
+        "hopeful",
+        "wish",
+        "faith",
+        "dawn",
+        "daybreak",
+        "optimism",
+        "optimistic",
+        "trust",
+        "prayer",
+        "pray",
+        "miracle",
+        "aspire",
+        "aspiration",
+        "encourage",
+        "uplift",
+        "optimist",
+        "salvation",
+        "redemption",
+        "redeem",
+        "rescue",
+        "believer"
+      ]
+    },
+    "vector": {
+      "valence": 0.7,
+      "arousal": 0.35,
+      "gravity": -0.5,
+      "temperature": 0.4,
+      "fragility": 0.4,
+      "blur": 0.3
+    },
+    "primitives": [
+      "glow",
+      "mask_reveal",
+      "displacement",
+      "hue_shift"
+    ],
+    "color": [
+      "#FFD27F",
+      "#FFE9B8"
+    ],
+    "priority": 7
+  },
+  "loneliness": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "soledad",
+        "solitario",
+        "solo",
+        "sola",
+        "solas",
+        "a solas",
+        "vacío",
+        "desamparado",
+        "ermitaño",
+        "solitud",
+        "incomunicado",
+        "sin compañía",
+        "abandonado",
+        "aislado",
+        "recluso",
+        "reclusión",
+        "marginado",
+        "excluido",
+        "deshabitado",
+        "hueco",
+        "vaciar"
+      ],
+      "en": [
+        "lonely",
+        "loneliness",
+        "lonesome",
+        "alone",
+        "solitary",
+        "solitude",
+        "empty",
+        "emptiness",
+        "forsaken",
+        "deserted",
+        "hermit",
+        "outcast",
+        "by myself",
+        "on my own",
+        "abandoned",
+        "isolated",
+        "friendless",
+        "unloved",
+        "lone",
+        "recluse",
+        "seclusion",
+        "exile",
+        "vacant",
+        "void",
+        "uninhabited"
+      ]
+    },
+    "vector": {
+      "valence": -0.6,
+      "arousal": 0.1,
+      "gravity": 0.5,
+      "temperature": -0.5,
+      "fragility": 0.6,
+      "blur": 0.4
+    },
+    "primitives": [
+      "opacity",
+      "desaturate",
+      "letter_spacing",
+      "blur"
+    ],
+    "color": [
+      "#7B86A8"
+    ],
+    "priority": 7
+  },
+  "desire": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "deseo",
+        "ansia",
+        "tentación",
+        "tentar",
+        "antojo",
+        "apetito",
+        "lujuria",
+        "lascivia",
+        "hambre",
+        "hambriento",
+        "codicia",
+        "codiciar",
+        "sensualidad",
+        "placer",
+        "insaciable",
+        "excitar",
+        "excitación",
+        "morbo",
+        "voluptuoso",
+        "carnal",
+        "lascivo",
+        "lujurioso",
+        "provocativo",
+        "gula",
+        "glotón"
+      ],
+      "en": [
+        "desire",
+        "crave",
+        "craving",
+        "temptation",
+        "tempting",
+        "lust",
+        "hunger",
+        "hungry",
+        "appetite",
+        "pleasure",
+        "greed",
+        "urge",
+        "insatiable",
+        "arouse",
+        "lustful",
+        "lascivious",
+        "sultry",
+        "steamy",
+        "carnal",
+        "flesh",
+        "lure",
+        "allure",
+        "enticing"
+      ]
+    },
+    "vector": {
+      "valence": 0.5,
+      "arousal": 0.75,
+      "gravity": 0.1,
+      "temperature": 0.85,
+      "fragility": 0.35,
+      "blur": 0.3
+    },
+    "primitives": [
+      "glow",
+      "wave",
+      "hue_shift",
+      "letter_offset"
+    ],
+    "color": [
+      "#E0245E",
+      "#FF6B6B"
+    ],
+    "priority": 7
+  },
+  "freedom": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "libertad",
+        "libre",
+        "liberar",
+        "liberación",
+        "volar",
+        "vuelo",
+        "ala",
+        "escapar",
+        "escape",
+        "fugarse",
+        "evadir",
+        "emancipar",
+        "independencia",
+        "independiente",
+        "libertador",
+        "nómada",
+        "vagabundo",
+        "alzar el vuelo",
+        "sin ataduras",
+        "desatar"
+      ],
+      "en": [
+        "freedom",
+        "free",
+        "liberty",
+        "liberate",
+        "liberation",
+        "fly",
+        "flight",
+        "wing",
+        "escape",
+        "break free",
+        "unchain",
+        "unchained",
+        "unbound",
+        "independence",
+        "independent",
+        "soar",
+        "glide",
+        "wander",
+        "roam",
+        "set free",
+        "run free"
+      ]
+    },
+    "vector": {
+      "valence": 0.8,
+      "arousal": 0.6,
+      "gravity": -0.9,
+      "temperature": 0.0,
+      "fragility": 0.25,
+      "blur": 0.2
+    },
+    "primitives": [
+      "displacement",
+      "trail",
+      "wave",
+      "glow",
+      "letter_spacing"
+    ],
+    "color": [
+      "#7FD6FF",
+      "#E8F7FF"
+    ],
+    "priority": 7
+  },
+  "light": {
+    "kind": "element",
+    "lemmas": {
+      "es": [
+        "luz",
+        "brillar",
+        "brillo",
+        "resplandor",
+        "resplandecer",
+        "destello",
+        "destellar",
+        "linterna",
+        "lámpara",
+        "foco",
+        "luminoso",
+        "luminosidad",
+        "iluminar",
+        "iluminación",
+        "radiante",
+        "relucir",
+        "faro",
+        "farol",
+        "claridad",
+        "fulgor",
+        "titilar",
+        "centellear",
+        "candil",
+        "alumbrar"
+      ],
+      "en": [
+        "light",
+        "glow",
+        "shine",
+        "bright",
+        "brightness",
+        "beam",
+        "radiant",
+        "radiance",
+        "gleam",
+        "glitter",
+        "glimmer",
+        "shimmer",
+        "illuminate",
+        "lantern",
+        "lamp",
+        "flashlight",
+        "lighthouse",
+        "spotlight",
+        "luminous",
+        "glare",
+        "ray",
+        "twinkle"
+      ]
+    },
+    "vector": {
+      "valence": 0.7,
+      "arousal": 0.45,
+      "gravity": -0.4,
+      "temperature": 0.4,
+      "fragility": 0.3,
+      "blur": 0.25
+    },
+    "primitives": [
+      "glow",
+      "sparkle",
+      "hue_shift",
+      "scale"
+    ],
+    "color": [
+      "#FFF3B0",
+      "#FFFFFF"
+    ],
+    "priority": 4
+  },
+  "electric": {
+    "kind": "element",
+    "lemmas": {
+      "es": [
+        "electricidad",
+        "eléctrico",
+        "electrizar",
+        "relámpago",
+        "rayo",
+        "chispa",
+        "chispazo",
+        "voltaje",
+        "voltio",
+        "descarga",
+        "trueno",
+        "cortocircuito",
+        "enchufe",
+        "neón",
+        "electrizante",
+        "electrocutar",
+        "relampaguear",
+        "centella",
+        "pararrayos",
+        "estática",
+        "apagón",
+        "interruptor",
+        "bombilla",
+        "alto voltaje"
+      ],
+      "en": [
+        "electric",
+        "electricity",
+        "lightning",
+        "spark",
+        "voltage",
+        "volt",
+        "shock",
+        "neon",
+        "circuit",
+        "static",
+        "thunderbolt",
+        "bolt",
+        "electrify",
+        "electrocute",
+        "zap",
+        "short circuit",
+        "high voltage",
+        "blackout",
+        "generator",
+        "dynamo",
+        "bulb",
+        "outlet",
+        "thunder",
+        "thunderstorm"
+      ]
+    },
+    "vector": {
+      "valence": 0.2,
+      "arousal": 0.95,
+      "gravity": -0.2,
+      "temperature": 0.1,
+      "fragility": 0.4,
+      "blur": 0.05
+    },
+    "primitives": [
+      "jitter",
+      "chromatic",
+      "glow",
+      "sparkle"
+    ],
+    "color": [
+      "#4DD0FF",
+      "#B8F3FF"
+    ],
+    "priority": 5
+  },
+  "cold": {
+    "kind": "element",
+    "lemmas": {
+      "es": [
+        "frío",
+        "frialdad",
+        "helado",
+        "helar",
+        "hielo",
+        "escarcha",
+        "congelar",
+        "gélido",
+        "glacial",
+        "escalofrío",
+        "ártico",
+        "enfriar",
+        "friolento",
+        "frígido",
+        "congelador",
+        "escarchar",
+        "hipotermia",
+        "helador",
+        "refrigerador",
+        "nevera",
+        "frigorífico",
+        "enfriamiento"
+      ],
+      "en": [
+        "cold",
+        "ice",
+        "icy",
+        "frost",
+        "frosty",
+        "freeze",
+        "frozen",
+        "chilly",
+        "arctic",
+        "polar",
+        "frigid",
+        "freezing",
+        "freezer",
+        "hypothermia",
+        "ice cold",
+        "bitter cold",
+        "coldness",
+        "refrigerator",
+        "icebox",
+        "ice cube"
+      ]
+    },
+    "vector": {
+      "valence": -0.3,
+      "arousal": 0.15,
+      "gravity": 0.3,
+      "temperature": -1.0,
+      "fragility": 0.7,
+      "blur": 0.2
+    },
+    "primitives": [
+      "desaturate",
+      "hue_shift",
+      "particles",
+      "opacity"
+    ],
+    "color": [
+      "#9CD8F0",
+      "#DDF3FF"
+    ],
+    "priority": 4
+  },
+  "death": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "muerte",
+        "morir",
+        "difunto",
+        "cadáver",
+        "tumba",
+        "sepultura",
+        "sepultar",
+        "entierro",
+        "enterrar",
+        "funeral",
+        "féretro",
+        "ataúd",
+        "lápida",
+        "cementerio",
+        "panteón",
+        "luto",
+        "mortal",
+        "fallecer",
+        "fallecimiento",
+        "agonía",
+        "agonizar",
+        "perecer",
+        "calavera",
+        "esqueleto",
+        "réquiem",
+        "velorio",
+        "epitafio"
+      ],
+      "en": [
+        "death",
+        "die",
+        "dead",
+        "grave",
+        "tomb",
+        "tombstone",
+        "funeral",
+        "coffin",
+        "casket",
+        "corpse",
+        "cemetery",
+        "graveyard",
+        "burial",
+        "bury",
+        "skeleton",
+        "skull",
+        "deceased",
+        "reaper",
+        "mortal",
+        "perish",
+        "demise",
+        "epitaph",
+        "requiem",
+        "rest in peace",
+        "six feet under"
+      ]
+    },
+    "vector": {
+      "valence": -0.9,
+      "arousal": 0.2,
+      "gravity": 0.9,
+      "temperature": -0.6,
+      "fragility": 0.8,
+      "blur": 0.4
+    },
+    "primitives": [
+      "erode",
+      "desaturate",
+      "gravity_drift",
+      "opacity",
+      "particles"
+    ],
+    "color": [
+      "#8C86A0"
+    ],
+    "priority": 8
+  },
+  "scream": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "grito",
+        "gritar",
+        "rugir",
+        "rugido",
+        "aullar",
+        "aullido",
+        "chillar",
+        "chillido",
+        "bramar",
+        "bramido",
+        "vociferar",
+        "clamar",
+        "alarido",
+        "berrear",
+        "clamor",
+        "a gritos",
+        "desgañitarse",
+        "ladrar",
+        "ulular",
+        "estruendo",
+        "vocear",
+        "gritería"
+      ],
+      "en": [
+        "scream",
+        "shout",
+        "yell",
+        "roar",
+        "howl",
+        "shriek",
+        "holler",
+        "bellow",
+        "wail",
+        "screech",
+        "outcry",
+        "clamor",
+        "yelp",
+        "squeal",
+        "cry out",
+        "bawl",
+        "uproar",
+        "deafening",
+        "piercing",
+        "scream out",
+        "yell out"
+      ]
+    },
+    "vector": {
+      "valence": -0.5,
+      "arousal": 1.0,
+      "gravity": -0.2,
+      "temperature": 0.6,
+      "fragility": 0.4,
+      "blur": 0.0
+    },
+    "primitives": [
+      "scale",
+      "jitter",
+      "chromatic",
+      "displacement",
+      "fracture"
+    ],
+    "color": [
+      "#FF4B3E"
+    ],
+    "priority": 8
+  },
+  "whisper": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "susurro",
+        "susurrar",
+        "murmullo",
+        "murmurar",
+        "secreto",
+        "callar",
+        "cuchichear",
+        "cuchicheo",
+        "bajito",
+        "confidencia",
+        "sigilo",
+        "sigiloso",
+        "rumor",
+        "en voz baja",
+        "musitar",
+        "mascullar",
+        "balbucear",
+        "silenciar",
+        "secretear",
+        "enmudecer",
+        "al oído",
+        "bajar la voz"
+      ],
+      "en": [
+        "whisper",
+        "murmur",
+        "hush",
+        "secret",
+        "quiet",
+        "mutter",
+        "confide",
+        "muffled",
+        "undertone",
+        "tiptoe",
+        "low voice",
+        "mumble",
+        "shush",
+        "inaudible",
+        "stifle",
+        "unspoken",
+        "in secret",
+        "barely audible",
+        "sotto voce",
+        "stealth",
+        "furtive",
+        "hushed"
+      ]
+    },
+    "vector": {
+      "valence": 0.1,
+      "arousal": 0.05,
+      "gravity": 0.1,
+      "temperature": 0.0,
+      "fragility": 0.65,
+      "blur": 0.5
+    },
+    "primitives": [
+      "opacity",
+      "blur",
+      "letter_spacing",
+      "mask_reveal"
+    ],
+    "color": [
+      "#B9C4D6"
+    ],
+    "priority": 6
+  },
+  "breath": {
+    "kind": "emotion",
+    "lemmas": {
+      "es": [
+        "aliento",
+        "respirar",
+        "respiración",
+        "suspiro",
+        "suspirar",
+        "soplo",
+        "exhalar",
+        "inhalar",
+        "inspirar",
+        "espirar",
+        "jadear",
+        "jadeo",
+        "resuello",
+        "resollar",
+        "bocanada",
+        "hálito",
+        "pulmón",
+        "sin aliento",
+        "resoplar",
+        "último aliento"
+      ],
+      "en": [
+        "breath",
+        "breathe",
+        "breathing",
+        "sigh",
+        "gasp",
+        "exhale",
+        "inhale",
+        "pant",
+        "wheeze",
+        "lung",
+        "out of breath",
+        "breathless",
+        "respire",
+        "respiration",
+        "exhalation",
+        "huff",
+        "gulp",
+        "last breath",
+        "deep breath",
+        "inhalation",
+        "yawn"
+      ]
+    },
+    "vector": {
+      "valence": 0.2,
+      "arousal": 0.15,
+      "gravity": -0.2,
+      "temperature": 0.1,
+      "fragility": 0.5,
+      "blur": 0.5
+    },
+    "primitives": [
+      "wave",
+      "scale",
+      "opacity",
+      "blur",
+      "trail"
+    ],
+    "color": [
+      "#CFE8E4"
+    ],
+    "priority": 6
   },
   "january": {
     "kind": "month",

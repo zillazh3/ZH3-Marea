@@ -9,12 +9,12 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from marea.model.lyrics import Line, Lyrics
-from marea.wordfx import library, rules as rules_mod, songs
+from marea.wordfx import config, library, rules as rules_mod, songs
 from marea.wordfx.bleed import handoff_overlap_s, line_bleed_donors
 from marea.wordfx.composer import blend_categories, compose, compose_ambient
 from marea.wordfx.fxtypes import RGB, FxWord
 from marea.wordfx.lexicon import normalize
-from marea.wordfx.matcher import MAX_PER_LINE, Match, _match_line, _phrase_buckets, match_lyrics, phrase_table, word_groups
+from marea.wordfx.matcher import Match, _match_line, _phrase_buckets, match_lyrics, phrase_table, word_groups
 from marea.wordfx.momentum import MomentumCurve, build_momentum
 from marea.wordfx.profile import _global_vector, vector_at
 
@@ -118,6 +118,10 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         overlap_s = handoff_overlap_s(line.end, nxt_start)
         moods = [blend_categories(m.categories, lib) for m in ms]
         line_mood = tuple(sum(v[i] for v in moods) / len(moods) for i in range(len(moods[0]))) if moods else None
+        prev_variant = ""  # the previous FX word's variant: a neighbour never repeats it
+        # staging: the most meaningful word(s) of the line get the full FX, the rest a light version (contrast pairs stay together)
+        strong = {m.word for m in sorted(ms, key=lambda m: (-m.score, m.word))[:max(1, config.FX.max_strong_per_line)]}
+        strong |= {m.word for m in ms if m.pair >= 0}
         for m in ms:  # ya vienen en orden de palabra
             donors = line_bleed_donors(li, m.word, ms, prev_last_hero, line.start)
             rep = max(seen_lemma.get(m.lemma, 0), line_rep)
@@ -125,11 +129,12 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
             key = (m.line, m.word)
             partner = matches.get((m.line, m.pair)) if m.pair >= 0 else None  # par de contraste: los dos se intercambian los colores
             params = compose(
-                m, lib, track_id=track, bleed_donors=donors, line_mood=line_mood, palette=palette, repeat_n=rep,
+                m, lib, track_id=track, bleed_donors=donors, line_mood=line_mood, palette=palette, repeat_n=rep, line_key=lk,
                 intensity=intensity * mult.get(key, 1.0), beat_period_ms=beat, partner=partner,
                 osc_phase=0.0 if partner is None or m.word < partner.word else math.pi, vector_override=vec_over.get(key),
                 song_mood=vector_at(profile, m.begin_ms / 1000, global_vec=g_vec) if profile is not None else None,
-                raw_vocals=raw_vocals, handoff_overlap_s=overlap_s)
+                raw_vocals=raw_vocals, handoff_overlap_s=overlap_s, avoid_variant=prev_variant, light=m.word not in strong)
+            prev_variant = params.variant
             if params.erode > 0.0:  # las letras que se deshacen esperan al verso siguiente (o al fin del último)
                 nxt = nxt_start if nxt_start is not None else line.end
                 params = replace(params, vanish_s=max(nxt, m.end_ms) / 1000.0)
@@ -142,7 +147,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
         wi_offset = len(main_groups)
         for bg_line, bg_groups in zip(line.bg, bg_groups_by_line[li]):
             bg_as_line = Line(bg_line.start, bg_line.end, syllables=bg_line.syllables)
-            bg_matches = _match_line(bg_as_line, 0, lib, MAX_PER_LINE, rls, ptable, pbuckets)
+            bg_matches = _match_line(bg_as_line, 0, lib, config.FX.max_fx_per_line, rls, ptable, pbuckets)
             bg_by_w = {bm.word: bm for bm in bg_matches}
             for bi, grp in enumerate(bg_groups):
                 b_key = (li, wi_offset + bi)
@@ -183,7 +188,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
                     bleed_col = dfx.params.color_from
             vec = momentum.vector_at(b0 / 1000.0)
             amb_p = compose_ambient(
-                vec, track_id=track, line_i=li, word_i=wi,
+                vec, track_id=track, line_i=li, line_key=_line_key(lyrics.lines[li].text), word_i=wi,
                 hold_s=max(0.05, (b1 - b0) / 1000.0), intensity=intensity,
                 palette=palette, bleed_col=bleed_col, bleed_weight=b_w,
                 donor=donor, is_bg=False, handoff_overlap_s=overlap_s,
@@ -200,7 +205,7 @@ def build_plan(lyrics: Lyrics, lib: library.Library | None = None, intensity: fl
                 text = "".join(s.text for s in grp)
                 vec = momentum.vector_at(b0 / 1000.0)
                 amb_p = compose_ambient(
-                    vec, track_id=track, line_i=li, word_i=wi_offset + bi,
+                    vec, track_id=track, line_i=li, line_key=_line_key(lyrics.lines[li].text), word_i=wi_offset + bi,
                     hold_s=max(0.05, (b1 - b0) / 1000.0), intensity=intensity,
                     palette=palette, is_bg=True, handoff_overlap_s=overlap_s,
                 )

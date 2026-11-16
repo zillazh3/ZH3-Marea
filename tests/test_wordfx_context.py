@@ -102,11 +102,12 @@ def test_7_contrast_pair_oscillates(lib):
     assert (a.osc_phase, b.osc_phase) == (0.0, pytest.approx(3.14159, abs=1e-3)) and a.osc_jitter_em > 0
 
 
-def test_8_repetition_grows_across_choruses(lib):
+def test_8_choruses_look_identical(lib):
     plan = fx(lib, "vivir para siempre", "vivir para siempre", "vivir para siempre")
     a, b, c = (plan.get(i, 2).params for i in range(3))  # la frase vive en su última palabra
-    assert (a.repeat_n, b.repeat_n, c.repeat_n) == (0, 1, 2)
-    assert c.sparkle > 0 and a.sparkle == 0
+    assert (a.repeat_n, b.repeat_n, c.repeat_n) == (0, 1, 2)  # solo la etiqueta de depuración cuenta las repeticiones
+    assert a.sparkle == b.sparkle == c.sparkle
+    assert a.seed == b.seed == c.seed
 
 
 def test_9_stars_sparkle(lib):

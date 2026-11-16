@@ -6,10 +6,11 @@ import pytest
 from marea.wordfx import library
 from marea.wordfx.lexicon import lemma_candidates, normalize
 
+NEW_EMOTIONS = {"hope", "loneliness", "desire", "freedom", "death", "scream", "whisper", "breath"}
 EMOTIONS = {"sadness", "anguish", "numbness", "loss", "longing", "memory", "tenderness", "love", "joy", "healing",
-            "calm", "fear", "anger", "intoxication", "growth"}
+            "calm", "fear", "anger", "intoxication", "growth", *NEW_EMOTIONS}
 ELEMENTS = {"time", "celestial", "air", "cloud", "photo", "earth", "water", "fire", "dryness", "dream", "shadow", "craft", "broken",
-            "spring", "summer", "autumn", "winter"}
+            "spring", "summer", "autumn", "winter", "light", "electric", "cold"}
 MONTHS = {"january", "february", "march", "april", "may", "june",
           "july", "august", "september", "october", "november", "december"}
 
@@ -44,7 +45,7 @@ def test_all_categories_present_with_kind(lib):
 
 def test_lemma_counts(lib):
     for name, c in lib.categories.items():
-        need = 35 if name in EMOTIONS else (1 if name in MONTHS else 20)
+        need = (20 if name in NEW_EMOTIONS else 35) if name in EMOTIONS else (1 if name in MONTHS else 20)
         for lang in library.LANGS:
             assert len(c.lemmas.get(lang, ())) >= need, (name, lang, len(c.lemmas.get(lang, ())))
 

@@ -1,5 +1,6 @@
 import itertools
 import pickle
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -38,11 +39,13 @@ def test_plan_composes_every_match_with_bleed_between_neighbors(lib):
     assert tiempo.params.color_to != tiempo.params.color_from  # «perdido» contagia a «tiempo»
 
 
-def test_repeated_line_evolves_instead_of_repeating(lib):
+def test_repeated_line_looks_identical(lib):
     plan = build_plan(Lyrics([line_of("para siempre perder", start=0), line_of("para siempre perder", start=5000)]), lib, track_id="t1")
     first, second = plan.get(0, 2), plan.get(1, 2)
     assert (first.params.repeat_n, second.params.repeat_n) == (0, 1)
-    assert first.params != second.params
+    assert first.params.seed == second.params.seed
+    same = lambda p: replace(p, repeat_n=0, vanish_s=0.0, bleed_donor_s=0.0, bleed_donor_end_s=0.0, handoff_overlap_s=0.0)  # timestamps, not look
+    assert same(first.params) == same(second.params)
 
 
 def test_plan_is_deterministic_and_picklable(lib):

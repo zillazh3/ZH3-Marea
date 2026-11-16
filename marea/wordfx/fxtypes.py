@@ -64,7 +64,7 @@ class FxParams:
     zeta: float = 1.0  # spring damping ratio (1.0 critically damped; 0.75..0.9 for joy/love)
     is_hero: bool = True  # hero words get pre-onset anticipation
     is_bg: bool = False  # background vocal (30-50% amplitude)
-    tier: str = "hero"  # hero | support | ambient
+    tier: str = "strong"  # strong | light | support | ambient
     bleed_donor_s: float = -1.0  # donor begin_s (>=0 enables spring-eased bleed arrival)
     bleed_donor_end_s: float = -1.0
     handoff_overlap_s: float = 0.32  # 0.25..0.40 s line release/anticipation overlap
@@ -81,6 +81,13 @@ class FxParams:
     particle_kind: str = "dust"  # dust | petal | firefly | leaf | snow | ember | raindrop | tear | crimson | bubble | mist | shard | wisp | seed | spark | ...
     sparkle_style: str = "star"  # star | celestial | ember | buoyant | bokeh | flare
     motif: str = ""  # optional subtle word-level atmospheric motif (e.g. threshold | gust | corona | equinox | vigil)
+    tint_spread: str = ""  # "" | frost (colour spreads letter by letter, left to right) | ink (spreads out from the centre of the word)
+    scatter_em: float = 0.0  # letters drift out along a small arc on the attack and reassemble (peak distance); strong words only
+    glitch: float = 0.0  # 0..1 rare soft glitch during the sustain (electric / digital words only)
+    shimmer: float = 0.0  # 0..1 extra glow on the letters the fill is passing through: light sweeping across the word
+    glow_gain: float = 1.0  # per-category multiplier on the FX glow (config.glow_by_category)
+    streak: float = 0.0  # 0..1 strength of the micro light streak (0 = off); config.streak_by_category x intensity
+    variant: str = ""  # "category.name" of the look picked for this word (see variants.py); "" for ambient/background words
 
 
 @dataclass(frozen=True, slots=True)

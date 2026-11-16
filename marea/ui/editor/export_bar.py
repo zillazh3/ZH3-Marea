@@ -68,6 +68,8 @@ class ExportBarController:
         ed.act_fx_sep = m.addSeparator()
         ed.act_fxprofile = m.addAction("Perfil de la canción (efectos por palabra)…", ed._open_fx_profile)
         ed.act_fxprofile.setVisible(False)
+        ed.act_fxgallery = m.addAction("Galería de efectos…", ed._open_fx_gallery)
+        ed.act_fxgallery.setVisible(False)
         ed.act_fx_sep.setVisible(False)
         m.aboutToShow.connect(self.sync_menu)
         m.aboutToShow.connect(self.probe_nvenc)
@@ -80,6 +82,7 @@ class ExportBarController:
         ed.act_sync_sep.setVisible(on)
         fx = ed.settings.value("experimental/wordfx", False, type=bool)
         ed.act_fxprofile.setVisible(fx)
+        ed.act_fxgallery.setVisible(fx)
         ed.act_fx_sep.setVisible(fx)
         for key, actions in (("export/preset", ed.preset_actions), ("export/encoder", ed.encoder_actions)):
             current = ed.settings.value(key)

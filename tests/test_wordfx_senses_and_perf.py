@@ -102,7 +102,7 @@ def test_clitic_bridged_negation_preserves_distance3_non_clitic_boundary(lib, rl
     assert _match(lib, rls, "no me dejes caer") == []  # sadness cancelled via clitic "me"
     # Main verb at distance 3 must remain unnegated (contract with test_wordfx_rules.py)
     ms = _match(lib, rls, "no puedo ya respirar")
-    assert [(m.lemma, m.categories) for m in ms] == [("respirar", ("calm",))]
+    assert [(m.lemma, m.categories) for m in ms] == [("respirar", ("calm", "breath"))]
 
 
 @pytest.mark.parametrize("text,expected_cats", [

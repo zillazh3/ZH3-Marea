@@ -9,7 +9,7 @@ from marea.engine.engine import Engine, Params
 from marea.engine.tuning import TUNING
 from marea.render import scene as scene_mod
 from marea.render.scene import BLOOM_STEPS, Scene, Style
-from marea.wordfx.render import _GLOW_SIGMAS
+from marea.wordfx import config
 
 T_MID_LINE = 10300  # "las luces" is sung, "se derriten en" is not yet (see the rendered frame)
 SUNG, UNSUNG = (slice(340, 400), slice(45, 195)), (slice(340, 400), slice(215, 405))  # (rows, cols) at 540x960
@@ -66,7 +66,7 @@ def test_halo_is_tinted_by_the_cover_not_pure_white(monkeypatch):
 
 
 def test_glow_layers_are_large_enough_not_to_clip_the_widest_halo():
-    widest = 3 * max(_GLOW_SIGMAS)  # em: a halo is visible out to ~3 sigma
+    widest = 3 * max(config.FX.glow_sigmas)  # em: a halo is visible out to ~3 sigma
     max_offset = 0.08  # em: largest semantic displacement (wordfx.anim max_off, held hero word)
     assert TUNING.glow_pad_em >= widest + max_offset
 

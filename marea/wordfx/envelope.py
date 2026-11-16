@@ -5,7 +5,7 @@ Phases:
 2. attack (per letter, keyed to fill-front crossing): spring rise to sustain target
 3. sustain (word duration d): Accent (<250ms), Normal (250-700ms), Held (>700ms, log(d) capped)
 4. release (400-900 ms after word end): category-dependent decay into residue
-5. residue (while line is active): 10-25% settled level
+5. residue (while line is active): category level x config residue_gain (default 0: the word is back to the plain look)
 6. fade (line becomes inactive): fades with base line dim/blur, leaving ~5% past-line tint
 """
 import math
@@ -13,23 +13,13 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from marea.engine.tuning import TUNING
+from marea.wordfx import config
 from marea.wordfx._math import clamp as _clamp, smoothstep
 from marea.wordfx.springs import CachedSpringCurve
 
 _ENVELOPE_CURVES: OrderedDict[tuple, CachedSpringCurve] = OrderedDict()
 _MAX_ENVELOPE_CURVES = 4096
 
-ACCENT_MAX_S = 0.25
-HELD_MIN_S = 0.70
-ACCENT_AMP = 0.40
-HELD_AMP_CAP = 1.85
-ANTICIPATION_S = TUNING.anticipation_s  # same constant as the line lookahead: word and line react together
-ANTICIPATION_AMP = 0.13
-MIN_RELEASE_S = 0.40
-MAX_RELEASE_S = 0.90
-MIN_RESIDUE = 0.10
-MAX_RESIDUE = 0.25
-PAST_LINE_TINT = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,11 +34,12 @@ class EnvelopeSample:
 
 def duration_mode(dur_s: float) -> tuple[str, float]:
     """Return `(mode, sustain_peak)` for word duration `dur_s`."""
-    if dur_s < ACCENT_MAX_S:
-        return "accent", ACCENT_AMP
-    if dur_s <= HELD_MIN_S:
+    fx = config.FX
+    if dur_s < fx.accent_max_s:
+        return "accent", fx.accent_amp
+    if dur_s <= fx.held_min_s:
         return "normal", 1.0
-    held_scale = min(HELD_AMP_CAP, 1.0 + 0.45 * math.log1p((dur_s - HELD_MIN_S) / 0.50))
+    held_scale = min(fx.held_amp_cap, 1.0 + 0.45 * math.log1p((dur_s - fx.held_min_s) / 0.50))
     return "held", held_scale
 
 
@@ -73,7 +64,7 @@ def _raw_target(
         if not is_hero or anticipation_s <= 0.0:
             return 0.0
         u = smoothstep(anti_start, b0, t)
-        return ANTICIPATION_AMP * u
+        return config.FX.anticipation_amp * u
     if t <= b1:
         return peak
     rel_end = b1 + release_s
@@ -97,7 +88,7 @@ def sample_envelope(
     residue_level: float = 0.16,
     line_end_s: float | None = None,
     line_act: float | None = None,
-    anticipation_s: float = ANTICIPATION_S,
+    anticipation_s: float = TUNING.anticipation_s,  # same constant as the line lookahead: word and line react together
     fade_s: float = 0.45,
     zeta: float = 1.0,
     freq_hz: float = 3.2,
@@ -113,8 +104,9 @@ def sample_envelope(
     b1_eff = b0 + dur
     mode, peak = duration_mode(dur)
     on_t = b0 if letter_on_t is None else (b0 if letter_on_t < b0 else (b1_eff if letter_on_t > b1_eff else letter_on_t))
-    rel_s = MIN_RELEASE_S if release_s < MIN_RELEASE_S else (MAX_RELEASE_S if release_s > MAX_RELEASE_S else release_s)
-    res = MIN_RESIDUE if residue_level < MIN_RESIDUE else (MAX_RESIDUE if residue_level > MAX_RESIDUE else residue_level)
+    fx = config.FX
+    rel_s = _clamp(release_s, fx.min_release_s, fx.max_release_s)
+    res = _clamp(residue_level, fx.min_residue, fx.max_residue) * fx.residue_gain  # 0 by default: back to the plain look after the release
     anti_s = _clamp(anticipation_s, 0.0, 0.25) if is_hero else 0.0
     l_end = (b1_eff + rel_s + 1.5) if line_end_s is None else (b1_eff if line_end_s < b1_eff else line_end_s)
 
@@ -130,7 +122,7 @@ def sample_envelope(
         q_dur = round(dur, 3)
         q_peak = round(peak, 3)
         # Shift to relative time (t - b0) and quantize metric slots so spring curves are shared across matching durations
-        key = (q_dur, rel_on, q_peak, is_hero, anti_s, rel_s, res, rel_l_end, fade_s, zeta, freq_hz)
+        key = (q_dur, rel_on, q_peak, is_hero, anti_s, rel_s, res, rel_l_end, fade_s, zeta, freq_hz, fx.anticipation_amp)
         curve = _ENVELOPE_CURVES.get(key)
         if curve is None:
             def target_fn(
@@ -175,11 +167,11 @@ def sample_envelope(
 
     # Past lines retain ~5% residual tint so the emotional trail stays visible while scrolling up
     if phase == "fade":
-        tint = max(PAST_LINE_TINT * min(1.0, peak), amp)
+        tint = max(fx.past_line_tint * min(1.0, peak), amp)
     elif line_act is not None and t > b1_eff + rel_s:
         act = _clamp(line_act, 0.0, 1.0)
         amp *= act
-        tint = max(PAST_LINE_TINT, amp)
+        tint = max(fx.past_line_tint, amp)
     else:
         tint = amp
 

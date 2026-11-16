@@ -8,21 +8,16 @@ from functools import lru_cache
 
 import skia
 
-from marea.engine.tuning import TUNING
+from marea.wordfx import config
 from marea.wordfx._math import lerp_rgb, smoothstep
 from marea.wordfx.anim import LetterState, echoes, particles, strain_boost, word_letter_states
 from marea.wordfx.contrast import adapt_params
 from marea.wordfx.fxtypes import CarrierWord, FxParams, FxWord
 
-GHOSTS = ((0.12, 0.1), (0.08, 0.2), (0.04, 0.35))  # (retraso s, alpha base): del más viejo al más reciente
-GLOW_ASC, GLOW_DESC = 1.0, 0.4  # em sobre/bajo la línea base que cubre la imagen del glow
-_GLOW_SIGMAS = (0.085, 0.135, 0.215)  # tight | standard | wide atmospheric bloom tiers (em)
 HALO_SIGMA = 0.035  # em; halo suave de cada mota
 GRAIN_VARIANTS = 16
 GRAIN_TILE = 128
 CENTER_Y = 0.35  # em sobre la línea base: centro vertical en el que giran/escalan las letras
-FRACTURE_GAP = 0.08  # em de separación final entre mitades
-FRACTURE_ROT = 4.0  # grados por mitad a fracture=1
 CHROMA_MIN_PX = 0.3
 BLUR_MIN_PX = 0.4
 
@@ -75,14 +70,19 @@ def _word_blobs(fonts, text: str, size: float) -> tuple[skia.TextBlob, ...]:
 
 
 @lru_cache(maxsize=240)  # ~0.4 MB max at 60 px across 3 spread tiers
-def _glow_image(fonts, ch: str, size: float, w: float, tier: int = 1) -> tuple[skia.Image, int]:
-    """Pre-blurred white glyph sprite cached by `(fonts, ch, size, tier)` (zero per-frame blur cost)."""
-    sigma = _GLOW_SIGMAS[tier] * size
+def _glow_sprite(fonts, ch: str, size: float, w: float, sigma_em: float, asc: float, desc: float) -> tuple[skia.Image, int]:
+    """Pre-blurred white glyph sprite cached by its full geometry (zero per-frame blur cost); config changes just miss the cache."""
+    sigma = sigma_em * size
     pad = math.ceil(3 * sigma)
-    surf = skia.Surface(math.ceil(w) + 2 * pad, math.ceil((GLOW_ASC + GLOW_DESC) * size) + 2 * pad)
-    surf.getCanvas().drawTextBlob(fonts.text(ch, size)[0], pad, pad + GLOW_ASC * size, skia.Paint(
+    surf = skia.Surface(math.ceil(w) + 2 * pad, math.ceil((asc + desc) * size) + 2 * pad)
+    surf.getCanvas().drawTextBlob(fonts.text(ch, size)[0], pad, pad + asc * size, skia.Paint(
         AntiAlias=True, Color=skia.ColorWHITE, MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, sigma)))
     return surf.makeImageSnapshot(), pad
+
+
+def _glow_image(fonts, ch: str, size: float, w: float, tier: int = 1) -> tuple[skia.Image, int]:
+    fx = config.FX
+    return _glow_sprite(fonts, ch, size, w, fx.glow_sigmas[tier], fx.glow_asc, fx.glow_desc)
 
 
 def _glow_tier(glow_spread: float) -> int:
@@ -153,8 +153,8 @@ def _body(canvas, blob, lx, base, size, w, color, fr, chroma, flip, h_slant, sc:
     for h in halves:
         canvas.save()
         if h:
-            canvas.translate(h * fr * FRACTURE_GAP * size / 2, 0)
-            canvas.rotate(h * fr * FRACTURE_ROT * flip, cx, cy)
+            canvas.translate(h * fr * config.FX.fracture_gap * size / 2, 0)
+            canvas.rotate(h * fr * config.FX.fracture_rot_deg * flip, cx, cy)
             s, top, bot, pad = h_slant * size, base - 1.3 * size, base + 0.5 * size, 0.5 * size
             edge = lx - pad if h < 0 else lx + w + pad
             path.rewind()
@@ -180,7 +180,9 @@ def _enter(canvas, st: LetterState, cx, cy, size, dx_extra: float = 0.0, dy_extr
     canvas.translate(cx + (st.dx + dx_extra) * size, cy + (st.dy + dy_extra) * size)
     if st.rot_deg:
         canvas.rotate(st.rot_deg)
-    if st.scale != 1.0:
+    if st.stretch:  # squash & stretch keeps the area: width / (1 + s), height * (1 + s)
+        canvas.scale(st.scale / (1.0 + st.stretch), st.scale * (1.0 + st.stretch))
+    elif st.scale != 1.0:
         canvas.scale(st.scale, st.scale)
     canvas.translate(-cx, -cy)
 
@@ -657,6 +659,23 @@ def _draw_motif(canvas: skia.Canvas, p, x: float, base: float, width: float, siz
         sc.core.setBlendMode(plus_m)
         sc.core.setColor(_argb((255, 250, 240), a * 1.15))
         canvas.drawCircle(cx, y_eq, max(1.0, 0.045 * size), sc.core)
+    elif motif == "ripple":
+        a = a_base * 0.30 * min(1.0, front_u + 0.1)
+        if a < 0.01:
+            return
+        span = width * min(1.0, max(0.1, front_u))
+        path, y0, amp = sc.path1, base + 0.16 * size, 0.022 * size
+        path.rewind()
+        steps = max(4, min(28, int(span / (0.12 * size))))
+        for k in range(steps + 1):
+            px = x + span * k / steps
+            py = y0 + amp * math.sin(2.0 * math.pi * (px - x) / (0.9 * size) - 2.4 * t)
+            path.moveTo(px, py) if k == 0 else path.lineTo(px, py)
+        sc.stroke.setBlendMode(plus_m)
+        sc.stroke.setStrokeCap(skia.Paint.kRound_Cap)
+        sc.stroke.setStrokeWidth(max(1.0, 0.026 * size))
+        sc.stroke.setColor(_argb(gcol, a))
+        canvas.drawPath(path, sc.stroke)
     elif motif == "vigil":
         pulse = 0.85 + 0.15 * math.sin(2.8 * t)
         a = a_base * 0.24 * pulse * min(1.0, front_u + 0.2)
@@ -699,6 +718,59 @@ def draw_word_particles(canvas: skia.Canvas, fx: FxWord, letters: Sequence[Lette
             continue
         _draw_particle(canvas, q, x + q.x_em * size, base + q.y_em * size, q.r_em * size, size,
                        halo, df, sc, alpha_scale=wipe_alpha)
+
+
+STREAK_Y_EM = 0.26  # em above the baseline: the middle of the x-height, so the line runs THROUGH the letters, not under them
+_STREAK_TRAIL_STOPS = (0.0, 0.25, 0.5, 0.75, 1.0)  # samples of the fading trail (tail -> head)
+_STREAK_FRONT_STOPS = (0.33, 0.66, 1.0)  # samples of the short taper in front of the head
+
+
+def streak_alpha(p: FxParams, t: float, b0: float, b1: float) -> float:
+    """Lifecycle 0..1 of the streak: appears with the attack, lives while the word is sung, fades out completely in the release."""
+    rel = max(0.05, p.release_s)
+    return smoothstep(b0 - 0.05, b0 + 0.10, t) * (1.0 - smoothstep(b1, b1 + rel, t))
+
+
+def streak_geometry(x: float, width: float, size: float, front_u: float) -> tuple[float, float, float]:
+    """(tail, head, tip) in px. The head rides the fill front; the tip tapers ahead of it, the tail trails behind it; both may
+    overshoot the word's edges by `streak_overshoot_em` and no more, so the line never reaches a neighbouring word."""
+    cfg = config.FX
+    head = x + min(1.0, max(0.0, front_u)) * width
+    ov = cfg.streak_overshoot_em * size
+    return (max(x - ov, head - cfg.streak_trail_em * size), head, min(x + width + ov, head + cfg.streak_front_em * size))
+
+
+def draw_word_streak(canvas: skia.Canvas, fx: FxWord, x: float, base: float, width: float, size: float, t: float,
+                     front_u: float, *, res_scale: float = 1.0, wipe_alpha: float = 1.0,
+                     adapted_params: FxParams | None = None, dark_factor: float | None = None) -> None:
+    """Micro light streak: a very thin, faint horizontal line through the middle of the word, brightest at the fill head, with a
+    short taper ahead of it and a longer trail behind that dissolves. Drawn on the overlay (outside the text wipe), never moves layout."""
+    p = adapted_params if adapted_params is not None else fx.params
+    cfg = config.FX
+    if p.streak <= 0.0 or width <= 0.0 or wipe_alpha <= 0.003:
+        return
+    b0, b1 = fx.match.begin_ms / 1000.0, fx.match.end_ms / 1000.0
+    df = 1.0 if dark_factor is None else dark_factor
+    a = cfg.streak_opacity * p.streak * streak_alpha(p, t, b0, b1) * wipe_alpha * (0.4 + 0.6 * df)
+    if a < 0.004:
+        return
+    tail, head, tip = streak_geometry(x, width, size, front_u)
+    if tip - tail < 1.0:
+        return
+    gcol = p.glow_color if p.glow_color is not None else p.color_from
+    col = lerp_rgb(gcol, (255, 255, 255), cfg.streak_white_mix)  # near-white core with only a hint of the FX colour
+    span = tip - tail
+    stops = [(tail + (head - tail) * s, a * s ** cfg.streak_decay) for s in _STREAK_TRAIL_STOPS]
+    stops += [(head + (tip - head) * u, a * (1.0 - u) ** 2) for u in _STREAK_FRONT_STOPS]
+    pos = [(sx - tail) / span for sx, _ in stops]
+    pos[0], pos[-1] = 0.0, 1.0
+    y = base - STREAK_Y_EM * size
+    th = max(1.0, cfg.streak_thickness_px * res_scale)
+    paint = skia.Paint(AntiAlias=True, BlendMode=skia.BlendMode.kPlus if df > 0.05 else skia.BlendMode.kSrcOver)
+    for k, alpha_k in ((3.5, 0.22), (1.0, 1.0)):  # a faint soft bed under the thin core keeps the line from looking drawn
+        paint.setShader(skia.GradientShader.MakeLinear(
+            [(tail, 0), (tip, 0)], [_argb(col, min(1.0, sa * alpha_k)) for _, sa in stops], pos))
+        canvas.drawRect(skia.Rect.MakeLTRB(tail, y - th * k / 2, tip, y + th * k / 2), paint)
 
 
 def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Letter], x: float, base: float, size: float,
@@ -744,7 +816,7 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Lette
     if p.trail > 0.0 and not reduce:  # estela: copias sencillas en las posiciones pasadas
         any_ghost = c_letters is None or p.erode > 0.0 or any(cl.fill_p > 0.0 for cl in c_letters)
         if any_ghost:
-            for delay, a0 in GHOSTS:
+            for delay, a0 in config.FX.ghosts:
                 g_states = word_letter_states(
                     p, n, t - delay, b0, b1, rms, reduce, strain, onsets, c_letters, line_act, line_end_s,
                 )
@@ -778,10 +850,15 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Lette
     if any(s.glow > 0.02 for s in states):
         tier = _glow_tier(p.glow_spread)
         glow_paint = skia.Paint()
-        add_inner = df > 0.05 and p.glow_spread >= 0.45 and not reduce
+        fx = config.FX
+        # per-category gain x it builds toward the end of the word (peak near b1, the release settles it) x less on a bright background
+        build = 1.0 if reduce else fx.glow_build_start + (1.0 - fx.glow_build_start) * smoothstep(b0, b1, t)  # reduced motion: steady glow
+        gain = fx.glow_gain * p.glow_gain * build
+        gain *= 1.0 - (1.0 - df) * (1.0 - fx.glow_bright_floor)
+        add_inner = df > 0.05 and p.glow_spread >= 0.30 and not reduce
         plus_paint = skia.Paint(BlendMode=skia.BlendMode.kPlus) if add_inner else None
         for i, st in enumerate(states):
-            a = min(1.0, st.glow * 0.7 * TUNING.fx_glow_gain) * st.alpha * wipe_alpha
+            a = min(1.0, st.glow * 0.7 * gain) * st.alpha * wipe_alpha
             if c_letters is not None:
                 a *= min(1.0, 4.0 * c_letters[i].fill_p)  # the halo follows the fill: unsung letters do not glow
             if a < 0.01:
@@ -791,15 +868,15 @@ def draw_word_fx(canvas: skia.Canvas, fonts, fx: FxWord, letters: Sequence[Lette
             _enter(canvas, st, xs[i] + letters[i].w / 2, cy, size)
             glow_paint.setAlphaf(a)
             glow_paint.setColorFilter(_tint_cf(_argb(gcol, 1.0)))
-            canvas.drawImage(img, xs[i] - pad_g, base - GLOW_ASC * size - pad_g, _SAMP_LINEAR, glow_paint)
+            canvas.drawImage(img, xs[i] - pad_g, base - config.FX.glow_asc * size - pad_g, _SAMP_LINEAR, glow_paint)
             if plus_paint is not None and st.glow > 0.25:
                 a_plus = min(0.45, a * 0.42 * df * p.glow_spread)
                 if a_plus >= 0.01:
-                    inner_col = (255, 224, 150) if p.particle_kind == "ember" else lerp_rgb(gcol, (255, 255, 255), TUNING.glow_core_white)
+                    inner_col = (255, 224, 150) if p.particle_kind == "ember" else lerp_rgb(gcol, (255, 255, 255), config.FX.glow_core_white)
                     img0, pad0 = _glow_image(fonts, letters[i].ch, size, letters[i].w, 0)
                     plus_paint.setAlphaf(a_plus)
                     plus_paint.setColorFilter(_tint_cf(_argb(inner_col, 1.0)))
-                    canvas.drawImage(img0, xs[i] - pad0, base - GLOW_ASC * size - pad0, _SAMP_LINEAR, plus_paint)
+                    canvas.drawImage(img0, xs[i] - pad0, base - config.FX.glow_asc * size - pad0, _SAMP_LINEAR, plus_paint)
             canvas.restore()
 
     sigma = states[0].blur_em * size * 0.5
