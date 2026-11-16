@@ -4,22 +4,26 @@ Tiempo interno `t` en segundos, `now` en ms (para los retrasos del stagger). Se 
 a paso fijo, así que dos corridas iguales producen estados idénticos. El render lee `engine.items`.
 Las unidades de longitud son px de diseño (letra de 42 px) o em, según el campo.
 """
+import logging
 import math
 from dataclasses import dataclass
 from typing import Callable
 
 from marea.engine import curves, motion
-from marea.engine.curves import GLOW, L_SCALE, L_YOFF, SCALE, WIPE, YOFF, clamp01, smoothstep
+from marea.engine.curves import L_SCALE, L_YOFF, SCALE, WIPE, YOFF, clamp01, glow_curve, smoothstep
 from marea.engine.interlude import HIDDEN, interlude_snap, plan_interlude
 from marea.engine.layout import INACTIVE_SCALE, blur_level, pos_y_policy
 from marea.engine.springs import Spr, Spring
+from marea.engine.tuning import TUNING
 from marea.model.lyrics import Interlude, Line, Lyrics, Syllable
 
-LOOKAHEAD = 0.05  # s: una línea cuenta como activa 50 ms antes de empezar
+log = logging.getLogger(__name__)
+LOOKAHEAD = TUNING.anticipation_s  # s: una línea cuenta como activa este tiempo antes de empezar (ver engine/tuning.py)
 # Sílabas sostenidas (notas largas): de SUSTAIN_FROM a SUSTAIN_FULL s van de «normal» a «máximo énfasis»; a tope suben
 # SUSTAIN_LIFT× más, crecen SUSTAIN_SCALE× más sobre 1.0 y brillan SUSTAIN_GLOW más. Las breves se quedan como estaban.
 SUSTAIN_FROM, SUSTAIN_FULL = 0.45, 1.4
-SUSTAIN_SCALE, SUSTAIN_LIFT, SUSTAIN_GLOW = 1.0, 3.0, 0.6
+SUSTAIN_SCALE, SUSTAIN_LIFT, SUSTAIN_GLOW = TUNING.sustain_scale, TUNING.sustain_lift, TUNING.sustain_glow
+GLOW = glow_curve(TUNING.glow_peak_at, TUNING.glow_end_level)  # progress of the syllable 0..1 -> glow 0..1
 MIN_PLAN_MS = 1910  # duración mínima con la que plan_interlude arma la animación completa (entrada + relleno + salida de 1 s)
 APPROX_OVERLAP = 0.35  # letra por línea: cada palabra empieza a llenarse este tanto de su duración antes de que acabe la anterior
 
@@ -27,7 +31,7 @@ APPROX_OVERLAP = 0.35  # letra por línea: cada palabra empieza a llenarse este 
 @dataclass
 class Params:
     align: float = 0.35  # ancla vertical de la línea activa (fracción del alto)
-    stagger: float = 50.0  # ms por línea visible
+    stagger: float = TUNING.stagger_ms  # ms por línea visible
     blurm: float = 1.0
     float: bool = True  # springs por sílaba
     emph: bool = True  # letras en palabras largas
@@ -104,7 +108,9 @@ class Item:
         self.kind, self.index, self.src, self.start, self.end = kind, index, src, start, end
         self.y = Spring(0)
         self.s = Spring(INACTIVE_SCALE)
-        self.s.k, self.s.c = 100.0, 10.0
+        self.s.k, self.s.c = TUNING.line_scale_k, TUNING.line_scale_c
+        self.s.eps = 1e-4  # escala (~1.0): el umbral por defecto de 0.01 asentaba de golpe un 0.5 % = varios px en el borde de la línea
+        self.last_y = 0.0  # y del frame anterior: solo para detectar saltos de scroll
         self.h = 0.0
         self.on = False
         self.duet = False
@@ -174,6 +180,11 @@ def _words(syllables: list[Syllable], bg: bool, line_idx: int, approx: bool = Fa
                 we, parts[-1].e = we + ov, parts[-1].e + ov
         words.append(Word(parts, bg, wb, we, False, last, approx, word_index=wi))
     return words
+
+
+def _lift(y, gain):
+    """Scale only the upward part of a vertical offset (negative = up); the resting offset stays where the prototype put it."""
+    return y + min(0.0, y) * (gain - 1.0)
 
 
 def _prog(t, b, e):
@@ -266,12 +277,16 @@ class Engine:
         return True
 
     def warmup(self, t_ms, dt=1 / 60, preroll_ms=3000):
-        """Simula desde `preroll_ms` antes hasta `t_ms` para que los springs lleguen asentados."""
+        """Simulate from `preroll_ms` before `t_ms` so springs settle cleanly before frame 0."""
         from_ms = max(0, t_ms - preroll_ms)
         self.start(from_ms)
-        for _ in range(round((t_ms - from_ms) / 1000 / dt)):
-            self.advance(dt)
-        self.t = t_ms / 1000  # los pasos son enteros: alinea el tiempo exacto del primer frame
+        steps = round((t_ms - from_ms) / 1000 / dt)
+        if steps == 0:
+            self.advance(0.0, running=False)
+        else:
+            for _ in range(steps):
+                self.advance(dt)
+        self.t = t_ms / 1000  # keep integer frame alignment on the first frame
 
     # ---- layout ----
     def _find_active(self):
@@ -318,7 +333,7 @@ class Engine:
             if y + L.h >= 0:
                 delay += base
                 if i >= active:
-                    base /= 1.05
+                    base /= TUNING.stagger_decay
             plain = L.is_gap or L.is_credit  # ni escala 0.97, ni blur, ni la opacidad de línea inactiva
             on = L.on
             L.s.to(1.0 if on or not P.scale or plain else INACTIVE_SCALE, 0, now)
@@ -326,33 +341,43 @@ class Engine:
                 L.s.snap(L.s.t)
             blur = 0.0 if plain or on else blur_level(i, active, P.blurm)
             for tw, target in ((L.blur_tw, blur if blur > 0.01 else 0.0),
-                               (L.op_tw, 1.0 if plain or not on else 0.85),
+                               (L.op_tw, 1.0 if plain or not on else TUNING.active_opacity),
                                (L.act_tw, 1.0 if on else 0.0), (L.bgp_tw, 1.0 if on else 0.0),
                                (L.bgo_tw, 1.0 if on else 0.0)):
                 tw.snap(target) if reason == "init" else tw.to(target, now)
 
     # ---- por frame ----
     def _frame(self, dt):
+        tick = True  # False en el frame de un init/seek/config: ahí el scroll puede cambiar de golpe y no es un salto
         a = self._find_active()
         live = self._find_live(a)
         if a != self.active or live != self.live or self.seek_flag or self.config_flag:
             reason = ("init" if self.active == -1 else "seek" if self.seek_flag else
                       "config" if self.config_flag else "tick")
             self.active, self.live, self.seek_flag, self.config_flag = a, live, False, False
+            tick = reason == "tick"
             n = len(self.items)
             lo, hi = max(0, a - 1), min(n - 1, a + 1)
-            self._active_range = tuple(sorted(live | set(range(lo, hi + 1)))) if n else ()
+            near = set(live)
+            near.update(range(lo, hi + 1))
+            if tick or reason == "config":  # una línea que sale del rango sigue animándose hasta que se asienta: asentarla de golpe la hacía saltar
+                near.update(i for i in range(lo) if self.items[i].kind == "line" and self.t < self.items[i].end + TUNING.tail_settle_s)
+            self._active_range = tuple(sorted(near)) if n else ()
             self._relayout(reason, self.now)
             for i, L in enumerate(self.items):
-                self._render_item(L, i in live, dt if abs(i - a) <= 1 or i in live else 0.0)
+                self._render_item(L, i in live, dt if i in near else 0.0)
         else:
             for i in self._active_range:
                 self._render_item(self.items[i], i in live, dt)
         now = self.now
+        lim = TUNING.jump_log_em * self.font_px
         for L in self.items:
             sy = L.y
             if sy.pending is not None or sy.p != sy.t or sy.v != 0.0:
                 sy.step(dt, now)
+            if tick and abs(sy.p - L.last_y) > lim:
+                log.warning("scroll jump: t=%.3fs item=%d y %.1f -> %.1f px (limit %.1f) active=%d", self.t, L.index, L.last_y, sy.p, lim, self.active)
+            L.last_y = sy.p
             ss = L.s
             if ss.pending is not None or ss.p != ss.t or ss.v != 0.0:
                 ss.step(dt, now)
@@ -394,9 +419,9 @@ class Engine:
         t, P, snap = self.t, self.p, not dt
         fl, vib = P.float and not P.reduce, P.vib and not P.reduce
         ta = L.start - LOOKAHEAD
-        # la capa por carácter solo vive en la línea activa y sus vecinas (las únicas que se recalculan cada frame) y desde que la
-        # línea se activó: así lo que sale del rango deja de moverse en 0, nunca congelado a medias
-        pf = motion.resolve(P.motion, P.reduce, L.motion) if (abs(L.index - self.active) <= 1 or L.index in self.live) and t >= ta else None
+        # la capa por carácter vive desde que la línea se activa hasta que su cola termina (POST_MARGIN tras el fin): depende solo del
+        # tiempo, así que una línea que sale del rango termina su movimiento en vez de cortarse
+        pf = motion.resolve(P.motion, P.reduce, L.motion) if ta <= t <= L.end + motion.POST_MARGIN else None
         for wi, w in enumerate(L.words):
             dip = motion.enter_dip(pf, P.motion_amt, t, ta, wi) if pf else 0.0
             w.p = _prog(t, w.b, w.e)
@@ -419,7 +444,7 @@ class Engine:
                 if t < u.b:
                     gs, gy = SCALE(0), YOFF(0)
                 elif t < u.e:
-                    s, y = SCALE(raw), YOFF(raw)  # las notas largas suben y crecen más (solo por encima de 1.0 / de la posición base)
+                    s, y = SCALE(raw), _lift(YOFF(raw), TUNING.lift_gain)  # las notas largas suben y crecen más (solo por encima de 1.0 / de la posición base)
                     gs = s + max(0.0, s - 1.0) * SUSTAIN_SCALE * u.sus
                     gy = y + min(0.0, y) * SUSTAIN_LIFT * u.sus
                     gg = GLOW(raw) * (1 + SUSTAIN_GLOW * u.sus) if on else 0.0
@@ -427,7 +452,8 @@ class Engine:
             u.scale, u.y, u.x = s, y * bgk, 0.0
             u.wdy, u.wds = (motion.syllable(pf, P.motion_amt, t, u.b, u.e, len(u.text), u.sus, dip, u.y, s - 1.0)
                             if pf else None) or (None, None)
-            u.glow_r, u.glow_a = (4 + 2 * g, min(0.35 * g, 1.0)) if g > 0.01 else (0.0, 0.0)
+            u.glow_r, u.glow_a = ((TUNING.glow_radius + TUNING.glow_radius_gain * g, min(TUNING.glow_alpha * g, 1.0))
+                                  if g > 0.01 else (0.0, 0.0))
 
     def _render_emph_word(self, w, on, fl, vib, dip, bgk, t, dt, snap):
         P = self.p
@@ -450,7 +476,7 @@ class Engine:
                     dist = abs(i - ai)
                     fo, gfo = 1 / (1 + dist ** 2.8), 1 / (1 + dist * 0.9)
                     gs = L_SCALE(0) + (L_SCALE(ap) - L_SCALE(0)) * fo
-                    gy = L_YOFF(0) + (L_YOFF(ap) - L_YOFF(0)) * fo
+                    gy = L_YOFF(0) + (_lift(L_YOFF(ap), TUNING.letter_lift_gain) - L_YOFF(0)) * fo
                     gg = GLOW(ap) * gfo * (1.15 if w.last else 1.0)
                 elif t < w.e:
                     gs, gy = L_SCALE(0), L_YOFF(0)
@@ -463,7 +489,9 @@ class Engine:
             c.scale, c.y, c.x = s, y * 2 * bgk + vy, vx
             d = motion.limit(dip, c.y, motion.LIFT_CAP)  # las letras con énfasis ya tienen su propia animación: aquí solo la entrada
             c.wdy, c.wds = ([d], [0.0]) if d else (None, None)
-            c.glow_r, c.glow_a = (4 + 12 * g, min(1.85 * g * 0.55, 1.0)) if g > 0.01 else (0.0, 0.0)
+            c.glow_r, c.glow_a = ((TUNING.emph_glow_radius + TUNING.emph_glow_radius_gain * g, min(TUNING.emph_glow_alpha * g, 1.0))
+                                  if g > 0.01 else (0.0, 0.0))
+            c.glow_a *= min(1.0, 4.0 * c.p)  # the halo of a letter follows its own fill: nothing glows ahead of the wipe
 
     def _springs(self, u, gs, gy, gg, dt, snap):
         u.S.g, u.Y.g, u.G.g = gs, gy, gg

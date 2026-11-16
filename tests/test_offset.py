@@ -113,3 +113,80 @@ def test_silence_and_too_little_lyrics_give_clear_errors():
         align.detect_offset(synth(LY, 0), RATE, few)
     with pytest.raises(ValueError, match="silencio"):
         align.detect_offset(np.zeros(100, np.float32), RATE, LY)  # menos de una ventana
+
+
+def _harmonic_vocal_track(onsets_ms: list[float], duration_s: float, rate: int = RATE, offset_ms: float = 0.0) -> np.ndarray:
+    n = round(duration_s * rate)
+    x = np.zeros(n, np.float32)
+    t_seg = np.arange(round(0.18 * rate)) / rate
+    env = np.hanning(len(t_seg)).astype(np.float32)
+    tone = (0.4 * np.sin(2 * np.pi * 520 * t_seg) + 0.25 * np.sin(2 * np.pi * 1040 * t_seg)) * env
+    for ms in onsets_ms:
+        k = round((ms + offset_ms) / 1000.0 * rate)
+        if 0 <= k and k + len(tone) <= n:
+            x[k:k + len(tone)] += tone
+    return x
+
+
+def test_short_clip_and_antiphase_stereo_and_large_offset_edge_cases():
+    # < 0.51 s clip with non-zero audio must not crash on local_mean indexing
+    tiny = np.zeros(round(0.3 * RATE), np.float32)
+    tiny[500:700] = 0.2
+    with pytest.raises(ValueError, match="silencio|corto"):
+        align.detect_offset(tiny, RATE, LY)
+
+    # Anti-phase stereo (L = -R) with +4200 ms offset recovers exact offset instead of canceling to silence
+    t = 2000
+    lines = []
+    for i in range(16):
+        dur = 900 + (i * 370) % 700
+        lines.append(Line(t, t + dur, syllables=spread("hola mundo canto", t, t + dur)))
+        t += dur + 350 + (i * 290) % 600
+    ly = Lyrics(lines)
+    onsets = [s.begin for ln in ly.lines for s in ln.syllables]
+    mono = _harmonic_vocal_track(onsets, (t + 6000) / 1000.0, RATE, offset_ms=4200.0)
+    anti = np.stack([mono, -mono], axis=1)
+    d = align.detect_offset(anti, RATE, ly, max_lag_ms=10000.0)
+    assert d.reliable and d.offset_ms == pytest.approx(4200.0, abs=15.0)
+
+
+def test_instrumental_intro_center_focus_and_drift_rejection():
+    t_cur = 20000
+    lines = []
+    for i in range(20):
+        dur = 850 + (i * 310) % 650
+        lines.append(Line(t_cur, t_cur + dur, syllables=spread("voz clara aqui", t_cur, t_cur + dur)))
+        t_cur += dur + 300 + (i * 410) % 750
+    ly = Lyrics(lines)
+    onsets = [s.begin for ln in ly.lines for s in ln.syllables]
+    voc = _harmonic_vocal_track(onsets, (t_cur + 4000) / 1000.0, RATE, offset_ms=-3200.0)
+    # Add wide ambient stereo guitar bed during 20 s intro and throughout song
+    n = len(voc)
+    tt = np.arange(n) / RATE
+    bed = (0.35 * np.sin(2 * np.pi * 650 * tt) * (0.5 + 0.5 * np.sin(2 * np.pi * 1.5 * tt))).astype(np.float32)
+    stereo = np.stack([voc + bed, voc - bed], axis=1)
+    d = align.detect_offset(stereo, RATE, ly, max_lag_ms=10000.0)
+    assert d.reliable and d.offset_ms == pytest.approx(-3200.0, abs=20.0)
+
+    # Progressive timing drift (> 2 s between first and second half) is flagged unreliable
+    drifted_onsets = [ms + (2200.0 if idx >= len(onsets) // 2 else 0.0) for idx, ms in enumerate(onsets)]
+    drifted = _harmonic_vocal_track(drifted_onsets, (t_cur + 5000) / 1000.0, RATE, offset_ms=0.0)
+    d_drift = align.detect_offset(drifted, RATE, ly, max_lag_ms=10000.0)
+    assert not d_drift.reliable and d_drift.drift_ms is not None and d_drift.drift_ms > 250.0
+
+
+def test_vocal_stem_override_aligns_masked_mixture():
+    t_cur = 1000
+    lines = []
+    for i in range(18):
+        dur = 800 + (i * 290) % 600
+        lines.append(Line(t_cur, t_cur + dur, syllables=spread("dos palabras", t_cur, t_cur + dur)))
+        t_cur += dur + 320 + (i * 370) % 700
+    ly = Lyrics(lines)
+    onsets = [s.begin for ln in ly.lines for s in ln.syllables]
+    dur_s = (t_cur + 4000) / 1000.0
+    rng = np.random.default_rng(7)
+    mix = rng.normal(0, 0.4, (round(dur_s * RATE), 2)).astype(np.float32)
+    stem16 = _harmonic_vocal_track(onsets, dur_s, rate=16000, offset_ms=640.0)
+    d = align.detect_offset(mix, RATE, ly, max_lag_ms=3000.0, vocal_stem=stem16, vocal_rate=16000)
+    assert d.reliable and d.offset_ms == pytest.approx(640.0, abs=15.0)

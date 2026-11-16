@@ -693,7 +693,7 @@ class LabReviewWindow(QWidget):
         except A.AlignmentError as e:
             self._progress("La vista previa no es válida: " + str(e))
             return
-        self.editor.set_project(dataclasses.replace(self._orig_project, lyrics=lyrics))
+        self.editor.set_project(dataclasses.replace(self._orig_project, lyrics=lyrics, audio_offset_ms=0.0))
         self.notify("Vista previa cargada en el Editor. El archivo original no se tocó.", "info")
 
     def _back(self):

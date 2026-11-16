@@ -363,7 +363,7 @@ def test_loopback_offset_is_a_global_setting(win):
     e.sl_offset.setValue(120)
     assert float(e.settings.value("audio/loopback_offset_ms")) == 120 and e.sl_offset.minimum() == -500
     e.cmb_source.setCurrentIndex(1)
-    assert e.sl_offset.minimum() == -3000 and e.sl_offset.value() == 0  # el del archivo es otro, por proyecto
+    assert e.sl_offset.minimum() == -15000 and e.sl_offset.maximum() == 15000 and e.sl_offset.value() == 0  # el del archivo es otro, por proyecto
 
 
 # ---------------- página de Exportaciones ----------------
@@ -695,3 +695,32 @@ def test_detect_reports_silence_without_changing_the_choice(win, monkeypatch):
     body._detect()
     assert until(lambda: win.toasts.count() >= before + 2 and body.btn_detect.isEnabled())
     assert win.settings.value("audio/device") == "Altavoces"
+
+
+def test_replace_audio_and_ttml_reset_stale_audio_offset(win, monkeypatch, tmp_path):
+    from marea.audio import local as local_mod
+
+    e = win.editor
+    wav1 = tmp_path / "a.wav"
+    wav2 = tmp_path / "b.wav"
+    sig = np.zeros((48000, 2), np.float32)
+    sig[1000] = 0.2
+    local_mod.write_wav(wav1, sig)
+    local_mod.write_wav(wav2, sig)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *_a, **_k: (str(wav1), "")))
+    e._choose_audio()
+    assert until(lambda: e.project.audio_file == wav1)
+    e.sl_offset.setValue(4200)
+    assert e.project.audio_offset_ms == 4200.0
+
+    # Replacing audio clears previous file offset
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *_a, **_k: (str(wav2), "")))
+    e._choose_audio()
+    assert until(lambda: e.project.audio_file == wav2)
+    assert e.project.audio_offset_ms == 0.0 and e.sl_offset.value() == 0
+
+    # Replacing TTML also clears stale audio offset
+    e.sl_offset.setValue(-2500)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *_a, **_k: (str(DEMO_TTML), "")))
+    e._replace_ttml()
+    assert e.project.audio_offset_ms == 0.0 and e.sl_offset.value() == 0

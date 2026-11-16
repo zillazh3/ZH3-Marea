@@ -89,7 +89,14 @@ def smoothstep_range(a, b, x):
 # Progreso de la sílaba 0→1 (Spicy Lyrics)
 SCALE = spline([(0, 0.95), (0.7, 1.0505), (1, 1)])
 YOFF = spline([(0, 0.01), (0.9, -1 / 60), (1, 0)])
-GLOW = spline([(0, 0), (0.15, 1), (0.6, 1), (1, 0)])
+GLOW = spline([(0, 0), (0.15, 1), (0.6, 1), (1, 0)])  # prototype shape (pinned by engine_refs.json); the engine uses glow_curve() below
 # Progreso de la letra activa en palabras con énfasis
 L_SCALE = spline([(0, 0.95), (0.7, 1.175), (1, 1)])
 L_YOFF = spline([(0, 0.01), (0.9, -1 / 56), (1, 0)])
+
+
+def glow_curve(peak_at: float, end_level: float):
+    """Glow over the syllable: builds smoothly to 1 at `peak_at` and ends at `end_level` (the engine's glow spring then fades it out).
+    Unlike GLOW it does not fall to 0 as the syllable finishes, so a held word keeps building instead of dimming mid-note."""
+    f = spline([(0, 0), (peak_at * 0.45, 0.5), (peak_at, 1), (1, end_level)])
+    return lambda x: min(1.0, f(x))

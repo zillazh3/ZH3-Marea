@@ -1,6 +1,8 @@
 """Preview 9:16 en vivo: mismo Scene y mismo motor que el export, a paso fijo de 1/60 s y resolución reducida."""
+from time import perf_counter
+
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QImage, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QFontDatabase, QImage, QKeySequence, QPainter, QPainterPath, QShortcut
 from PySide6.QtWidgets import QWidget
 
 from marea.engine.engine import Params
@@ -11,6 +13,7 @@ from marea.ui import theme
 DT = 1 / 60
 MAX_STEPS = 4  # si la ventana se congela, no intentar «recuperar» segundos de simulación de golpe
 SETTLE_MS = 1500  # tras un cambio estando en pausa se sigue dibujando hasta que los springs se asientan
+TICK_MS = 8  # el paso real lo marca el reloj; con 16 ms y DT=16.67 ms el temporizador se salta pasos y el scroll avanza a tirones
 
 
 class PreviewWidget(QWidget):
@@ -29,7 +32,10 @@ class PreviewWidget(QWidget):
         self.playing, self._frame, self._image = False, None, None
         self._acc, self._settle = 0.0, 0.0
         self._clock = QElapsedTimer()
-        self._timer = QTimer(self, interval=16, timerType=Qt.PreciseTimer)  # ~60 Hz UI pacing; el paso real lo marca el reloj
+        self._debug, self._frame_ms, self._frame_avg = False, 0.0, 0.0  # overlay F3 (solo preview, nunca en el export)
+        self._lag0: tuple[float, float] | None = None  # (reloj de pared, tiempo de la simulación) al empezar a reproducir
+        QShortcut(QKeySequence("F3"), self, activated=self.toggle_debug)
+        self._timer = QTimer(self, interval=TICK_MS, timerType=Qt.PreciseTimer)
         self._timer.timeout.connect(self._tick)
         self._video_frame_ready.connect(self._on_video_frame_ready, Qt.QueuedConnection)
 
@@ -132,6 +138,7 @@ class PreviewWidget(QWidget):
         if not self.scene:
             return
         offset_ms = min(max(0.0, offset_ms), self.duration)
+        self._lag0 = None
         self.scene.engine.warmup(self._range[0] + offset_ms)
         self._render()
         self.position.emit(offset_ms, self.duration)
@@ -141,6 +148,7 @@ class PreviewWidget(QWidget):
         if on == self.playing or (on and not self.scene):
             return
         self.playing = on
+        self._lag0 = None
         self._clock.restart()
         self._wake()
         self.playing_changed.emit(on)
@@ -163,6 +171,8 @@ class PreviewWidget(QWidget):
         self._acc = min(self._acc, DT)
         if not steps:
             return
+        if self.playing and self._lag0 is None:
+            self._lag0 = (perf_counter(), e.t - steps * DT)
         if self.playing and e.t * 1000 >= self._range[1]:
             self.seek(0)  # el clip se repite
             return
@@ -172,11 +182,18 @@ class PreviewWidget(QWidget):
         if not self.playing and (self._settle <= 0 or e.is_settled()):
             self._timer.stop()
 
+    def toggle_debug(self):
+        self._debug = not self._debug
+        self.update()
+
     def _render(self):
+        t0 = perf_counter()
         canvas = self._surface.getCanvas()
         self.scene.clip_start_ms = self._range[0]
         self.scene.render(canvas)
         self._frame = self.ctx.read_rgba(self._surface)
+        self._frame_ms = (perf_counter() - t0) * 1000
+        self._frame_avg += (self._frame_ms - self._frame_avg) * 0.1
         h, w = self._frame.shape[:2]
         self._image = QImage(self._frame.data, w, h, w * 4, QImage.Format_RGBA8888)
         self.update()
@@ -209,3 +226,30 @@ class PreviewWidget(QWidget):
             p.drawImage(box, self._image)
         else:
             p.fillRect(box, theme.qc(theme.current.surface))
+        if self._debug and self.scene:
+            self._paint_debug(p, box)
+
+    def _debug_lines(self) -> list[str]:
+        """Text of the F3 overlay. Lag = wall-clock minus simulated time since play began: the preview has no audio clock to drift
+        from, so this is the only way the picture can fall behind (ticks dropped by MAX_STEPS)."""
+        e = self.scene.engine
+        item, word = e.items[e.active], -1
+        for i, w in enumerate(item.words):
+            if w.b <= e.t:
+                word = i
+        lag = f"{((perf_counter() - self._lag0[0]) - (e.t - self._lag0[1])) * 1000:+.1f} ms" if self.playing and self._lag0 else "n/a"
+        return [f"t {e.t:8.3f} s   clip +{e.t * 1000 - self._range[0]:.0f} ms",
+                f"item {e.active}/{len(e.items) - 1} ({item.kind})   word {word}",
+                f"lag {lag}",
+                f"frame {self._frame_ms:5.1f} ms   avg {self._frame_avg:5.1f} ms"]
+
+    def _paint_debug(self, p: QPainter, box: QRectF):
+        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font.setPixelSize(max(10, int(box.width() / 34)))
+        p.setFont(font)
+        lines = self._debug_lines()
+        lh = p.fontMetrics().height()
+        p.fillRect(QRectF(box.left(), box.top(), box.width(), lh * len(lines) + 8), QColor(0, 0, 0, 170))
+        p.setPen(QColor(120, 255, 160))
+        for i, text in enumerate(lines):
+            p.drawText(int(box.left()) + 6, int(box.top()) + 4 + lh * (i + 1) - p.fontMetrics().descent(), text)

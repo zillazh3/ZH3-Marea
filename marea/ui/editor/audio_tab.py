@@ -17,7 +17,7 @@ from marea.ui.editor._pkg import pkg_attr
 from marea.ui.waveform import WaveformWidget
 from marea.ui.widgets import blocked_signals, make_button
 
-LOOPBACK_OFFSET_RANGE, LOCAL_OFFSET_RANGE = (-500, 500), (-3000, 3000)  # ms
+LOOPBACK_OFFSET_RANGE, LOCAL_OFFSET_RANGE = (-500, 500), (-15000, 15000)  # ms
 AUTO_RECORD_MS = 25_000
 AUDIO_FILTER = "Audio (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus);;Todos los archivos (*.*)"
 
@@ -163,6 +163,7 @@ class AudioController:
             ed._sync_auto_opening_trim()
             self.refresh_wave()
             ed._refresh_cinematic_tab()
+            ed._wordfx_sync()
         else:
             ed.settings.setValue("audio/loopback_offset_ms", v)
 
@@ -178,10 +179,13 @@ class AudioController:
             if p.audio_samples is None:
                 ed.notify("Elige primero un archivo de audio para medir el desfase.", "error")
                 return
-            samples = p.audio_samples
+            samples, audio_file = p.audio_samples, p.audio_file
 
             def job():
-                return align.detect_offset(samples, local.RATE, lyrics, 0.0, hi)
+                from marea.wordfx import audiofeat
+
+                stem = audiofeat.find_cached_stem(audio_file) if audio_file else None
+                return align.detect_offset(samples, local.RATE, lyrics, 0.0, hi, vocal_stem=stem)
 
             ed.notify("Midiendo el desfase…")
         else:
@@ -230,7 +234,7 @@ class AudioController:
                 "error",
             )
             return
-        v = round(d.offset_ms)
+        v = max(ed.sl_offset.minimum(), min(ed.sl_offset.maximum(), round(d.offset_ms)))
         ed.sl_offset.setValue(v)
         ed.notify(f"Desfase detectado: {v:+d} ms.", "ok")
 
@@ -261,7 +265,7 @@ class AudioController:
         project = ed.project
 
         def done(samples):
-            project.audio_file, project.audio_samples = Path(path), samples
+            project.audio_file, project.audio_samples, project.audio_offset_ms = Path(path), samples, 0.0
             if ed.project is project:
                 ed._sync_auto_opening_trim()
                 self.refresh()

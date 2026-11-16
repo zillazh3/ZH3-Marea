@@ -150,3 +150,24 @@ def test_waveform_and_segment_with_offset():
     assert seg.shape == (2 * RATE, 2) and seg[:100].max() == pytest.approx(0.8) and seg[1000:].max() == 0
     assert local.segment(s, 3500, 5000, fade_ms=0)[RATE:].max() == 0  # más allá del archivo: silencio
     assert local.waveform(np.zeros((0, 2), np.float32), 4).tolist() == [0, 0, 0, 0]
+
+
+@pytest.mark.parametrize("ext,codec", [("mp3", "libmp3lame"), ("m4a", "aac"), ("ogg", "libvorbis"), ("flac", "flac")])
+def test_ffmpeg_decode_preserves_impulse_timing_across_formats(tmp_path, ext, codec):
+    import subprocess
+    from marea.export.ffmpeg import find_ffmpeg
+
+    wav = tmp_path / "ref.wav"
+    out = tmp_path / f"ref.{ext}"
+    sig = np.zeros((RATE * 2, 2), np.float32)
+    t0 = round(0.5 * RATE)
+    pulse = np.hanning(96).astype(np.float32) * 0.85
+    sig[t0 - 48:t0 + 48] = pulse[:, None]
+    local.write_wav(wav, sig)
+    subprocess.run([find_ffmpeg(), "-y", "-i", str(wav), "-c:a", codec, str(out)],
+                   check=True, capture_output=True)
+    decoded = local.decode(out)
+    mono = np.abs(decoded).max(axis=1)
+    peak_idx = int(np.argmax(mono))
+    err_ms = abs(peak_idx - t0) / RATE * 1000.0
+    assert err_ms < 2.0, f"{ext} impulse timing error {err_ms:.2f} ms"

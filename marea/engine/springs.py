@@ -9,6 +9,7 @@ class Spring:
         self.t = p
         self.k = 100.0
         self.c = 10.0
+        self.eps = 0.01  # |p - meta| y |v| por debajo de esto se asientan de golpe: debe ser invisible en las unidades del spring
         self.pending = None  # (meta, instante en ms): retraso del stagger
 
     def to(self, target, delay_ms, now):
@@ -34,7 +35,7 @@ class Spring:
             a = -self.k * (self.p - self.t) - self.c * self.v
             self.v += a * h
             self.p += self.v * h
-        if abs(self.p - self.t) < 0.01 and abs(self.v) < 0.01:
+        if abs(self.p - self.t) < self.eps and abs(self.v) < self.eps:
             self.p = self.t
             self.v = 0.0
         return self.p

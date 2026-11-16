@@ -231,8 +231,10 @@ def test_preview_loads_the_aligned_lyrics_in_the_editor_and_back_restores_the_or
     rw, runner, _, win, _ = review
     aligned(rw, runner)
     original = win.editor.project
+    rw._orig_project.audio_offset_ms = 420.0
     rw.btn_preview.click()
     assert win.editor.project is not original and win.editor.project.lyrics is not original.lyrics
+    assert win.editor.project.audio_offset_ms == 0.0
     assert len(win.editor.project.lyrics.lines) == len(original.lyrics.lines)
     rw.btn_back.click()
     assert win.editor.project is original

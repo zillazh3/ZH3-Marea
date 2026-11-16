@@ -4,6 +4,7 @@ import pytest
 
 from marea.engine import curves
 from marea.engine.engine import LOOKAHEAD, SUSTAIN_LIFT, Engine
+from marea.engine.tuning import TUNING
 from marea.model.lyrics import Line, Lyrics, Syllable, parse_lrc
 
 
@@ -72,7 +73,8 @@ def test_sustained_syllable_rises_and_grows_more_than_a_short_one():
     held = word_of(engine_at(INDEPENDIENTE, 1600 + 0.9 * 1300)).parts[3]
     assert not word_of(engine_at(INDEPENDIENTE, 1000)).emph
     assert short.sus == 0 and held.sus > 0.9
-    assert short.Y.g == pytest.approx(-1 / 60) and held.Y.g == pytest.approx(-1 / 60 * (1 + SUSTAIN_LIFT * held.sus))
+    lift = -1 / 60 * TUNING.lift_gain  # prototype peak (-1/60 em) times the tunable gain
+    assert short.Y.g == pytest.approx(lift) and held.Y.g == pytest.approx(lift * (1 + SUSTAIN_LIFT * held.sus))
     s_short = word_of(engine_at(INDEPENDIENTE, 1000 + 0.7 * 200)).parts[0].S.g
     s_held = word_of(engine_at(INDEPENDIENTE, 1600 + 0.7 * 1300)).parts[3].S.g
     assert s_short == pytest.approx(curves.SCALE(0.7)) and s_held > s_short + 0.04
@@ -146,3 +148,11 @@ def test_interlude_finishes_exactly_when_the_next_line_takes_over():
     before.warmup(9000 - LOOKAHEAD * 1000 - 2)  # último instante con el interludio activo
     g = before.items[before.active]
     assert g.is_gap and g.phase == "salida" and g.grp_op < 0.05  # ya se desvaneció: no se corta a media salida
+
+
+def test_warmup_at_zero_initializes_frame_zero_layout():
+    lines = [Line(0, 1500, syllables=[syl("uno", 0, 1500)]), Line(2000, 3500, syllables=[syl("dos", 2000, 3500)])]
+    eng = Engine(Lyrics(lines), measure, 900)
+    eng.warmup(0)
+    assert eng.active == 0 and not eng.seek_flag
+    assert eng.items[0].on and eng.items[0].act == pytest.approx(1.0) and eng.items[0].opacity == pytest.approx(0.85)

@@ -580,7 +580,7 @@ class EditorPage(QWidget):
         except (ValueError, OSError) as e:
             self.notify(f"No pude abrir esa letra: {e} Usa un .ttml de Apple Music con tiempos por sílaba.", "error")
             return
-        self.set_project(replace(self.project, lyrics=lyrics, source=Path(path)))
+        self.set_project(replace(self.project, lyrics=lyrics, source=Path(path), audio_offset_ms=0.0))
 
     def _sync_auto_opening_trim(self):
         self._cinematic.sync_auto_opening_trim()
