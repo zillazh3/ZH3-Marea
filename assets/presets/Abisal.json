@@ -1,0 +1,50 @@
+{
+  "schema": "marea.preset",
+  "version": 1,
+  "name": "Abisal",
+  "description": "Oscura y profunda: acentos azul eléctrico y violeta sobre un fondo muy oscuro.",
+  "created": "2026-11-16T00:00:00",
+  "updated": "2026-11-16T00:00:00",
+  "tipografia": {
+    "font_family": "",
+    "font_frac": 0.066
+  },
+  "color": {
+    "text_rgb": "#E8F0FF",
+    "glow_rgb": "#5B6CFF",
+    "glow_gain": 1.3,
+    "bloom": true,
+    "bloom_gain": 1.3,
+    "dim_alpha": 0.16
+  },
+  "fondo": {
+    "source": "cover",
+    "bg_blur": 1.0,
+    "bg_veil": 0.5,
+    "bg_sat": 1.15,
+    "bg_speed": 0.8,
+    "loop": "repeat",
+    "fit": "cover",
+    "zoom": 1.0,
+    "pan_x": 0.0,
+    "pan_y": 0.0,
+    "dim": 0.25,
+    "blur": 0.0,
+    "saturation": 1.0,
+    "scrim": 0.0,
+    "cover_tint": 0.0
+  },
+  "efectos": {
+    "fx_intensity": 1.1,
+    "adapt_bg": true,
+    "motion": "auto",
+    "motion_amt": 1.0,
+    "blurm": 1.0,
+    "wob": 0.4,
+    "vib": true,
+    "emph": true
+  },
+  "marca_de_agua": {
+    "wm_alpha": 0.4
+  }
+}

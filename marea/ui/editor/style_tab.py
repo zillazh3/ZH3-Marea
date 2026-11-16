@@ -1,6 +1,7 @@
 """Style tab builder and handler for the Editor."""
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QScrollArea, QWidget
 
 from marea.engine.motion import MODES as MOTION_MODES
 from marea.ui import theme
@@ -25,6 +26,7 @@ def build_style_tab(editor, reduces_motion_fn) -> QWidget:
     form.setVerticalSpacing(theme.SPACE[2])
 
     ed = editor
+    ed._presets.build(form)
     ed.cb_bloom = QCheckBox("Bloom")
     ed.cb_vib = QCheckBox("Micro-vibrato")
     ed.cb_emph = QCheckBox("Letras en palabras largas")
@@ -105,4 +107,9 @@ def build_style_tab(editor, reduces_motion_fn) -> QWidget:
             ed.cmb_font.addItem(fam, fam)
     ed.cmb_font.currentIndexChanged.connect(ed._font_changed)
     form.addRow("Fuente", ed.cmb_font)
-    return w
+    scroll = QScrollArea()  # con el panel de Corrientes la pestaña ya no cabe sin desplazarse
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(w)
+    return scroll

@@ -27,7 +27,7 @@ a = Analysis(
     ["tools/launcher.py"],
     pathex=["."],
     binaries=skia[1] + audio[1],
-    datas=[("assets/fonts", "assets/fonts"), ("assets/icons", "assets/icons"), ("assets/wordfx", "assets/wordfx"),
+    datas=[("assets/fonts", "assets/fonts"), ("assets/icons", "assets/icons"), ("assets/wordfx", "assets/wordfx"), ("assets/presets", "assets/presets"),
            ("assets/logo/marea.svg", "assets/logo"), ("assets/logo/marea-16.svg", "assets/logo"),
            ("sidecar", "sidecar")] + skia[0] + audio[0],  # sidecar/: solo scripts y requisitos (unos KB); torch y los modelos NO entran al .exe
     hiddenimports=["keyring.backends.Windows", "win32ctypes.pywin32"] + skia[2] + audio[2],

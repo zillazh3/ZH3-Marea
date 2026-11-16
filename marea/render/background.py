@@ -31,16 +31,19 @@ LOWRES = 4  # en CPU el fondo (puro blur) se compone a 1/4 de resolución y se e
 
 
 class Background:
-    def __init__(self, cover: skia.Image, w: int, h: int, lowres: int = LOWRES):
-        """lowres=1 compone directo en el lienzo (GPU); en CPU conviene 4."""
+    def __init__(self, cover: skia.Image, w: int, h: int, lowres: int = LOWRES, blur: float = 1.0, veil: float = VEIL,
+                 sat: float = SAT, speed: float = 1.0):
+        """lowres=1 compone directo en el lienzo (GPU); en CPU conviene 4. blur/veil/sat/speed: multiplicador del desenfoque,
+        oscuridad del velo (0..1), saturación y velocidad del movimiento; los valores por omisión son el look de siempre."""
         self.full = (w, h)
+        self.veil, self.speed = veil, speed
         w, h = max(1, w // lowres), max(1, h // lowres)
         self.surface = skia.Surface(w, h) if lowres > 1 else None
         self.w, self.h = w, h
         diag = math.hypot(w, h)
         self.drift = DRIFT * diag
         self.size = (diag + 2 * self.drift) / (1 - SCALE_SWING)  # cubre el lienzo con cualquier giro y deriva
-        sigma = BLUR * w * RES / self.size  # el blur es 8 % del ancho en el lienzo
+        sigma = BLUR * blur * w * RES / self.size  # el blur es 8 % del ancho en el lienzo (× el multiplicador)
         cw, ch = cover.width(), cover.height()
         side = min(cw, ch)
         self.layers = []
@@ -53,7 +56,7 @@ class Background:
             c = s.getCanvas()
             src_side = side / zoom
             src = skia.Rect.MakeXYWH((cw - src_side) / 2, (ch - src_side) / 2, src_side, src_side)
-            paint = skia.Paint(ColorFilter=_saturation(SAT),
+            paint = skia.Paint(ColorFilter=_saturation(sat),
                                ImageFilter=skia.ImageFilters.Blur(sigma, sigma, skia.TileMode.kMirror))
             c.drawImageRect(cover, src, skia.Rect.MakeWH(RES, RES), self._sampling,
                             paint, skia.Canvas.kFast_SrcRectConstraint)
@@ -66,6 +69,7 @@ class Background:
         canvas.drawImageRect(self.surface.makeImageSnapshot(), self._full_rect, self._sampling)
 
     def _compose(self, canvas: skia.Canvas, t: float):
+        t = t * self.speed
         for img, paint, (period, direction, _, phase, _) in zip(self.layers, self._layer_paints, LAYERS):
             a = 2 * math.pi * t / period + phase
             canvas.save()
@@ -74,4 +78,4 @@ class Background:
             canvas.scale(*(1 + SCALE_SWING * math.sin(a * 1.3 + phase),) * 2)
             canvas.drawImageRect(img, self._layer_rect, self._sampling, paint)
             canvas.restore()
-        canvas.drawColor(skia.ColorSetARGB(round(VEIL * 255), 0, 0, 0))
+        canvas.drawColor(skia.ColorSetARGB(round(self.veil * 255), 0, 0, 0))

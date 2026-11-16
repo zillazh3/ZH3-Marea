@@ -2,7 +2,7 @@
 import copy
 import ctypes
 import sys
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSettings, QSize, Qt, Signal
@@ -32,7 +32,9 @@ from marea.export import ffmpeg
 from marea.export.ffmpeg import ALPHA_TARGETS, TARGETS
 from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range
 from marea.export.queue import AudioSpec, ExportQueue, QueueItem
+from marea.model.background import BackgroundConfig
 from marea.paths import default_output_dir
+from marea.presets import schema as preset_schema
 from marea.project import ClipProject, ProjectError, load_cover, load_project_file, project_from_ttml, save_project
 from marea.render.scene import Style
 from marea.ui import theme
@@ -41,6 +43,7 @@ from marea.ui.editor.audio_tab import AudioController
 from marea.ui.editor.cinematic_tab import CinematicController
 from marea.ui.editor.export_bar import ExportBarController
 from marea.ui.editor.meta_tabs import build_background_tab, build_watermark_tab
+from marea.ui.editor.presets_panel import PresetsController
 from marea.ui.editor.style_tab import build_style_tab
 from marea.ui.editor.wordfx_controller import WordFXController
 from marea.ui.preview import PreviewWidget
@@ -115,6 +118,7 @@ class EditorPage(QWidget):
         self._scrubbing = False
         self._last_time_text = ""
 
+        self._presets = PresetsController(self)
         self._cinematic = CinematicController(self)
         self._audio = AudioController(self)
         self._export_bar = ExportBarController(self)
@@ -335,6 +339,8 @@ class EditorPage(QWidget):
         self.first, self.last, self._anchor = 0, min(n - 1, DEFAULT_VERSES - 1), 0
         if editor_state:
             self._restore_editor_controls(editor_state, n)
+        self._presets.applied = str((editor_state or {}).get("preset") or "")
+        self._presets.refresh_list()
         self.subtitle.setText(self._title_text())
         self.stack.setCurrentIndex(1)
         self.btn_export.setEnabled(True)
@@ -359,6 +365,8 @@ class EditorPage(QWidget):
             "style": asdict(self.style),
             "params": asdict(self.params),
             "audio_source": self.cmb_source.currentData(),
+            "fx": {"fx_intensity": self.sl_fx.value() / 100, "adapt_bg": self.cb_fxbg.isChecked()},
+            "preset": self._presets.applied,
         }
 
     def _restore_editor_controls(self, state: dict, n_lines: int):
@@ -402,6 +410,48 @@ class EditorPage(QWidget):
         self.style.bloom = self.cb_bloom.isChecked()
         self.style.credit = self.cb_credit.isChecked()
         self.style.font_family = self.cmb_font.currentData() or ""
+        if "fx" in state:  # proyecto guardado con Corrientes: también recuerda sus campos nuevos (y la marca de agua)
+            wanted = preset_schema.from_state(state)
+            if self.cmb_font.findData(wanted["tipografia"].get("font_family", "")) < 0:
+                wanted["tipografia"].pop("font_family", None)  # esa fuente ya no está instalada: se queda la elegida arriba
+            style, params, bg, fx = preset_schema.apply(wanted, *self.look())
+            self.set_look(style, params, bg, fx, rebuild=False)
+
+    def look(self):
+        """(style, params, fondo, fx) actuales, copiados: lo que una Corriente captura, compara y modifica."""
+        bg = copy.copy(self.project.background) if self.project else BackgroundConfig()
+        return replace(self.style), replace(self.params), bg, preset_schema.FxSettings(self.sl_fx.value() / 100, self.cb_fxbg.isChecked())
+
+    def set_look(self, style: Style, params: Params, bg: BackgroundConfig, fx, rebuild: bool = True):
+        """Vuelca un look en los objetos y controles del editor. Los objetos se actualizan en sitio: la preview los comparte."""
+        for src, dst in ((style, self.style), (params, self.params)):
+            for f in fields(src):
+                setattr(dst, f.name, getattr(src, f.name))
+        for w, val in ((self.cb_bloom, style.bloom), (self.cb_vib, params.vib), (self.cb_emph, params.emph),
+                       (self.cb_fxbg, fx.adapt_bg), (self.cb_wm_glyph, style.wm_glyph)):
+            with blocked_signals(w):
+                w.setChecked(bool(val))
+        for cmb, data in ((self.cmb_motion, params.motion), (self.cmb_font, style.font_family or ""),
+                          (self.cmb_wm_side, style.wm_side)):
+            i = cmb.findData(data)
+            if i >= 0:
+                with blocked_signals(cmb):
+                    cmb.setCurrentIndex(i)
+        for sl, val in ((self.sl_blur, params.blurm * 10), (self.sl_wob, params.wob * 100), (self.sl_amt, params.motion_amt * 100),
+                        (self.sl_fx, fx.fx_intensity * 100)):
+            with blocked_signals(sl):
+                sl.setValue(round(val))
+        for srow in self._style_sliders:
+            srow.update_readout()
+        self.lb_fx.setText(f"{self.sl_fx.value()} %")
+        with blocked_signals(self.ed_wm):
+            self.ed_wm.setText(style.wm_text)
+        if self.project:
+            self.project.background = bg.clamped()
+        self._bgctl.refresh()
+        if rebuild:
+            self._wordfx_sync(rebuild=False)
+            self.preview.rebuild()
 
     def _load_saved_audio(self, project: ClipProject, audio_path: Path):
         def done(samples):
@@ -667,13 +717,21 @@ class EditorPage(QWidget):
     def _full_end_ms(self) -> float:
         return self._song_duration_ms()
 
-    def build_job(self, start_ms: float | None = None, end_ms: float | None = None, full: bool = False) -> ExportJob:
+    def build_job(self, start_ms: float | None = None, end_ms: float | None = None, full: bool = False,
+                  first: int | None = None, last: int | None = None, look_preset=None) -> ExportJob:
+        """`first`/`last`: versos del nombre del archivo (por omisión, la selección actual). `look_preset`: PresetInfo de una Corriente
+        que se aplica completa sobre copias del look actual (variantes A/B); el nombre de la Corriente va en el archivo."""
         preset = PRESETS.get(self.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])
         if start_ms is None:
             start_ms, end_ms = self._clip_range()
         target = self.settings.value("export/target", "mp4")
         target = target if target in TARGETS else "mp4"
-        background, style = copy.deepcopy(self.project.background), replace(self.style)
+        style, params, background, fx = self.look()
+        background = copy.deepcopy(background)
+        plan = self._fx_plan
+        if look_preset is not None:
+            style, params, background, fx = preset_schema.apply(look_preset.preset, style, params, background, fx)
+            plan = self._wordfx.plan_for(fx.fx_intensity, fx.adapt_bg)
         if target in ALPHA_TARGETS:
             background.source = "transparent"
             if not self.settings.value("export/alpha_watermark", True, type=bool):
@@ -681,7 +739,9 @@ class EditorPage(QWidget):
         elif background.transparent:
             background.source = "cover"
             self.notify("El fondo transparente solo aplica a WebM, ProRes o PNG: este MP4 salió con la portada.", "info")
-        name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (self.first, self.last)), target=target)
+        first, last = (self.first if first is None else first), (self.last if last is None else last)
+        name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (first, last)), target=target,
+                         tag=look_preset.name if look_preset is not None else "")
         return ExportJob(
             self.project.lyrics,
             self.project.cover_png(),
@@ -692,13 +752,39 @@ class EditorPage(QWidget):
             fps=60,
             encoder=self.settings.value("export/encoder") or ffmpeg.default_encoder(),
             marker=self.settings.value("export/marker", "none"),
-            params=replace(self.params),
+            params=params,
             style=style,
             background=background,
             target=target,
             cinematic=copy.copy(self.project.cinematic) if self.project.cinematic is None else copy.deepcopy(self.project.cinematic),
-            wordfx=self._fx_plan,
+            wordfx=plan,
         )
+
+    def enqueue_range(self, first: int, last: int, start_ms: float, end_ms: float, look_preset=None) -> QueueItem | None:
+        """Añade a la cola un rango explícito con los ajustes actuales (o con una Corriente): lo que usa Anzuelo.
+        «Canción completa» cuenta como «con canción»: aquí el rango lo manda la sugerencia."""
+        if not self.project:
+            return None
+        try:
+            ffmpeg.find_ffmpeg()
+            audio = None
+            if self.mode != "lyrics":
+                audio = self._audio_spec(start_ms, end_ms)
+                if audio is None:
+                    return None
+                audio.fade_out_ms = float(self.settings.value("export/outro_ms", TAIL_MS))
+            job = self.build_job(start_ms, end_ms, False, first, last, look_preset)
+            job.out_path.parent.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError as e:
+            self.notify(str(e), "error")
+            return None
+        except OSError as e:
+            self.notify(f"No pude crear la carpeta de salida ({e.strerror}). Elige otra en el menú de exportación.", "error")
+            return None
+        item = QueueItem(self.project.title, self.project.artist, job.cover_png, job, audio)
+        self.queue.add(item)
+        self.enqueued.emit(item)
+        return item
 
     def _audio_spec(self, start_ms: float, end_ms: float) -> AudioSpec | None:
         return self._audio.audio_spec(start_ms, end_ms)

@@ -1,0 +1,50 @@
+{
+  "schema": "marea.preset",
+  "version": 1,
+  "name": "Niebla",
+  "description": "Suave y calmada: fondo muy difuminado, poco contraste y movimiento tranquilo.",
+  "created": "2026-11-16T00:00:00",
+  "updated": "2026-11-16T00:00:00",
+  "tipografia": {
+    "font_family": "",
+    "font_frac": 0.066
+  },
+  "color": {
+    "text_rgb": "#F4F6FA",
+    "glow_rgb": null,
+    "glow_gain": 0.8,
+    "bloom": true,
+    "bloom_gain": 1.4,
+    "dim_alpha": 0.3
+  },
+  "fondo": {
+    "source": "cover",
+    "bg_blur": 1.8,
+    "bg_veil": 0.3,
+    "bg_sat": 0.9,
+    "bg_speed": 0.6,
+    "loop": "repeat",
+    "fit": "cover",
+    "zoom": 1.0,
+    "pan_x": 0.0,
+    "pan_y": 0.0,
+    "dim": 0.25,
+    "blur": 0.0,
+    "saturation": 1.0,
+    "scrim": 0.0,
+    "cover_tint": 0.0
+  },
+  "efectos": {
+    "fx_intensity": 0.7,
+    "adapt_bg": true,
+    "motion": "suave",
+    "motion_amt": 0.6,
+    "blurm": 1.6,
+    "wob": 0.4,
+    "vib": true,
+    "emph": true
+  },
+  "marca_de_agua": {
+    "wm_alpha": 0.4
+  }
+}

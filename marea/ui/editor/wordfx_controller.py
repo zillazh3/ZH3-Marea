@@ -76,6 +76,7 @@ class WordFXController:
         self._palette = (None, ())
         self._audio = (None, None)
         self._cached_base = None
+        self._plan_builder = None  # (intensidad, adapt_bg) -> FxPlan con lo ya medido: sirve a las variantes de Corrientes
         self._rev_seq = 0
         self._revs: dict[str, tuple[int, object]] = {}
 
@@ -207,26 +208,36 @@ class WordFXController:
                     raw_matches = match_lyrics(p.lyrics, lib, rules=rls)
                     profile = songs.load_profile(key) or classify(p.lyrics, lib, stats, track_id=key)
                     self._cached_base = (base_key, lib, rls, raw_matches, profile)
-                self.plan = build_plan(
+                palette = self._palette[1]
+                self._plan_builder = lambda intensity, adapt_bg: build_plan(
                     p.lyrics,
                     lib,
-                    intensity=ed.sl_fx.value() / 100,
+                    intensity=intensity,
                     track_id=p.track.id if p.track else "",
-                    palette=self._palette[1],
+                    palette=palette,
                     analysis=analysis,
                     profile=profile,
                     audio_stats=stats,
-                    adapt_bg=ed.cb_fxbg.isChecked(),
+                    adapt_bg=adapt_bg,
                     rules=rls,
                     matches=raw_matches,
                     audio_offset_ms=float(p.audio_offset_ms),
                 )
+                self.plan = self._plan_builder(ed.sl_fx.value() / 100, ed.cb_fxbg.isChecked())
                 self.profile = profile
                 self.state = state
             except (library.LibraryError, rules.RulesError, songs.SongError, ProfileError) as err:
                 self._cached_base = None
                 ed.notify(f"Efectos por palabra: {err} Se mantiene el plan anterior.", "error")
         ed.preview.set_wordfx(self.plan, state[1], rebuild=rebuild)
+
+    def plan_for(self, intensity: float, adapt_bg: bool):
+        """El plan de efectos con otra intensidad / adaptación al fondo (para una variante de Corriente); el actual si coincide."""
+        if self.plan is None or self._plan_builder is None:
+            return self.plan
+        if abs(self.plan.intensity - intensity) < 1e-9 and self.plan.adapt_bg == adapt_bg:
+            return self.plan
+        return self._plan_builder(intensity, adapt_bg)
 
     def open_gallery(self):
         """Debug window: one forced-FX sample word in a loop with live tuning sliders (modal, so the editor never shows its values)."""

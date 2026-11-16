@@ -48,10 +48,21 @@ class Style:
     wm_side: str = "left"  # "left" | "right"
     wm_glyph: bool = False  # tres ondas junto al texto
     credit: bool = True  # «Written by… / Provided by…» al final de la letra, como en Spicetify
+    # --- look (lo que una Corriente puede cambiar); los valores por omisión son el look de siempre ---
+    text_rgb: tuple = (255, 255, 255)  # color de la letra
+    glow_rgb: tuple | None = None  # None = el color dominante de la portada, acercado al blanco
+    glow_gain: float = 1.0  # × la opacidad del brillo de cada sílaba
+    bloom_gain: float = 1.0  # × TUNING.bloom_gain
+    dim_alpha: float = TUNING.dim_alpha  # brillo del texto inactivo
+    wm_alpha: float = 0.4  # opacidad de la marca de agua
+    bg_blur: float = 1.0  # × el desenfoque del fondo de portada
+    bg_veil: float = 0.22  # oscuridad del velo sobre el fondo de portada
+    bg_sat: float = 1.3  # saturación del fondo de portada
+    bg_speed: float = 1.0  # × la velocidad del movimiento del fondo de portada
 
 
 WM_SIZE = 0.022  # alto de la letra / alto del lienzo
-WM_ALPHA, WM_FADE_MS = 0.4, 600
+WM_FADE_MS = 600
 WM_BASELINE = 0.835  # por encima del 15 % inferior que tapa la interfaz de TikTok
 WM_RIGHT_MARGIN = 0.17  # fracción de `ref` que se deja libre a la derecha (columna de botones de TikTok)
 WM_DODGE = 0.7  # cuánto baja la opacidad al cruzarse con la línea activa
@@ -74,7 +85,9 @@ class Scene:
         self.style = style or Style()
         self.cover = cover
         self.fonts = Fonts(self.style.font_family)
-        self.bg = Background(cover, self.w, self.h, lowres=1 if gpu else 4)
+        st = self.style
+        self._bg_args = dict(blur=st.bg_blur, veil=st.bg_veil, sat=st.bg_sat, speed=st.bg_speed)
+        self.bg = Background(cover, self.w, self.h, lowres=1 if gpu else 4, **self._bg_args)
         self._async_video = async_video
         self._on_video_frame = on_video_frame
         self.cinematic_bg: CinematicBackground | None = None
@@ -94,7 +107,8 @@ class Scene:
                                               [_argb(0), _argb(1), _argb(1), _argb(0)], [0, 0.06, 0.90, 1])
         self._stage_fade_paint = skia.Paint(Shader=fade, BlendMode=skia.BlendMode.kDstIn)
         self._sampling_linear = skia.SamplingOptions(skia.FilterMode.kLinear)
-        self._p_white = skia.Paint(AntiAlias=True, Color=WHITE)
+        self._text_rgb = tuple(self.style.text_rgb)
+        self._p_white = skia.Paint(AntiAlias=True, Color=_argb(1.0, self._text_rgb))
         self._p_fill = skia.Paint(AntiAlias=True)
         self._p_wipe_fill = skia.Paint(AntiAlias=True)
         self._p_glow = skia.Paint(AntiAlias=True)
@@ -214,6 +228,8 @@ class Scene:
 
     def _glow_rgb(self) -> tuple[int, int, int]:
         """Halo colour: the cover's dominant colour pulled toward white, so it belongs to the background without looking muddy."""
+        if self._glow_tint is None and self.style.glow_rgb is not None:
+            self._glow_tint = tuple(self.style.glow_rgb)
         if self._glow_tint is None:
             from marea.wordfx.palette import dominant_colors
             img = self.cover.makeRasterImage() if self.cover.isTextureBacked() else self.cover  # a GPU texture cannot be read by the CPU sampler
@@ -228,7 +244,8 @@ class Scene:
         the alpha of the line is remapped so unsung text (alpha `da`) contributes nothing and sung text (`ba`) everything. The whole
         bloom scales with `act`, so it fades in and out with the line instead of popping."""
         lvl = round(min(1.0, max(0.0, act)) * BLOOM_STEPS)
-        if lvl == 0 or TUNING.bloom_gain <= 0.0:
+        bloom_gain = TUNING.bloom_gain * self.style.bloom_gain
+        if lvl == 0 or bloom_gain <= 0.0:
             return None
         key = (size, lvl)
         f = self._bloom_cache.get(key)
@@ -236,7 +253,7 @@ class Scene:
             if len(self._bloom_cache) >= 256:
                 self._bloom_cache.clear()
             k = lvl / BLOOM_STEPS
-            dim, unsung = TUNING.dim_alpha, TUNING.unsung_alpha_active
+            dim, unsung = self.style.dim_alpha, TUNING.unsung_alpha_active
             da, ba = dim + (unsung - dim) * k, dim + (1.0 - dim) * k
             gain = 1.0 / (ba - da)
             only_sung = skia.ImageFilters.ColorFilter(skia.ColorFilters.Matrix(
@@ -244,7 +261,7 @@ class Scene:
             outer_rgb = self._glow_rgb()
             inner_rgb = tuple(round(c + (255 - c) * 0.5) for c in outer_rgb)
             halos = [skia.ImageFilters.DropShadowOnly(0, 0, r * size / 2, r * size / 2,
-                                                      _argb(min(1.0, a * TUNING.bloom_gain * k), rgb), only_sung)
+                                                      _argb(min(1.0, a * bloom_gain * k), rgb), only_sung)
                      for (r, a), rgb in zip(BLOOM, (outer_rgb, inner_rgb))]
             f = self._bloom_cache[key] = skia.ImageFilters.Merge(halos + [None])
         return f
@@ -292,7 +309,7 @@ class Scene:
         (una vez por fotograma) y se promedia. Función pura de (portada, cinemático, t): preview y export ven lo mismo."""
         t = round(self.engine.t * PROBE_HZ) / PROBE_HZ  # el fondo cambia despacio: se muestrea a 10 Hz (sigue siendo función pura de t)
         if self._probe is None:
-            self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1), [None, None, None])
+            self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1, **self._bg_args), [None, None, None])
         surf, small, cache = self._probe
         if cache[0] != t:
             c = surf.getCanvas()
@@ -391,7 +408,7 @@ class Scene:
         if box is None:
             return
         fade = 1.0 if self.clip_start_ms is None else (self.engine.t * 1000 - self.clip_start_ms) / WM_FADE_MS
-        alpha = WM_ALPHA * min(1.0, max(0.0, fade)) * (1 - WM_DODGE * self._wm_dodge(box, sz))
+        alpha = self.style.wm_alpha * min(1.0, max(0.0, fade)) * (1 - WM_DODGE * self._wm_dodge(box, sz))
         if alpha < 0.003:
             return
         blob, tw = self.fonts.text(self.style.wm_text, sz)
@@ -534,7 +551,7 @@ class Scene:
 
     def _line(self, canvas, L, lay):
         size = lay.size
-        dim, unsung = TUNING.dim_alpha, TUNING.unsung_alpha_active
+        dim, unsung = self.style.dim_alpha, TUNING.unsung_alpha_active
         ba, da = dim + (1.0 - dim) * L.act, dim + (unsung - dim) * L.act
         bloom = self._bloom(size, L.act) if self.style.bloom else None
         m = BLOOM[0][0] * size * 2
@@ -691,28 +708,29 @@ class Scene:
         p_fill, p_wipe_fill = self._p_fill, self._p_wipe_fill
         p_glow, p_wipe_glow = self._p_glow, self._p_wipe_glow
         tint = self._glow_rgb()
+        rgb, gg = self._text_rgb, self.style.glow_gain
         if not word.emph:
             fw = FW_SOFT if word.soft else FW
             for u in word.parts:
                 blob, pw = self.fonts.text(u.text, size)
                 if u.p <= 0.0:
-                    p_fill.setColor(_argb(da))
+                    p_fill.setColor(_argb(da, rgb))
                     text = p_fill
                     glow = None  # nothing sung yet, nothing glows
                 elif u.p >= 1.0:
-                    p_fill.setColor(_argb(ba))
+                    p_fill.setColor(_argb(ba, rgb))
                     text = p_fill
                     if u.glow_a > 0:
-                        p_glow.setColor(_argb(u.glow_a * ba, tint))
+                        p_glow.setColor(_argb(u.glow_a * gg * ba, tint))
                         p_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
                         glow = p_glow
                     else:
                         glow = None
                 else:
-                    p_wipe_fill.setShader(self._wipe(x, pw, u.p, ba, da, size, fw=fw))
+                    p_wipe_fill.setShader(self._wipe(x, pw, u.p, ba, da, size, fw=fw, rgb=rgb))
                     text = p_wipe_fill
                     if u.glow_a > 0:
-                        p_wipe_glow.setShader(self._wipe(x, pw, u.p, ba, 0.0, size, u.glow_a, fw, tint))  # unsung side of the syllable: no halo
+                        p_wipe_glow.setShader(self._wipe(x, pw, u.p, ba, 0.0, size, u.glow_a * gg, fw, tint))  # unsung side of the syllable: no halo
                         p_wipe_glow.setMaskFilter(self._mask_blur(u.glow_r * self.k / 2))
                         glow = p_wipe_glow
                     else:
@@ -729,7 +747,7 @@ class Scene:
         for c in word.parts:
             blob, pw = self.fonts.text(c.text, size)
             if c.glow_a > 0:
-                p_glow.setColor(_argb(c.glow_a, tint))
+                p_glow.setColor(_argb(c.glow_a * gg, tint))
                 p_glow.setMaskFilter(self._mask_blur(c.glow_r * self.k / 2))
                 glow = p_glow
             else:
