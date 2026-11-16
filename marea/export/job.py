@@ -11,7 +11,8 @@ import numpy as np
 import skia
 
 from marea.engine.engine import Params
-from marea.export.ffmpeg import FfmpegWriter
+from marea.export.ffmpeg import ALPHA_TARGETS, TARGETS, FfmpegWriter
+from marea.model.background import BackgroundConfig
 from marea.model.cinematic import CinematicConfig
 from marea.model.lyrics import Lyrics
 from marea.render.gpu import make_context
@@ -45,6 +46,8 @@ class ExportJob:
     audio_path: Path | None = None  # WAV ya recortado al tramo (con fundidos); el pitido solo aplica sin audio
     cinematic: CinematicConfig = field(default_factory=CinematicConfig)
     wordfx: object | None = None  # marea.wordfx.plan.FxPlan (experimental) ya compuesto: el mismo plan que vio la preview
+    background: BackgroundConfig = field(default_factory=BackgroundConfig)
+    target: str = "mp4"  # "mp4" | "webm" | "prores" | "png" (los tres últimos con alfa: requieren fondo transparente)
 
     @property
     def frames(self) -> int:
@@ -57,12 +60,16 @@ def clip_range(lyrics: Lyrics, first: int, last: int, tail_ms: float = TAIL_MS) 
     return chosen[0].start, max(l.end for l in chosen) + tail_ms
 
 
-def clip_name(artist: str, title: str, first: int | None = None, last: int | None = None) -> str:
-    """`Artista - Canción (versos X–Y) [ZH3 Marea].mp4`; first/last son índices de 0. Sin ellos: `(completa)`."""
+def clip_name(artist: str, title: str, first: int | None = None, last: int | None = None, target: str = "mp4",
+              tag: str = "") -> str:
+    """`Artista - Canción (versos X–Y) [ZH3 Marea].mp4`; first/last son índices de 0. Sin ellos: `(completa)`.
+    `tag` (p. ej. el nombre de una Corriente) va entre corchetes antes de la marca; `target` fija la extensión
+    (la secuencia PNG es una carpeta, sin extensión)."""
     base = f"{artist.strip()} - {title.strip()}" if artist.strip() else title.strip() or "Sin título"
     base = safe_filename(base, "Sin título")
     span = "completa" if first is None else f"versos {first + 1}–{last + 1}"
-    return f"{base} ({span}) [ZH3 Marea].mp4"
+    tag = f" [{safe_filename(tag, '')}]" if tag.strip() else ""
+    return f"{base} ({span}){tag} [ZH3 Marea]{TARGETS.get(target, TARGETS['mp4'])[0]}"
 
 
 def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
@@ -73,7 +80,7 @@ def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
     try:
         cover = skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(job.cover_png))
         scene = Scene(job.lyrics, cover, job.size, job.params, Style(**vars(job.style)), gpu=ctx.gpu,
-                      cinematic=job.cinematic, wordfx=job.wordfx)
+                      cinematic=job.cinematic, wordfx=job.wordfx, background=job.background)
         scene.clip_start_ms = job.start_ms
         surface = ctx.make_surface(*job.size)
         canvas = surface.getCanvas()
@@ -104,8 +111,9 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
     stop_ev = threading.Event()
     recent_times: deque[float] = deque(maxlen=48)
     try:
-        with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.marker == "beep" and not job.audio_path,
-                          audio=job.audio_path) as out:
+        png = job.target == "png"
+        with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.marker == "beep" and not job.audio_path and not png,
+                          audio=None if png else job.audio_path, target=job.target) as out:
             t0 = time.perf_counter()
             recent_times.append(t0)
 
@@ -171,7 +179,19 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
                 raise writer_err[0]
     finally:
         ctx.close()
+    if job.target == "png":
+        _write_sidecar(job)
     return job.out_path
+
+
+def _write_sidecar(job: ExportJob):
+    """`marea.json` junto a la secuencia PNG: lo que un editor necesita para reconstruir el clip."""
+    import json
+    from marea.version import VERSION
+    meta = {"schema": "marea.sequence", "app_version": VERSION, "fps": job.fps, "width": job.size[0], "height": job.size[1],
+            "frames": job.frames, "alpha": "straight", "pattern": f"{job.out_path.name[:80]}_%05d.png",
+            "title": job.style.title, "artist": job.style.artist, "start_ms": job.start_ms, "end_ms": job.end_ms}
+    (job.out_path / "marea.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def worker_main(job: ExportJob, queue, cancel):

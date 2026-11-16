@@ -10,7 +10,9 @@ import skia
 
 from marea.demo_cover import demo_cover
 from marea.demo_song import exact_lyrics
+from marea.model import background as bg_model
 from marea.model import cinematic as cine_model
+from marea.model.background import BackgroundConfig, BackgroundError
 from marea.model.cinematic import CinematicConfig, CinematicError
 from marea.model.lyrics import BgVocal, Line, Lyrics, Syllable
 from marea.providers.lyrics.ttml_file import TtmlFileProvider
@@ -37,6 +39,8 @@ class ClipProject:
     audio_offset_ms: float = 0.0  # >0 = el audio del archivo va retrasado respecto a la letra
     audio_samples: object = None  # (n, 2) float32 ya decodificado; solo en memoria
     cinematic: CinematicConfig = field(default_factory=CinematicConfig)
+    background: BackgroundConfig = field(default_factory=BackgroundConfig)  # portada | video propio | transparente
+    background_warning: str = ""  # aviso (no bloqueante) al abrir: el video de fondo falta o cambió
     project_path: Path | None = None  # archivo .marea.json del que se abrió o donde se guardó
 
     def cover_png(self) -> bytes:
@@ -185,6 +189,7 @@ def project_to_dict(project: ClipProject, editor_state: dict | None = None) -> d
         },
         "lyrics": lyrics_to_dict(project.lyrics),
         "cinematic": cine_model.to_dict(project.cinematic),
+        "background": bg_model.to_dict(project.background),
         "editor": editor_state or {},
     }
 
@@ -243,6 +248,11 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
     except CinematicError as e:
         raise ProjectError(str(e)) from e
 
+    try:
+        background, bg_warning = bg_model.check_video(bg_model.from_dict(d.get("background")))
+    except BackgroundError as e:
+        raise ProjectError(str(e)) from e
+
     src_str = str(d.get("source") or "").strip()
     project = ClipProject(
         lyrics=lyrics,
@@ -254,6 +264,8 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         audio_file=audio_file,
         audio_offset_ms=audio_offset_ms,
         cinematic=cinematic,
+        background=background,
+        background_warning=bg_warning or "",
     )
     editor_state = d.get("editor") if isinstance(d.get("editor"), dict) else {}
     return project, editor_state

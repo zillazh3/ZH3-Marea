@@ -46,6 +46,15 @@ class ExportBarController:
         ed.mode_actions = self._radio_submenu(m, None, MODES, "export/mode", "lyrics")
         m.addSeparator()
         ed.preset_actions = self._radio_submenu(m, "Formato", {k: v[0] for k, v in PRESETS.items()}, "export/preset", "tiktok")
+        ed.target_actions = self._radio_submenu(m, "Archivo", {k: v[1] for k, v in ffmpeg.TARGETS.items()}, "export/target", "mp4")
+        for key, a in ed.target_actions.items():
+            a.triggered.connect(lambda _=False, k=key: self.target_picked(k))
+            if key in ffmpeg.ALPHA_TARGETS:
+                a.setToolTip("Exporta sin fondo y con canal alfa: al elegirlo, el fondo cambia a «Transparente».")
+        ed.act_alpha_wm = m.addAction("Marca de agua en exports con transparencia")
+        ed.act_alpha_wm.setCheckable(True)
+        ed.act_alpha_wm.setChecked(ed.settings.value("export/alpha_watermark", True, type=bool))
+        ed.act_alpha_wm.toggled.connect(lambda v: ed.settings.setValue("export/alpha_watermark", v))
         self._radio_submenu(m, "Marcador de inicio", MARKERS, "export/marker", "none")
         for a in self._radio_submenu(m, "Outro", OUTROS, "export/outro_ms", "500").values():
             a.triggered.connect(lambda: ed.project and ed._range_changed())
@@ -84,12 +93,24 @@ class ExportBarController:
         ed.act_fxprofile.setVisible(fx)
         ed.act_fxgallery.setVisible(fx)
         ed.act_fx_sep.setVisible(fx)
-        for key, actions in (("export/preset", ed.preset_actions), ("export/encoder", ed.encoder_actions)):
+        alpha = ed.settings.value("export/target", "mp4") in ffmpeg.ALPHA_TARGETS
+        for a in ed.encoder_actions.values():
+            a.setToolTip("Los formatos con transparencia usan siempre su propio códec (CPU)." if alpha else "")
+        for key, actions in (("export/preset", ed.preset_actions), ("export/encoder", ed.encoder_actions),
+                             ("export/target", ed.target_actions)):
             current = ed.settings.value(key)
             if current is None and key == "export/encoder":
                 current = ffmpeg.default_encoder()
             if current in actions:
                 actions[current].setChecked(True)
+        self.update_summary()
+
+    def target_picked(self, target: str):
+        """Un formato con alfa necesita el fondo transparente: se cambia solo y se avisa."""
+        ed = self.editor
+        if target in ffmpeg.ALPHA_TARGETS and ed.project and ed.project.background.source != "transparent":
+            ed._bgctl.set_source("transparent")
+            ed.notify("Fondo cambiado a «Transparente»: los formatos con canal alfa no llevan fondo.", "info")
         self.update_summary()
 
     def _radio_submenu(self, menu: QMenu, title: str | None, options: dict, key: str, default: str) -> dict:
@@ -141,4 +162,5 @@ class ExportBarController:
     def update_summary(self):
         ed = self.editor
         preset = PRESETS.get(ed.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])[0]
-        ed.summary.setText(f"{MODES[ed.mode]} · {preset}")
+        target = ffmpeg.TARGETS.get(ed.settings.value("export/target", "mp4"), ffmpeg.TARGETS["mp4"])[1]
+        ed.summary.setText(f"{MODES[ed.mode]} · {preset} · {target}")

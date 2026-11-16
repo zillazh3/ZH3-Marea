@@ -1,8 +1,10 @@
 """Background/metadata and watermark tabs for the Editor."""
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QFrame, QLabel, QLineEdit, QScrollArea, QWidget
 
 from marea.render.scene import Style
 from marea.ui import theme
+from marea.ui.editor.background_tab import BackgroundController
 from marea.ui.widgets import make_button
 
 
@@ -18,7 +20,15 @@ def build_background_tab(editor) -> QWidget:
     form.addRow("Título", editor.ed_title)
     form.addRow("Artista", editor.ed_artist)
     form.addRow("Portada", btn)
-    return w
+    editor._bgctl = BackgroundController(editor)
+    editor._bgctl.build(form)
+    scroll = QScrollArea()  # con los controles de video la pestaña ya no cabe en el panel
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+    scroll.setWidget(w)
+    return scroll
 
 
 def build_watermark_tab(editor) -> QWidget:

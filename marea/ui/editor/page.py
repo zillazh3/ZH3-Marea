@@ -29,6 +29,7 @@ from marea.async_util import run_async
 from marea.audio import align, local
 from marea.engine.engine import Params
 from marea.export import ffmpeg
+from marea.export.ffmpeg import ALPHA_TARGETS, TARGETS
 from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range
 from marea.export.queue import AudioSpec, ExportQueue, QueueItem
 from marea.paths import default_output_dir
@@ -314,6 +315,10 @@ class EditorPage(QWidget):
             credit=self.cb_credit.isChecked(),
         )
         self._apply_wm()
+        self._bgctl.refresh()
+        if project.background_warning:
+            self.notify(project.background_warning, "info")
+            project.background_warning = ""
         for ed, text in ((self.ed_title, project.title), (self.ed_artist, project.artist)):
             with blocked_signals(ed):
                 ed.setText(text)
@@ -666,7 +671,17 @@ class EditorPage(QWidget):
         preset = PRESETS.get(self.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])
         if start_ms is None:
             start_ms, end_ms = self._clip_range()
-        name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (self.first, self.last)))
+        target = self.settings.value("export/target", "mp4")
+        target = target if target in TARGETS else "mp4"
+        background, style = copy.deepcopy(self.project.background), replace(self.style)
+        if target in ALPHA_TARGETS:
+            background.source = "transparent"
+            if not self.settings.value("export/alpha_watermark", True, type=bool):
+                style.wm_text = ""
+        elif background.transparent:
+            background.source = "cover"
+            self.notify("El fondo transparente solo aplica a WebM, ProRes o PNG: este MP4 salió con la portada.", "info")
+        name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (self.first, self.last)), target=target)
         return ExportJob(
             self.project.lyrics,
             self.project.cover_png(),
@@ -678,7 +693,9 @@ class EditorPage(QWidget):
             encoder=self.settings.value("export/encoder") or ffmpeg.default_encoder(),
             marker=self.settings.value("export/marker", "none"),
             params=replace(self.params),
-            style=replace(self.style),
+            style=style,
+            background=background,
+            target=target,
             cinematic=copy.copy(self.project.cinematic) if self.project.cinematic is None else copy.deepcopy(self.project.cinematic),
             wordfx=self._fx_plan,
         )

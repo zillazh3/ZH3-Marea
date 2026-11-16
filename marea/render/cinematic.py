@@ -19,6 +19,7 @@ import numpy as np
 import skia
 
 from marea.engine.curves import clamp01
+from marea.model.background import BackgroundConfig, source_ms
 from marea.model.cinematic import ActiveInterval, CinematicConfig, CinematicTreatment, VideoResource, evaluate_at
 from marea.sysutil import NO_WINDOW, find_ffmpeg
 
@@ -40,6 +41,18 @@ _RES_RE = re.compile(r"\b(\d{2,5})x(\d{2,5})\b")
 _SAR_RE = re.compile(r"\bSAR\s+(\d+):(\d+)\b")
 _FPS_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*fps\b")
 _TBR_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*tbr\b")
+
+
+_ROT_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees|\brotate\s*:\s*(-?\d+)")
+
+
+def _parse_rotation(stderr: str) -> int:
+    """Rotación de pantalla (0/90/180/270, en sentido horario) de la pista de video, de `displaymatrix` o la etiqueta `rotate`."""
+    m = _ROT_RE.search(stderr)
+    if not m:
+        return 0
+    deg = -float(m.group(1)) if m.group(1) is not None else float(m.group(2))  # displaymatrix es antihorario; `rotate` es horario
+    return int(round(deg / 90.0)) % 4 * 90
 
 
 def _hms_to_ms(h: str, m: str, s: str) -> int:
@@ -95,6 +108,9 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
     width, height = int(res_m.group(1)), int(res_m.group(2))
     if width <= 0 or height <= 0:
         raise VideoError("La resolución del video no es válida.")
+    rot = _parse_rotation(stderr)
+    if rot in (90, 270):  # ffmpeg autorrota al decodificar: reportamos las dimensiones ya enderezadas
+        width, height = height, width
 
     sar_m = _SAR_RE.search(video_line)
     sar_num = max(1, int(sar_m.group(1))) if sar_m else 1
@@ -150,6 +166,7 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
         fps_den=fps_den,
         sar_num=sar_num,
         sar_den=sar_den,
+        rotation=rot,
         visual_start_ms=v_start,
         visual_end_ms=v_end,
         scene_cuts_ms=cuts_ms,
@@ -250,7 +267,9 @@ class VideoDecoder:
         size: tuple[int, int],
         async_decode: bool = False,
         on_frame_ready: Callable[[], None] | None = None,
+        framing: tuple[str, float, float, float] | None = None,
     ):
+        """framing=(fit, zoom, pan_x, pan_y) para el fondo de video propio (None = recorte centrado, como los recuerdos)."""
         self.resource = resource
         self.w, self.h = max(2, int(size[0])), max(2, int(size[1]))
         self.async_decode = async_decode
@@ -259,12 +278,17 @@ class VideoDecoder:
         self.fps_den = max(1, int(resource.fps_den))
         self.max_frames = max(1, resource.frame_count)
         self._frame_bytes = self.w * self.h * 4
-        self._vf = (
-            f"fps={self.fps_num}/{self.fps_den}:start_time=0:round=down,"
-            f"scale=trunc(iw*sar+0.5):ih,"
-            f"scale={self.w}:{self.h}:force_original_aspect_ratio=increase:flags=bicubic,"
-            f"crop={self.w}:{self.h},setsar=1"
-        )
+        pre = f"fps={self.fps_num}/{self.fps_den}:start_time=0:round=down,scale=trunc(iw*sar+0.5):ih,"
+        if framing is None:
+            self._vf = (pre + f"scale={self.w}:{self.h}:force_original_aspect_ratio=increase:flags=bicubic,"
+                        f"crop={self.w}:{self.h},setsar=1")
+        else:
+            fit, zoom, px, py = framing
+            zw, zh = round(self.w * zoom), round(self.h * zoom)
+            mode = "decrease" if fit == "contain" else "increase"
+            pad = f"format=rgba,pad={zw}:{zh}:(ow-iw)/2:(oh-ih)/2:color=black@0," if fit == "contain" else ""
+            self._vf = (pre + f"scale={zw}:{zh}:force_original_aspect_ratio={mode}:flags=bicubic,{pad}"
+                        f"crop={self.w}:{self.h}:(iw-{self.w})*{(px + 1) / 2:.4f}:(ih-{self.h})*{(py + 1) / 2:.4f},setsar=1")
 
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
@@ -733,3 +757,73 @@ class CinematicBackground:
         for dec in list(self._decoders.values()):
             dec.close()
         self._decoders.clear()
+
+
+# ---------------- fondo de video propio (Fondo > Video propio) ----------------
+
+class VideoBackground:
+    """Dibuja el video elegido por el usuario como fondo del clip; si el cuadro aún no está, cae a la portada.
+
+    El cuadro sale de `source_ms` (función pura de t, recorte, desplazamiento y modo de repetición): el export lo pide
+    exacto y de forma síncrona; la preview (async) puede mostrar el cuadro más cercano que tenga."""
+
+    def __init__(self, cfg: BackgroundConfig, w: int, h: int, cover_bg, async_video: bool = False,
+                 on_frame_ready: Callable[[], None] | None = None):
+        self.cfg, self.w, self.h, self.cover_bg = cfg, w, h, cover_bg
+        self.clip_start_ms = 0.0
+        self._dec: VideoDecoder | None = None
+        self._dec_key = None
+        self._async, self._on_ready = async_video, on_frame_ready
+        self._paint = skia.Paint(AntiAlias=True)
+        self._rect = skia.Rect.MakeWH(w, h)
+        self._sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
+        self.set_config(cfg)
+
+    def set_config(self, cfg: BackgroundConfig):
+        self.cfg = cfg
+        v = cfg.video
+        key = (v.path, v.fps_num, v.fps_den, v.duration_ms, cfg.fit, round(cfg.zoom, 3), round(cfg.pan_x, 3), round(cfg.pan_y, 3)) if v else None
+        if key == self._dec_key:
+            return
+        if self._dec is not None:
+            self._dec.close()
+        self._dec_key = key
+        self._dec = (VideoDecoder(v, (self.w, self.h), async_decode=self._async, on_frame_ready=self._on_ready,
+                                  framing=(cfg.fit, cfg.zoom, cfg.pan_x, cfg.pan_y)) if v else None)
+
+    def source_ms_at(self, t_s: float) -> float:
+        return source_ms(self.cfg, t_s * 1000.0, self.clip_start_ms)
+
+    def wait_idle(self, timeout: float = 5.0):
+        if self._dec is not None:
+            self._dec.wait_idle(timeout)
+
+    def draw(self, canvas: skia.Canvas, t_s: float):
+        cfg = self.cfg
+        img = self._dec.get_image(self.source_ms_at(t_s)) if self._dec is not None else None
+        if img is None:
+            self.cover_bg.draw(canvas, t_s)
+            return
+        if cfg.fit == "contain":
+            self.cover_bg.draw(canvas, t_s)  # las barras son transparentes: se ve la portada difuminada
+        p = self._paint
+        p.reset()
+        p.setAntiAlias(True)
+        if abs(cfg.saturation - 1.0) > 1e-3:
+            p.setColorFilter(_color_matrix(cfg.saturation, 1.0))
+        sigma = cfg.blur * 0.05 * min(self.w, self.h)
+        if sigma > 0.35:
+            p.setImageFilter(_blur_filter_clamp(round(sigma * 200.0) / 200.0))
+        canvas.drawImageRect(img, self._rect, self._sampling, p)
+        if cfg.cover_tint > 0.003:
+            canvas.saveLayerAlpha(self._rect, round(clamp01(cfg.cover_tint) * 255))
+            self.cover_bg.draw(canvas, t_s)
+            canvas.restore()
+        if cfg.dim > 0.003:
+            canvas.drawColor(skia.ColorSetARGB(round(clamp01(cfg.dim) * 255), 0, 0, 0))
+
+    def close(self):
+        if self._dec is not None:
+            self._dec.close()
+            self._dec = None
+            self._dec_key = None

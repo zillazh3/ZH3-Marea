@@ -39,8 +39,18 @@ def make_thumbnail(video: Path, out_dir: Path | None = None, at_s: float = 1.0) 
     out_dir = out_dir or app_data() / "thumbs"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (video.stem[:80] + ".png")
+    src, seek = video, ["-ss", str(at_s)]
+    if video.is_dir():  # secuencia PNG: se toma el cuadro más cercano a `at_s`
+        frames = sorted(video.glob("*.png"))
+        if not frames:
+            return None
+        try:
+            fps = float(json.loads((video / "marea.json").read_text(encoding="utf-8")).get("fps", 60))
+        except (OSError, ValueError, TypeError):
+            fps = 60.0
+        src, seek = frames[min(len(frames) - 1, round(at_s * fps))], []
     try:
-        r = run_ffmpeg(["-y", "-loglevel", "error", "-ss", str(at_s), "-i", str(video), "-frames:v", "1",
+        r = run_ffmpeg(["-y", "-loglevel", "error", *seek, "-i", str(src), "-frames:v", "1",
                         "-vf", "scale=270:-2", str(out)], timeout=30)
     except (FileNotFoundError, subprocess.SubprocessError):
         return None

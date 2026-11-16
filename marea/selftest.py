@@ -44,6 +44,10 @@ def run() -> int:
         from marea.audio.loopback import list_capture_devices
         keyring.get_password("ZH3 Marea", "selftest")
         extra += [f"keyring: {type(keyring.get_keyring()).__name__}", f"dispositivos de captura: {len(list_capture_devices())}"]
+        from marea.export.ffmpeg import alpha_encoders
+        alpha = alpha_encoders()
+        extra.append("alfa: " + ", ".join(f"{k}={'ok' if v else 'FALTA'}" for k, v in alpha.items()))
+        ok = ok and all(alpha.values())
     except Exception as e:
         ok = False
         extra.append(f"FALLO {type(e).__name__}: {e}")

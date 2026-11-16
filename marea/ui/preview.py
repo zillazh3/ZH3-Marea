@@ -2,7 +2,7 @@
 from time import perf_counter
 
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QImage, QKeySequence, QPainter, QPainterPath, QShortcut
+from PySide6.QtGui import QBrush, QColor, QFontDatabase, QImage, QKeySequence, QPainter, QPainterPath, QPixmap, QShortcut
 from PySide6.QtWidgets import QWidget
 
 from marea.engine.engine import Params
@@ -14,6 +14,21 @@ DT = 1 / 60
 MAX_STEPS = 4  # si la ventana se congela, no intentar «recuperar» segundos de simulación de golpe
 SETTLE_MS = 1500  # tras un cambio estando en pausa se sigue dibujando hasta que los springs se asientan
 TICK_MS = 8  # el paso real lo marca el reloj; con 16 ms y DT=16.67 ms el temporizador se salta pasos y el scroll avanza a tirones
+
+
+_CHECKER: QPixmap | None = None
+
+
+def _checkerboard() -> QPixmap:
+    global _CHECKER
+    if _CHECKER is None:
+        _CHECKER = QPixmap(16, 16)
+        _CHECKER.fill(QColor(58, 58, 62))
+        p = QPainter(_CHECKER)
+        p.fillRect(0, 0, 8, 8, QColor(86, 86, 92))
+        p.fillRect(8, 8, 8, 8, QColor(86, 86, 92))
+        p.end()
+    return _CHECKER
 
 
 class PreviewWidget(QWidget):
@@ -88,6 +103,7 @@ class PreviewWidget(QWidget):
             on_video_frame=self._video_frame_ready.emit,
             wordfx=self._wordfx,
             wordfx_debug=self._wordfx_debug,
+            background=getattr(self._project, "background", None),
         )
         self._surface = self.ctx.make_surface(*size)
         self.seek(offset)
@@ -107,6 +123,14 @@ class PreviewWidget(QWidget):
         """Cambió la configuración cinemática (intervalos, tratamiento o video): actualiza sin reiniciar springs."""
         if self.scene and self._project is not None:
             self.scene.set_cinematic(getattr(self._project, "cinematic", None))
+            if not self.playing:
+                self._render()
+            self._wake()
+
+    def update_background(self):
+        """Cambió el fondo (portada, video propio o transparente): actualiza sin reiniciar springs."""
+        if self.scene and self._project is not None:
+            self.scene.set_background(getattr(self._project, "background", None))
             if not self.playing:
                 self._render()
             self._wake()
@@ -223,6 +247,8 @@ class PreviewWidget(QWidget):
         clip.addRoundedRect(box, theme.RADIUS["card"], theme.RADIUS["card"])
         p.setClipPath(clip)
         if self._image:
+            if self.scene is not None and self.scene.background.transparent:
+                p.fillRect(box, QBrush(_checkerboard()))  # el fondo transparente se ve como tablero
             p.drawImage(box, self._image)
         else:
             p.fillRect(box, theme.qc(theme.current.surface))

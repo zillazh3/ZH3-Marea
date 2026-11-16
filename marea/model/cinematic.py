@@ -61,6 +61,7 @@ class VideoResource:
     fps_den: int = 1
     sar_num: int = 1
     sar_den: int = 1
+    rotation: int = 0  # grados de metadatos de rotación (0/90/180/270); width/height ya vienen intercambiados si es 90/270
     visual_start_ms: int = 0
     visual_end_ms: int = 0
     scene_cuts_ms: list[int] = field(default_factory=list)

@@ -14,9 +14,10 @@ import skia
 
 from marea.engine.engine import Engine, Params
 from marea.engine.tuning import TUNING
+from marea.model.background import BackgroundConfig
 from marea.model.cinematic import CinematicConfig
 from marea.render.background import Background
-from marea.render.cinematic import CinematicBackground
+from marea.render.cinematic import CinematicBackground, VideoBackground
 from marea.render.text import (BG_PAD_TOP, CREDIT_GAP_TOP, LINE_H, PAD_L, PAD_R, PAD_V, Fonts, ItemLayout, layout_credit)
 
 DESIGN_PX = 42.0
@@ -63,7 +64,8 @@ def _argb(a: float, rgb: tuple[int, int, int] = (255, 255, 255)) -> int:
 class Scene:
     def __init__(self, lyrics, cover: skia.Image, size=(1080, 1920), params: Params | None = None,
                  style: Style | None = None, gpu: bool = False, cinematic: CinematicConfig | None = None,
-                 async_video: bool = False, on_video_frame=None, wordfx=None, wordfx_debug: bool = False):
+                 async_video: bool = False, on_video_frame=None, wordfx=None, wordfx_debug: bool = False,
+                 background: BackgroundConfig | None = None):
         """gpu=True si el canvas es de una superficie GPU (`marea.render.gpu`); la portada debe estar en ese contexto.
         wordfx: `marea.wordfx.plan.FxPlan` (experimental) o None; wordfx_debug dibuja la superposición de depuración (solo preview)."""
         self.w, self.h = size
@@ -76,6 +78,10 @@ class Scene:
         self._async_video = async_video
         self._on_video_frame = on_video_frame
         self.cinematic_bg: CinematicBackground | None = None
+        self.bgvideo: VideoBackground | None = None
+        self.background = BackgroundConfig()
+        self._scrim_paint: tuple[float, skia.Paint] | None = None
+        self.set_background(background)
         if cinematic is not None:
             self.set_cinematic(cinematic)
         # medidas relativas a `ref` (el ancho en 9:16): sirven igual para 1080x1080 y 1920x1080
@@ -137,6 +143,20 @@ class Scene:
                                                     on_frame_ready=self._on_video_frame)
         else:
             self.cinematic_bg.set_config(cinematic)
+
+    def set_background(self, cfg: BackgroundConfig | None):
+        """Fondo del clip: portada, video propio o transparente (solo cambia el dibujo; no reinicia el motor)."""
+        self.invalidate_probe()
+        self.background = cfg = (cfg or BackgroundConfig()).clamped()
+        if cfg.source != "video":
+            if self.bgvideo is not None:
+                self.bgvideo.close()
+                self.bgvideo = None
+        elif self.bgvideo is None:
+            self.bgvideo = VideoBackground(cfg, self.w, self.h, self.bg, async_video=self._async_video,
+                                           on_frame_ready=self._on_video_frame)
+        else:
+            self.bgvideo.set_config(cfg)
 
     def invalidate_probe(self):
         if self._probe is not None:
@@ -232,6 +252,9 @@ class Scene:
     def close(self):
         if self.cinematic_bg is not None:
             self.cinematic_bg.close()
+        if self.bgvideo is not None:
+            self.bgvideo.close()
+            self.bgvideo = None
 
     # ---- layout ----
     def _layout(self, item) -> ItemLayout:
@@ -246,6 +269,11 @@ class Scene:
         return lay.h_active if active else lay.h_inactive
 
     def _draw_bg_at(self, canvas: skia.Canvas, base, t_s: float):
+        if self.background.transparent:
+            return  # sin fondo: tampoco recuerdos cinemáticos (taparían el alfa)
+        if self.bgvideo is not None:
+            self.bgvideo.clip_start_ms = self.clip_start_ms or 0.0
+            base = self.bgvideo
         if self.cinematic_bg is not None:
             self.cinematic_bg.draw(
                 canvas,
@@ -269,7 +297,7 @@ class Scene:
         if cache[0] != t:
             c = surf.getCanvas()
             c.save()
-            if self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0):
+            if self.bgvideo is not None or (self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0)):
                 c.scale(PROBE_W / self.w, PROBE_H / self.h)  # el cinemático dibuja en px del lienzo real
                 self._draw_bg_at(c, self.bg, t)
             else:
@@ -298,7 +326,12 @@ class Scene:
 
     def render(self, canvas: skia.Canvas):
         e, st = self.engine, self.stage
+        if self.background.transparent:
+            canvas.clear(skia.ColorTRANSPARENT)  # la superficie GPU se reutiliza entre frames
+        elif self.bgvideo is not None:
+            canvas.clear(skia.ColorBLACK)  # un video con alfa propio no debe dejar rastro del frame anterior
         self._draw_bg(canvas, self.bg)
+        self._scrim(canvas)
         self._header(canvas)
         canvas.save()
         canvas.clipRect(st)
@@ -312,6 +345,20 @@ class Scene:
         canvas.restore()
         canvas.restore()
         self._watermark(canvas)
+
+    def _scrim(self, canvas):
+        """Velo suave tras el bloque de letra (solo con video propio): más oscuro al centro, se desvanece hacia los bordes."""
+        a = self.background.scrim if self.background.source == "video" else 0.0
+        if a < 0.003:
+            return
+        if self._scrim_paint is None or self._scrim_paint[0] != a:
+            st, pad = self.stage, 0.10 * self.h
+            shader = skia.GradientShader.MakeLinear(
+                [(0, st.top() - pad), (0, st.bottom() + pad)],
+                [skia.ColorSetARGB(0, 0, 0, 0), skia.ColorSetARGB(round(0.7 * a * 255), 0, 0, 0),
+                 skia.ColorSetARGB(round(0.7 * a * 255), 0, 0, 0), skia.ColorSetARGB(0, 0, 0, 0)], [0, 0.3, 0.7, 1])
+            self._scrim_paint = (a, skia.Paint(Shader=shader))
+        canvas.drawRect(skia.Rect.MakeWH(self.w, self.h), self._scrim_paint[1])
 
     def _watermark_box(self, sz: float) -> skia.Rect | None:
         st = self.style
@@ -350,10 +397,11 @@ class Scene:
         blob, tw = self.fonts.text(self.style.wm_text, sz)
         tx = box.left() + (box.width() - tw)
         base = box.top() + sz  # línea base
-        shadow = self._p_glow
-        shadow.setColor(skia.ColorSetARGB(round(alpha * 0.9 * 255), 0, 0, 0))
-        shadow.setMaskFilter(self._mask_blur(0.25 * sz))
-        canvas.drawTextBlob(blob, tx, base + 0.06 * sz, shadow)
+        if not self.background.transparent:  # sobre transparencia una sombra negra se vería como un halo oscuro
+            shadow = self._p_glow
+            shadow.setColor(skia.ColorSetARGB(round(alpha * 0.9 * 255), 0, 0, 0))
+            shadow.setMaskFilter(self._mask_blur(0.25 * sz))
+            canvas.drawTextBlob(blob, tx, base + 0.06 * sz, shadow)
         fill = self._p_fill
         fill.setColor(_argb(alpha))
         canvas.drawTextBlob(blob, tx, base, fill)
@@ -592,7 +640,7 @@ class Scene:
         strain_val = self.wordfx.strain_at(t_now) if strain is None else strain
         oy = line_top + (ORIGIN_CH if word.emph else ORIGIN_SYL) * size
         backdrop = (self._backdrop(x + self.stage.left(), line_top + self.stage.top(), ww, LINE_H * size)
-                    if self.wordfx.adapt_bg else None)
+                    if self.wordfx.adapt_bg and not self.background.transparent else None)
         p_adapted = render.adapt_params(p_fx, backdrop)
         dark_factor = render._backdrop_dark_factor(backdrop)
         letters = render._letters_cached(self.fonts, word.text, size)
