@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,13 +20,15 @@ from PySide6.QtWidgets import (
 from marea.async_util import run_async
 from marea.audio.loopback import AudioError
 from marea.export.ffmpeg import nvenc_available
-from marea.export.job import PRESETS
 from marea.paths import default_output_dir
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import REDIRECT_URI
 from marea.secrets import KEYS
 from marea.ui import theme
 from marea.ui.widgets import blocked_signals, make_button
+
+
+CARD_MIN = 640  # narrowest a settings card may get before the grid drops to one column
 
 
 def _loopback_fn(name: str):
@@ -42,12 +45,17 @@ class SettingsBody(QWidget):
         super().__init__()
         self.services, self.notify, self._waiting = services, notify, False
         self._dev_req = 0
-        lay = QVBoxLayout(self)
-        lay.setAlignment(Qt.AlignTop)
-        lay.setSpacing(theme.SPACE[4])
+        self._cards, self._cols = [], 0
+        self.columns = QHBoxLayout(self)
+        self.columns.setAlignment(Qt.AlignTop)
+        self.columns.setSpacing(theme.SPACE[4])
+        self._col_layouts = [QVBoxLayout(), QVBoxLayout()]
+        for col in self._col_layouts:
+            col.setSpacing(theme.SPACE[4])
+            self.columns.addLayout(col, 1)
 
         self.settings = settings
-        self._heading(lay, "Apariencia")
+        lay = self._card("Apariencia")
         self.combo = QComboBox()
         self.combo.addItem("Oscuro", "dark")
         self.combo.addItem("Claro", "light")
@@ -55,7 +63,7 @@ class SettingsBody(QWidget):
         self.combo.currentIndexChanged.connect(lambda: on_theme(self.combo.currentData()))
         self._row(lay, "Tema", self.combo)
 
-        self._heading(lay, "Spotify")
+        lay = self._card("Spotify")
         cid_row = QHBoxLayout()
         cid_label = QLabel("Client ID")
         cid_label.setObjectName("Body")
@@ -89,19 +97,46 @@ class SettingsBody(QWidget):
         uri_row.addWidget(copy_btn)
         lay.addLayout(uri_row)
 
-        self._keys_section(lay)
-        self._export_section(lay, settings)
-        self._audio_section(lay, settings)
-        self._experimental_section(lay, settings)
+        self._keys_section(self._card("Claves de API"))
+        self._export_section(self._card("Exportación"), settings)
+        self._audio_section(self._card("Audio"), settings)
+        self._experimental_section(self._card("Funciones experimentales"), settings)
         services.connection_changed.connect(lambda _: self._refresh())
         self._refresh()
+        self._relayout()
 
-    @staticmethod
-    def _heading(lay: QVBoxLayout, text: str):
-        title = QLabel(text)
-        title.setObjectName("H2")
-        lay.addSpacing(theme.SPACE[2])
-        lay.addWidget(title)
+    def _card(self, title: str) -> QVBoxLayout:
+        """A titled section card; `_relayout` flows the cards into 1 or 2 columns by width."""
+        card = QFrame()
+        card.setObjectName("Card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(theme.SPACE[5], theme.SPACE[4], theme.SPACE[5], theme.SPACE[5])
+        lay.setSpacing(theme.SPACE[3])
+        lay.setAlignment(Qt.AlignTop)
+        head = QLabel(title)
+        head.setObjectName("H2")
+        lay.addWidget(head)
+        self._cards.append(card)
+        return lay
+
+    def _relayout(self):
+        # shortcut: 2 columns only when each card keeps CARD_MIN px (the audio/key rows have wide fields), else 1
+        cols = 2 if self.width() >= 2 * CARD_MIN + self.columns.spacing() else 1
+        if cols == self._cols:
+            return
+        self._cols = cols
+        for col in self._col_layouts:  # keep the trailing stretch, drop the cards
+            while col.count():
+                col.takeAt(0)
+        for i, c in enumerate(self._cards):  # alternate so both columns end up balanced
+            self._col_layouts[i % cols].addWidget(c)
+        for col in self._col_layouts:
+            col.addStretch()
+        self.columns.setStretch(1, 1 if cols == 2 else 0)  # the empty second column must not take half the width
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._relayout()
 
     @staticmethod
     def _row(lay: QVBoxLayout, text: str, *widgets) -> QHBoxLayout:
@@ -117,7 +152,6 @@ class SettingsBody(QWidget):
 
     def _keys_section(self, lay: QVBoxLayout):
         """Claves de API: viven en el Credential Manager de Windows, no en los ajustes."""
-        self._heading(lay, "Claves de API")
         self.key_edits = {}
         for name, label in KEYS.items():
             edit = QLineEdit()
@@ -164,18 +198,11 @@ class SettingsBody(QWidget):
         self.notify(f"Clave de {label} borrada.")
 
     def _export_section(self, lay: QVBoxLayout, settings: QSettings):
-        self._heading(lay, "Exportación")
         self.out_dir = QLineEdit(str(self.output_dir()))
         self.out_dir.setReadOnly(True)
         self.out_dir.setMinimumWidth(260)
         pick = make_button("Cambiar…", "Ghost", self._choose_folder)
         self._row(lay, "Carpeta de salida", self.out_dir, pick)
-        self.preset = QComboBox()
-        for key, (label, *_) in PRESETS.items():
-            self.preset.addItem(label, key)
-        self.preset.setCurrentIndex(max(0, self.preset.findData(settings.value("export/preset", "tiktok"))))
-        self.preset.currentIndexChanged.connect(lambda: settings.setValue("export/preset", self.preset.currentData()))
-        self._row(lay, "Formato", self.preset)
         self.encoder = QComboBox()
         self.encoder.addItem("CPU (libx264, mejor compresión)", "cpu")
         self.encoder.addItem("NVIDIA NVENC (más rápido)", "nvenc")
@@ -204,7 +231,6 @@ class SettingsBody(QWidget):
             self.out_dir.setText(d)
 
     def _audio_section(self, lay: QVBoxLayout, settings: QSettings):
-        self._heading(lay, "Audio")
         self.device = QComboBox()
         self.device.setMinimumWidth(340)
         saved_dev = settings.value("audio/device", "")
@@ -245,7 +271,6 @@ class SettingsBody(QWidget):
 
     def _experimental_section(self, lay: QVBoxLayout, settings: QSettings):
         """Funciones experimentales: apagadas por defecto. Con la función apagada no se importa nada de marea.lab."""
-        self._heading(lay, "Funciones experimentales")
         self.cb_align = QCheckBox("Sincronización automática de letras con el audio")
         self.cb_align.setChecked(settings.value("experimental/align", False, type=bool))
         lay.addWidget(self.cb_align)

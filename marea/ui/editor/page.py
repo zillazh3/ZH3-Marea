@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from marea import library
 from marea.async_util import run_async
 from marea.audio import align, local
 from marea.engine.engine import Params
@@ -107,6 +108,7 @@ class VerseDelegate(QStyledItemDelegate):
 class EditorPage(QWidget):
     project_changed = Signal(str)  # título para la barra de la ventana
     enqueued = Signal(object)  # QueueItem añadido a la cola
+    library_changed = Signal()  # se anotó un proyecto en la Biblioteca
 
     def __init__(self, settings: QSettings, notify, queue: ExportQueue, services=None, prefer_gpu: bool = True):
         """notify(texto, tipo='info'|'ok'|'error', accion=None) muestra un toast."""
@@ -310,7 +312,9 @@ class EditorPage(QWidget):
     def _refresh_icons(self):
         t = theme.current
         self.btn_play.setIcon(theme.icon("pause" if self.preview.playing else "play", t.text, 18))
-        self.btn_menu.setIcon(theme.icon("chevron-down", t.text_muted, 16))
+        self.btn_menu.setIcon(theme.icon("ellipsis", t.text_muted, 16))
+        self.btn_format.setIcon(theme.icon("chevron-down", t.text_muted, 16))
+        self.btn_format.setLayoutDirection(Qt.RightToLeft)  # chevron after the label
 
     # ---------------- proyecto ----------------
     def set_project(self, project: ClipProject, editor_state: dict | None = None):
@@ -349,8 +353,8 @@ class EditorPage(QWidget):
         self._presets.refresh_list()
         self.subtitle.setText(self._title_text())
         self.stack.setCurrentIndex(1)
-        self.btn_export.setEnabled(True)
-        self.btn_menu.setEnabled(True)
+        for w in (self.btn_export, self.btn_menu, self.btn_format, *self.mode_chips.values()):
+            w.setEnabled(True)
         self._wordfx_sync(rebuild=False)
         self.preview.set_project(project, self.style, self.params, self._clip_range())
         self._range_changed(seek=False)
@@ -504,7 +508,14 @@ class EditorPage(QWidget):
         except OSError as e:
             self.notify(f"No pude guardar el proyecto: {e}", "error")
             return
+        self.register_in_library()
         self.notify(f"Proyecto guardado: {saved.name}", "ok")
+
+    def register_in_library(self):
+        """Anota el proyecto actual (ya guardado o abierto desde archivo) en la Biblioteca."""
+        if self.project and self.project.project_path:
+            library.register(self.project, self.project.project_path)
+            self.library_changed.emit()
 
     def open_project_dialog(self):
         path, _ = QFileDialog.getOpenFileName(self, "Abrir proyecto", "", PROJECT_FILTER)
@@ -518,6 +529,7 @@ class EditorPage(QWidget):
             self.notify(str(e), "error")
             return False
         self.set_project(project, editor_state=state)
+        self.register_in_library()
         return True
 
     def _title_text(self) -> str:
@@ -709,12 +721,6 @@ class EditorPage(QWidget):
     # ---------------- export ----------------
     def _output_dir(self) -> Path:
         return Path(self.settings.value("output_dir", str(default_output_dir())))
-
-    def _choose_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Carpeta de salida", str(self._output_dir()))
-        if d:
-            self.settings.setValue("output_dir", d)
-            self._update_summary()
 
     def _song_duration_ms(self) -> float:
         p = self.project

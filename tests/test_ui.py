@@ -45,11 +45,11 @@ def test_sidebar_toggle_widths_tooltips_and_shortcut(qapp, make_window):
     shortcut.activated.emit()  # offscreen no tiene ventana activa: se verifica el cableado, no el teclado
     settle(qapp)
     assert until(lambda: win.sidebar.width() == 64)  # espera a que termine la animación (con la máquina cargada tarda más)
-    assert win.sidebar.collapsed and win.sidebar.buttons[2].toolTip() == "Biblioteca"
+    assert win.sidebar.collapsed and win.sidebar.buttons[3].toolTip() == "Biblioteca"
     win.sidebar.toggle.click()
     settle(qapp)
     assert until(lambda: win.sidebar.width() == 220)
-    assert not win.sidebar.collapsed and not win.sidebar.buttons[2].toolTip()
+    assert not win.sidebar.collapsed and not win.sidebar.buttons[3].toolTip()
 
 
 def test_auto_collapse_below_1200_keeps_user_preference(qapp, make_window):

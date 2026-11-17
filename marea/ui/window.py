@@ -15,15 +15,17 @@ from marea.project import ClipProject, ProjectError, demo_project, load_project_
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import Track
 from marea.ui import theme
-from marea.ui.editor import EditorPage
+from marea.ui.editor import PROJECT_FILTER, EditorPage
 from marea.ui.exports import ExportsPage
 from marea.ui.home import HomePage
+from marea.ui.library import LibraryPage
+from marea.ui.palette import CommandPalette
 from marea.ui.search import SearchPage
 from marea.ui.services import Services
 from marea.ui.settings import SettingsBody
 from marea.ui.sidebar import Sidebar
 from marea.ui.toast import ToastHost
-from marea.ui.widgets import ElidedLabel, EmptyState, FadeStack, Page, scrollable
+from marea.ui.widgets import ElidedLabel, FadeStack, Page, scrollable
 
 TITLE_H = 40
 EDGE = 6  # px de borde que redimensiona
@@ -168,14 +170,20 @@ class MainWindow(QWidget):
         self.settings_body = SettingsBody(self.settings, self.set_theme, self.services, self.toast)
         self.settings_scroll = scrollable(self.settings_body)
         self.page_home = HomePage(
-            self.services, self.open_track, self.open_ttml, self.load_demo, lambda: self._goto_page(self.page_settings), self.queue
+            self.services, self.open_track, self.open_ttml, self.open_project_dialog, self.load_demo,
+            lambda: self._goto_page(self.page_search), self.open_project_file,
+            lambda: self._goto_page(self.page_settings), self.queue,
         )
+        self.editor.library_changed.connect(self.page_home.reload_recents)
         self.page_search = SearchPage(self.services, self.open_track, lambda: self._goto_page(self.page_settings), self.toast)
-        self.page_library = Page("Biblioteca", EmptyState("library", "Tu biblioteca está vacía", "Aquí aparecerán las letras y los clips que guardes."))
+        self.page_library = LibraryPage(self.open_project_file, lambda: self._goto_page(self.page_home))
+        self.editor.library_changed.connect(self.page_library.reload)
+        self.queue.item_done.connect(lambda _: self.page_library.reload())
         self.page_editor = self.editor
         self.page_exports = ExportsPage(self.queue)
-        self.page_settings = Page("Ajustes", self.settings_scroll)
-        for p in (self.page_home, self.page_search, self.page_library, self.page_editor, self.page_exports, self.page_settings):
+        self.page_settings = Page("Ajustes", self.settings_scroll, framed=False)
+        # mismo orden que ITEMS del sidebar: el índice del botón es el de la página
+        for p in (self.page_home, self.page_search, self.page_editor, self.page_library, self.page_exports, self.page_settings):
             self.pages.addWidget(p)
         body.addWidget(self.sidebar)
         body.addWidget(self.pages, 1)
@@ -193,6 +201,8 @@ class MainWindow(QWidget):
         self.sidebar.spotify.set_connected(self.services.connected)
         self.sidebar.collapsed_changed.connect(lambda c: self._remember_collapse(c))
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.toggle_sidebar).setContext(Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_palette).setContext(Qt.ApplicationShortcut)
+        self.sidebar.palette_requested.connect(self.open_palette)
         theme.signals.changed.connect(self._theme_changed)
         QApplication.instance().installEventFilter(self)
         if cover is not None:
@@ -243,6 +253,11 @@ class MainWindow(QWidget):
         except (ValueError, OSError) as e:
             self.toast(f"No pude abrir esa letra: {e} Usa un .ttml de Apple Music con tiempos por sílaba.", "error")
 
+    def open_project_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir proyecto", "", PROJECT_FILTER)
+        if path:
+            self.open_project_file(path)
+
     def open_project_file(self, path: str | Path) -> bool:
         try:
             project, state = load_project_file(path)
@@ -250,6 +265,7 @@ class MainWindow(QWidget):
             self.toast(str(e), "error")
             return False
         self.load_project(project, editor_state=state)
+        self.editor.register_in_library()
         return True
 
     def open_track(self, track: Track):
@@ -281,6 +297,23 @@ class MainWindow(QWidget):
 
     def toggle_sidebar(self):
         self.sidebar.set_collapsed(not self.sidebar.collapsed)
+
+    def palette_commands(self) -> list[tuple[str, str, object]]:
+        go = lambda page: (lambda: self._goto_page(page))  # noqa: E731
+        screens = [("Inicio", self.page_home), ("Buscar", self.page_search), ("Editor", self.page_editor),
+                   ("Biblioteca", self.page_library), ("Exportaciones", self.page_exports), ("Ajustes", self.page_settings)]
+        combo = self.settings_body.combo
+        return [("Ir a", name, go(page)) for name, page in screens] + [
+            ("Acción", "Buscar canción", go(self.page_search)),
+            ("Acción", "Cambiar tema", lambda: combo.setCurrentIndex(1 - combo.currentIndex())),
+            ("Acción", "Contraer o expandir menú", self.toggle_sidebar),
+            ("Acción", "Abrir .ttml", self.open_ttml),
+            ("Acción", "Abrir proyecto", self.open_project_dialog),
+            ("Acción", "Probar con la canción demo", self.load_demo),
+        ]
+
+    def open_palette(self):
+        CommandPalette(self, self.palette_commands()).popup()
 
     def toggle_maximize(self):
         self.showNormal() if self.isMaximized() else self.showMaximized()

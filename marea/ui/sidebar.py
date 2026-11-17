@@ -7,8 +7,11 @@ from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QFrame, QHBoxLayou
 from marea.ui import theme
 from marea.ui.widgets import ElidedLabel
 
-ITEMS = [("house", "Inicio"), ("search", "Buscar"), ("library", "Biblioteca"), ("sliders-horizontal", "Editor"),
+# mismo orden que la web: crear (Inicio, Buscar, Editor) | guardado (Biblioteca, Exportaciones) | Ajustes al fondo
+ITEMS = [("house", "Inicio"), ("search", "Buscar"), ("sliders-horizontal", "Editor"), ("library", "Biblioteca"),
          ("download", "Exportaciones"), ("settings", "Ajustes")]
+SEPARATOR_BEFORE = 3  # índice de ITEMS tras el cual se dibuja la línea divisoria
+COMMAND_TEXT = "Buscar o ir a…    Ctrl K"
 ICON = 20
 LABEL_X = 64  # las etiquetas empiezan donde acaba la columna de íconos colapsada
 
@@ -177,6 +180,7 @@ class MiniPlayer(QWidget):
 class Sidebar(QFrame):
     navigated = Signal(int)
     collapsed_changed = Signal(bool)
+    palette_requested = Signal()
 
     def __init__(self, logo_pixmap_fn=theme.logo_pixmap):
         super().__init__()
@@ -209,7 +213,17 @@ class Sidebar(QFrame):
             head.addWidget(w)
         head.addStretch()
         lay.addLayout(head)
-        lay.addSpacing(theme.SPACE[3])
+        lay.addSpacing(theme.SPACE[2])
+
+        self.command = QPushButton(COMMAND_TEXT)  # paleta Ctrl+K; colapsado solo se ve el ícono
+        self.command.setObjectName("CommandBtn")
+        self.command.setCursor(Qt.PointingHandCursor)
+        self.command.clicked.connect(self.palette_requested)
+        cmd_row = QHBoxLayout()
+        cmd_row.setContentsMargins(12, 0, 12, 0)
+        cmd_row.addWidget(self.command)
+        lay.addLayout(cmd_row)
+        lay.addSpacing(theme.SPACE[2])
 
         self.group, self.buttons = QButtonGroup(self), []
         for i, (icon_name, label) in enumerate(ITEMS):
@@ -217,10 +231,13 @@ class Sidebar(QFrame):
             b.clicked.connect(lambda _=False, i=i: self.navigated.emit(i))
             self.group.addButton(b, i)
             self.buttons.append(b)
+            if i == SEPARATOR_BEFORE:
+                lay.addWidget(self._separator())
+            if i == len(ITEMS) - 1:
+                lay.addStretch()  # Ajustes queda fijo abajo, sobre el estado de Spotify
             lay.addWidget(b)
         self.buttons[0].setChecked(True)
 
-        lay.addStretch()
         self.spotify = StatusRow("Spotify")
         lay.addWidget(self.spotify)
         lay.addSpacing(theme.SPACE[2])
@@ -230,8 +247,20 @@ class Sidebar(QFrame):
         self._refresh()
         self.set_collapsed(False, animate=False)
 
+    @staticmethod
+    def _separator() -> QWidget:
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(16, 4, 16, 4)
+        line = QFrame()
+        line.setObjectName("NavSep")
+        line.setFixedHeight(1)
+        row.addWidget(line)
+        return holder
+
     def _refresh(self):
         self.toggle.setIcon(theme.icon("menu", theme.current.text_muted, 20))
+        self.command.setIcon(theme.icon("search", theme.current.text_muted, 16))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -259,6 +288,7 @@ class Sidebar(QFrame):
         target = theme.SIDEBAR["collapsed" if collapsed else "expanded"]
         for b in self.buttons:  # tooltip solo cuando las etiquetas no se ven
             b.setToolTip(b.label if collapsed else "")
+        self.command.setToolTip("Buscar o ir a… (Ctrl+K)" if collapsed else "")
         self.player.controls.setVisible(not collapsed)
         self._anim.stop()
         if animate and theme.duration() and self.isVisible():

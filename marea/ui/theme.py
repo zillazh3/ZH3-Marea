@@ -173,6 +173,9 @@ QPushButton:default {{ background: {grad}; color: {t.on_accent}; border-color: t
 QPushButton:default:hover {{ background: {grad_hover}; }}
 QPushButton:default:focus {{ border-color: {t.text}; }}
 QPushButton#Chip {{ padding: {SPACE[1]}px {SPACE[3]}px; }}
+QPushButton#CommandBtn {{ text-align: left; padding: {SPACE[2]}px 12px; color: {t.text_muted}; background: {t.surface}; }}
+QPushButton#CommandBtn:hover {{ background: {t.hover}; color: {t.text}; }}
+QFrame#NavSep {{ background: {t.border}; border: none; }}
 QPushButton#CaptionBtn, QPushButton#IconBtn {{ border: none; padding: 0; background: transparent; }}
 QPushButton#CaptionBtn {{ border-radius: 0; }}
 QPushButton#CaptionBtn:hover {{ background: {t.hover}; }}
@@ -234,11 +237,16 @@ QListWidget#Presets::item {{ padding: {SPACE[1]}px; border: {BORDER_PX}px solid 
     color: {t.text_muted}; }}
 QListWidget#Presets::item:hover {{ background: {t.surface_hover}; color: {t.text}; }}
 QListWidget#Presets::item:selected {{ background: {t.pill}; border: {BORDER_PX}px solid {t.accent}; color: {t.text}; }}
+QListWidget#Library::item {{ padding: {SPACE[1]}px; border: {BORDER_PX}px solid transparent; border-radius: {r['control']}px;
+    color: {t.text_muted}; }}
+QListWidget#Library::item:hover {{ background: {t.surface_hover}; color: {t.text}; }}
+QListWidget#Library::item:selected {{ background: {t.pill}; border: {BORDER_PX}px solid {t.accent}; color: {t.text}; }}
 QListWidget#Intervals {{ background: {t.surface}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['control']}px; padding: {SPACE[1]}px; }}
 QListWidget#Intervals::item {{ padding: {SPACE[1]}px {SPACE[2]}px; border-radius: 6px; color: {t.text_muted}; }}
 QListWidget#Intervals::item:hover {{ background: {t.hover}; color: {t.text}; }}
 QListWidget#Intervals::item:selected {{ background: {t.pill}; color: {t.text}; }}
 QDialog, QMessageBox {{ background: {t.bg}; }}
+QDialog#Palette {{ background: {t.bg}; border: {BORDER_PX}px solid {t.border}; }}
 QFrame#Toast {{ background: {t.bg}; border: {BORDER_PX}px solid {t.border}; border-radius: {r['card']}px; }}
 QFrame#Toast[kind="error"] {{ border: {BORDER_PX}px solid {t.danger}; }}
 QFrame#Toast[kind="ok"] {{ border: {BORDER_PX}px solid {t.ok}; }}

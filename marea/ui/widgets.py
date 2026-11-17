@@ -239,7 +239,8 @@ class EmptyState(QWidget):
 class Page(QWidget):
     """Título de sección + una tarjeta con el contenido."""
 
-    def __init__(self, title: str, body: QWidget, header: QWidget | None = None):
+    def __init__(self, title: str, body: QWidget, header: QWidget | None = None, framed: bool = True):
+        """framed=False when the body brings its own cards (Ajustes) and a wrapping Card would nest them."""
         super().__init__()
         self.setObjectName("Page")
         lay = QVBoxLayout(self)
@@ -250,6 +251,9 @@ class Page(QWidget):
         lay.addWidget(h1)
         if header:
             lay.addWidget(header)
+        if not framed:
+            lay.addWidget(body, 1)
+            return
         card = QFrame()
         card.setObjectName("Card")
         QVBoxLayout(card).addWidget(body)

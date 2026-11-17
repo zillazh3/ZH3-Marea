@@ -47,7 +47,7 @@ def test_home_has_actions_and_editor_starts_empty(make_window):
 
 def test_loading_demo_fills_editor(win):
     e = win.editor
-    assert win.pages.currentIndex() == 3 and win.sidebar.current() == 3 and e.stack.currentIndex() == 1
+    assert win.pages.currentIndex() == 2 and win.sidebar.current() == 2 and e.stack.currentIndex() == 1
     assert e.list.count() == 11 and (e.first, e.last) == (0, 5) and e.btn_export.isEnabled()
     assert win.titlebar.title.text().startswith("Demo · letra original – Marea de luz"[:20])
     assert e.range_label.text().startswith("Versos 1–6")
@@ -154,7 +154,7 @@ def test_open_ttml_valid_and_invalid(make_window, qapp, monkeypatch, tmp_path):
     assert w.editor.project is None and w.toasts.count() == 1  # error claro, sin diálogo modal
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(DEMO_TTML), "")))
     w.open_ttml()
-    assert w.editor.project.title == "marea-de-luz" and w.editor.list.count() == 11 and w.pages.currentIndex() == 3
+    assert w.editor.project.title == "marea-de-luz" and w.editor.list.count() == 11 and w.pages.currentIndex() == 2
 
 
 def test_replace_ttml_keeps_cover_title_and_artist(make_window, qapp, monkeypatch, tmp_path):
@@ -212,7 +212,7 @@ def test_lyrics_export_enqueues_a_job_with_range_and_no_audio(win, captured, tmp
     (item,) = captured
     assert item.audio is None and item.job.size == (1080, 1080) and (item.job.start_ms, item.job.end_ms) == clip_range(e.project.lyrics, 0, 5)
     assert item.job.out_path.parent == tmp_path and got == [item] and not e.preview.playing
-    assert e.summary.text().startswith("Solo letra")
+    assert e.mode_chips["lyrics"].isChecked() and e.summary.text() == ffmpeg.TARGETS["mp4"][1]
 
 
 def test_song_mode_needs_an_audio_source_and_explains_how(win, captured):
@@ -424,28 +424,36 @@ def test_cancelling_a_running_export_asks_first_but_a_queued_one_does_not(win, m
     assert not asked and waiting.state == CANCELLED  # lo que aún no empezó se cancela sin diálogo
 
 
-# ---------------- Inicio: clips recientes ----------------
+# ---------------- Inicio: proyectos recientes ----------------
 
-def test_home_shows_recent_clips_and_opens_their_folder(make_window, qapp, monkeypatch, tmp_path):
-    from marea.export import history
-    from marea.ui import home as home_mod
-    video = tmp_path / "v.mp4"
-    video.write_bytes(b"x")
-    thumb = tmp_path / "t.png"
-    thumb.write_bytes(bytes(demo_cover(64).encodeToData()))
-    history.add({"path": str(video), "title": "Mi clip", "artist": "Yo", "thumb": str(thumb)})
+def test_home_shows_recent_projects_and_opens_them(make_window, qapp, tmp_path):
+    from marea import library
+    from marea.project import demo_project, save_project
+    saved = save_project(demo_project(), tmp_path / "demo.marea.json")
+    library.register(demo_project(), saved)
     w = make_window()
     w.show()
     home = w.pages.widget(0)
-    assert home.recents.isVisibleTo(home) and home.recents_title.text() == "Clips recientes"
-    opened = []
-    monkeypatch.setattr(home_mod, "reveal_in_folder", lambda p: opened.append(p))
-    from PySide6.QtWidgets import QPushButton as Btn
-    next(b for b in home.recents.findChildren(Btn)).click()
-    assert opened == [str(video)]
-    (app_data() / "history.json").unlink()  # sin historial no hay sección
+    assert home.recents.isVisibleTo(home) and home.recents_title.text() == "Proyectos recientes"
+    assert home.recents.count() >= 1
+    home.recents.itemClicked.emit(home.recents.item(0))
+    assert w.editor.project is not None and w.pages.currentIndex() == 2 and w.editor.project.project_path == saved.resolve()
+    (app_data() / "library.json").unlink()  # sin registro no hay sección
     home.reload_recents()
     assert not home.recents_title.isVisibleTo(home)
+
+
+def test_saving_a_project_registers_it_in_the_library(make_window, qapp, monkeypatch, tmp_path):
+    from marea import library
+    w = make_window()
+    w.load_demo()
+    out = tmp_path / "guardado.marea.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    w.editor.save_project_dialog()
+    lib = w.pages.widget(3)
+    assert out.is_file() and any(e["path"] == str(out.resolve()) for e in library.load())
+    lib.reload()
+    assert lib.list.count() >= 1
 
 
 # ---------------- Ajustes de audio ----------------

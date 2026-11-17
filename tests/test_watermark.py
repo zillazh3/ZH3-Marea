@@ -148,16 +148,19 @@ def test_saving_the_spicy_key_checks_it_and_reports_the_result(settings_win):
     assert secrets.data == {"spicy_lyrics": "sl_pk_mala"}  # la llave se guarda aunque falle la comprobación (puede ser un fallo de red)
 
 
-def test_export_settings_feed_the_editor_menu(settings_win, tmp_path):
+def test_export_prefs_split_between_settings_and_the_export_bar(settings_win, tmp_path):
     win, body, _ = settings_win
-    body.preset.setCurrentIndex(body.preset.findData("square"))
+    e = win.editor
+    assert not hasattr(body, "preset") and not hasattr(e, "encoder_actions")  # format lives in the bar, encoder only in Settings
     body.encoder.setCurrentIndex(body.encoder.findData("nvenc"))
-    win.load_demo()
-    win.editor.menu.aboutToShow.emit()
-    assert win.editor.preset_actions["square"].isChecked()
-    assert "Cuadrado" in win.editor.summary.text()
     body.settings.setValue("output_dir", str(tmp_path))
-    assert win.editor._output_dir() == tmp_path
+    win.load_demo()
+    assert e.btn_format.isEnabled() and all(c.isEnabled() for c in e.mode_chips.values())
+    e.preset_actions["square"].trigger()
+    assert win.settings.value("export/preset") == "square" and "Cuadrado" in e.btn_format.text()
+    e.mode_chips["song"].click()
+    assert e.mode == "song" and win.settings.value("export/mode") == "song" and e.mode_chips["song"].isChecked()
+    assert e._output_dir() == tmp_path
 
 
 def test_watermark_tab_persists_and_reaches_the_export_job(settings_win):

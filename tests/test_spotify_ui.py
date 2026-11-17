@@ -133,7 +133,7 @@ def test_search_shows_results_with_lyrics_kind_and_opens_track(env):
     assert shot.width() > 100 and len({shot.pixel(x, 30) for x in range(0, shot.width(), 7)}) > 3
     page.list.itemClicked.emit(page.list.item(0))  # elegir el resultado
     assert until(lambda: win.editor.project is not None)
-    assert win.editor.project.title == "Canción 1" and win.pages.currentIndex() == 3 and win.editor.list.count() == 3
+    assert win.editor.project.title == "Canción 1" and win.pages.currentIndex() == 2 and win.editor.list.count() == 3
 
 
 def test_lyrics_lookup_carries_the_spotify_id_and_the_editor_shows_the_credit_as_plain_text(env):
@@ -195,7 +195,9 @@ def test_not_connected_guides_to_settings(make_window, qapp, tmp_path):
     win = make_window(services=services)
     win.show()
     page = search_page(win)
-    assert page.stack.currentWidget() is page.off and win.pages.widget(0).stack.currentWidget() is win.pages.widget(0).off
+    home = win.pages.widget(0)
+    assert page.stack.currentWidget() is page.off
+    assert home.now.isVisibleTo(home) and home.connect_hint.isVisibleTo(home) and not home.card.isVisibleTo(home)
     btn = next(b for b in page.off.findChildren(QPushButton) if b.text() == "Ir a Ajustes")
     btn.click()
     assert win.pages.currentIndex() == 5 and win.sidebar.current() == 5
@@ -204,10 +206,10 @@ def test_not_connected_guides_to_settings(make_window, qapp, tmp_path):
 def test_home_follows_what_is_playing(env):
     win, sp, ly, services = env
     home = win.pages.widget(0)
-    assert home.stack.currentWidget() is home.idle
+    assert not home.now.isVisibleTo(home)
     sp.playing = Playback(T(7, "La que suena"), 5000, True, 1700000000000)
     services.poll()
-    assert until(lambda: home.stack.currentWidget() is home.card)
+    assert until(lambda: home.now.isVisibleTo(home) and home.card.isVisibleTo(home) and not home.connect_hint.isVisibleTo(home))
     assert home.card.title.text() == "La que suena" and home.card.state.text() == "SONANDO AHORA"
     assert until(lambda: home.card.badge.text() == "Letra por línea" and home.card._has_cover)
     assert win.sidebar.player.title.text().startswith("La que suena") and win.sidebar.player.playing
@@ -218,7 +220,7 @@ def test_home_follows_what_is_playing(env):
     sp.playing = None
     services._polling = False
     services.poll()
-    assert until(lambda: home.stack.currentWidget() is home.idle)
+    assert until(lambda: not home.now.isVisibleTo(home))
     sp.playing = Playback(T(8, "Sin Letra"), 0, True, 1)
     ly.missing = {"Sin Letra"}
     services._polling = False
