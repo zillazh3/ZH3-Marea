@@ -13,6 +13,7 @@ from typing import Callable
 from marea.engine.curves import clamp
 from marea.i18n import t
 from marea.model.cinematic import VideoResource
+from marea.sysutil import is_local_path
 
 SCHEMA = "marea.background"
 VERSION = 1
@@ -105,9 +106,14 @@ def source_ms(cfg: BackgroundConfig, t_ms: float, clip_start_ms: float = 0.0) ->
 def check_video(cfg: BackgroundConfig) -> tuple[BackgroundConfig, str | None]:
     """Si el video falta o cambió desde que se eligió, vuelve a Portada y explica por qué (aviso no bloqueante)."""
     if cfg.source != "video":
+        if cfg.video and not is_local_path(cfg.video.path):  # never keep a network path around: picking "Video" later would open it
+            cfg = BackgroundConfig(**{f.name: getattr(cfg, f.name) for f in fields(cfg)})
+            cfg.video = None
         return cfg, None
     path = cfg.video.path if cfg.video else ""
     try:
+        if not is_local_path(path):  # a project from someone else must not make us touch a network share
+            raise OSError(path)
         st = os.stat(path)
     except (OSError, ValueError):
         reason = t("errors.background.reasonMissing")
@@ -118,6 +124,8 @@ def check_video(cfg: BackgroundConfig) -> tuple[BackgroundConfig, str | None]:
             return cfg, None
     cfg = BackgroundConfig(**{f.name: getattr(cfg, f.name) for f in fields(cfg)})
     cfg.source = "cover"
+    if not is_local_path(path):
+        cfg.video = None
     return cfg, t("errors.background.videoUnavailable", reason=reason)
 
 

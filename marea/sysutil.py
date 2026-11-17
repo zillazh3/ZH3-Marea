@@ -13,6 +13,19 @@ from marea.i18n import t
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # prevent console flash on Windows
 
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_BS = "\\"
+_EXTENDED = _BS * 2 + "?" + _BS
+
+
+def is_local_path(p) -> bool:
+    """Allowlist: relative paths, drive paths (C:\\...) and extended drive paths (\\\\?\\C:\\...). Anything else that starts with a
+    backslash (UNC, \\\\?\\UNC, \\\\?\\GLOBALROOT, \\\\.\\, \\??\\) can reach a network share, and touching it on open would send NTLM credentials."""
+    s = os.fspath(p).replace("/", _BS)
+    if s.startswith(_EXTENDED):
+        return len(s) >= 6 and s[4].isalpha() and s[5] == ":"
+    return not s.startswith(_BS)
+
+
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))}
 
 

@@ -32,7 +32,7 @@ from marea.lab.player import Player
 from marea.lab.session import Session
 from marea.lab.ttml_in import from_ttml
 from marea.paths import app_data, reveal_in_folder
-from marea.sysutil import find_ffmpeg, safe_filename
+from marea.sysutil import find_ffmpeg, is_local_path, safe_filename
 from marea.ui import lang, theme
 from marea.ui.lab._pkg import pkg_attr
 from marea.ui.lab.prepare_view import build_prepare_page
@@ -758,7 +758,7 @@ class LabReviewWindow(QWidget):
             return
         original = None
         hint = al.source_lyrics.get("path_hint")
-        if al.source_lyrics.get("kind") == "ttml" and hint and Path(hint).exists():
+        if al.source_lyrics.get("kind") == "ttml" and hint and is_local_path(hint) and Path(hint).exists():
             data = Path(hint).read_bytes()
             if hashlib.sha256(data).hexdigest() == al.source_lyrics.get("sha256"):
                 original = data

@@ -13,6 +13,7 @@ from marea.audio import analysis as _audio_analysis_mod
 from marea.audio.analysis import _ANALYSIS_CACHE, AudioAnalysis, analyze_audio, cached_audio_analysis
 from marea.engine.curves import clamp, clamp01, smoothstep
 from marea.i18n import t
+from marea.sysutil import is_local_path
 
 SCHEMA = "marea.cinematic"
 VERSION = 1
@@ -336,6 +337,8 @@ def from_dict(raw: dict | None) -> CinematicConfig:
     for k, rd in (d.get("resources") or {}).items():
         if isinstance(rd, dict) and rd.get("path") is not None:
             res = _pick(VideoResource, rd)
+            if not is_local_path(res.path):
+                res.path = ""  # network paths are never opened: the resource shows up as missing
             res.id = res.id or str(k)
             res.fps_num = max(1, int(res.fps_num))
             res.fps_den = max(1, int(res.fps_den))

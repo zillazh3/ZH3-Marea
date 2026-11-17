@@ -18,6 +18,7 @@ from marea.model.cinematic import CinematicConfig, CinematicError
 from marea.model.lyrics import BgVocal, Line, Lyrics, Syllable
 from marea.providers.lyrics.ttml_file import TtmlFileProvider
 from marea.providers.spotify import Track
+from marea.sysutil import is_local_path
 
 PROJECT_SCHEMA = "marea.project"
 PROJECT_VERSION = 1
@@ -241,7 +242,7 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
 
     audio = _obj(d.get("audio") or {}, "audio")
     audio_path_str = str(audio.get("path") or "").strip()
-    audio_file = Path(audio_path_str) if audio_path_str else None
+    audio_file = Path(audio_path_str) if audio_path_str and is_local_path(audio_path_str) else None
     audio_offset_ms = float(_num(audio.get("offset_ms", 0.0), "audio.offset_ms"))
 
     try:
@@ -260,7 +261,7 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         title=str(d.get("title", "")),
         artist=str(d.get("artist", "")),
         cover=cover,
-        source=Path(src_str) if src_str else None,
+        source=Path(src_str) if src_str and is_local_path(src_str) else None,
         track=track,
         audio_file=audio_file,
         audio_offset_ms=audio_offset_ms,
