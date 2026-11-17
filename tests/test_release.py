@@ -27,7 +27,7 @@ def test_build_excludes_foreign_dll_directories_without_changing_the_parent_path
     out = tmp_path / "dist" / "ZH3 Marea"
     out.mkdir(parents=True)
     (tmp_path / "docs").mkdir()
-    for name in ("README.md", "LICENSE", "THIRD_PARTY.md", "docs/vocal-layers.md"):
+    for name in ("README.md", "LEEME.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY.md", "docs/vocal-layers.md"):
         (tmp_path / name).write_text("test document", encoding="utf-8")
     ffmpeg = tmp_path / "ffmpeg.exe"
     ffmpeg.write_bytes(b"test binary")
@@ -47,3 +47,4 @@ def test_build_excludes_foreign_dll_directories_without_changing_the_parent_path
     assert str(Path(os.environ["SYSTEMROOT"]) / "System32") in search_path
     assert os.environ["PATH"] == foreign_path
     assert (out / "ffmpeg" / "ffmpeg.exe").read_bytes() == b"test binary"
+    assert {d: (out / d).read_text(encoding="utf-8") for d in ("README.md", "LEEME.md", "CHANGELOG.md")} == {d: "test document" for d in ("README.md", "LEEME.md", "CHANGELOG.md")}

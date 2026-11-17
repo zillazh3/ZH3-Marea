@@ -56,8 +56,7 @@ def main():
         sys.exit("No encontré ffmpeg para empaquetar: ponlo en el PATH o define MAREA_FFMPEG.")
     (OUT / "ffmpeg").mkdir(exist_ok=True)
     shutil.copy2(ffmpeg, OUT / "ffmpeg" / "ffmpeg.exe")
-    shutil.copy2(ROOT / "README.md", OUT / "LEEME.md")
-    for doc in ("LICENSE", "THIRD_PARTY.md"):
+    for doc in ("README.md", "LEEME.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY.md"):
         shutil.copy2(ROOT / doc, OUT / doc)
     (OUT / "docs").mkdir(exist_ok=True)
     shutil.copy2(ROOT / "docs" / "vocal-layers.md", OUT / "docs" / "vocal-layers.md")
