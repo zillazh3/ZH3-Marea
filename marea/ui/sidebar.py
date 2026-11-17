@@ -237,6 +237,7 @@ class Sidebar(QFrame):
         lay.addLayout(cmd_row)
         lay.addSpacing(theme.SPACE[2])
 
+        self.spotify = StatusRow("Spotify")
         self.group, self.buttons = QButtonGroup(self), []
         for i, (icon_name, label_key) in enumerate(ITEMS):
             b = NavButton(icon_name, label_key)
@@ -246,12 +247,11 @@ class Sidebar(QFrame):
             if i == SEPARATOR_BEFORE:
                 lay.addWidget(self._separator())
             if i == len(ITEMS) - 1:
-                lay.addStretch()  # Ajustes queda fijo abajo, sobre el estado de Spotify
+                lay.addStretch()  # el estado de Spotify y Ajustes quedan fijos abajo, en ese orden
+                lay.addWidget(self.spotify)
             lay.addWidget(b)
         self.buttons[0].setChecked(True)
 
-        self.spotify = StatusRow("Spotify")
-        lay.addWidget(self.spotify)
         lay.addSpacing(theme.SPACE[2])
         self.player = MiniPlayer()
         lay.addWidget(self.player)

@@ -155,3 +155,14 @@ def test_reduced_motion_disables_animation(qapp, make_window, monkeypatch):
     win.sidebar.set_collapsed(True)
     assert win.sidebar.width() == 64  # sin animar: inmediato
     assert theme.duration() == 0
+
+
+def test_spotify_status_sits_above_the_settings_button(qapp):
+    from marea.ui.sidebar import Sidebar
+    sb = Sidebar()
+    sb.resize(220, 800)
+    sb.show()
+    qapp.processEvents()
+    assert sb.spotify.geometry().bottom() <= sb.buttons[-1].geometry().top()
+    assert sb.buttons[-1].geometry().bottom() <= sb.player.geometry().top()
+    sb.close()
