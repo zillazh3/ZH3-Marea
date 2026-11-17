@@ -1,6 +1,6 @@
 # Implementation Plan: Semantic Word FX v2
 
-Full design, audit table and risks: `C:\Users\thezi\.claude\plans\you-are-working-on-joyful-flame.md` (approved).
+Full design, audit table and risks: the original local planning file (approved).
 Task checklist: `tasks/todo.md`.
 
 ## Overview
