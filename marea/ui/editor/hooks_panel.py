@@ -6,12 +6,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDial
 from marea.async_util import run_async
 from marea.hooks.analyze import Suggestion, load_weights, suggest
 from marea.presets.store import PresetStore
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor._pkg import pkg_attr
 from marea.ui.editor.wordfx_controller import WordFXWatcher
 from marea.ui.widgets import fmt_ms, make_button
 
 DURATIONS = (15, 30, 60)
+CONFIDENCE_KEYS = {"alta": "hooks.confidence.high", "media": "hooks.confidence.medium", "baja": "hooks.confidence.low"}
 CUSTOM_DEFAULT = 45
 
 
@@ -41,7 +42,9 @@ class HooksController:
         lay.setContentsMargins(0, theme.SPACE[3], 0, 0)
         lay.setSpacing(theme.SPACE[2])
         top = QHBoxLayout()
-        self.btn_run = make_button("Sugerir rangos", "Primary", self.run, "Busca los versos con más gancho para un clip de TikTok")
+        self.btn_run = make_button("", "Primary", self.run)
+        lang.bind(self.btn_run, "hooks.run")
+        lang.bind(self.btn_run, "hooks.runTip", "setToolTip")
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setTextVisible(False)
@@ -60,15 +63,17 @@ class HooksController:
         self.sp_custom.setRange(5, 180)
         self.sp_custom.setValue(CUSTOM_DEFAULT)
         self.sp_custom.setSuffix(" s")
-        self.sp_custom.setToolTip("Duración a medida")
+        lang.bind(self.sp_custom, "hooks.customTip", "setToolTip")
         self.sp_custom.valueChanged.connect(lambda _v: self._custom_changed())
-        self._add_chip(chips, -1.0, "A medida")
+        self._add_chip(chips, -1.0, "")
+        lang.bind(self.chips[-1.0], "hooks.custom")
         chips.addWidget(self.sp_custom)
         chips.addStretch()
         lay.addLayout(chips)
         self.chips[30.0].setChecked(True)
 
-        self.status = QLabel("Elige una duración y pulsa «Sugerir rangos».")
+        self.status = QLabel()
+        self._set_status("hooks.status.pick")
         self.status.setObjectName("Caption")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
@@ -83,9 +88,12 @@ class HooksController:
         lay.addWidget(self.list, 1)
 
         row = QHBoxLayout()
-        self.btn_queue = make_button("Encolar", "Ghost", self.enqueue_selected, "Añade a la cola los rangos elegidos con los ajustes actuales")
-        self.btn_variants = make_button("Encolar variantes…", "Ghost", self.enqueue_variants,
-                                        "Añade el mismo rango una vez por Corriente elegida (variantes A/B)")
+        self.btn_queue = make_button("", "Ghost", self.enqueue_selected)
+        lang.bind(self.btn_queue, "hooks.queue")
+        lang.bind(self.btn_queue, "hooks.queueTip", "setToolTip")
+        self.btn_variants = make_button("", "Ghost", self.enqueue_variants)
+        lang.bind(self.btn_variants, "hooks.variants")
+        lang.bind(self.btn_variants, "hooks.variantsTip", "setToolTip")
         row.addWidget(self.btn_queue)
         row.addWidget(self.btn_variants)
         row.addStretch()
@@ -96,6 +104,14 @@ class HooksController:
         self._watch.start(self._weight_files())
         self._sync_buttons()
         return w
+
+    def _set_status(self, key: str = ""):
+        """Status line: an i18n key (follows the language), or empty."""
+        if key:
+            lang.bind(self.status, key)
+        else:
+            lang.unbind(self.status)
+            self.status.setText("")
 
     def _add_chip(self, layout, target: float, text: str):
         b = QPushButton(text)
@@ -130,7 +146,7 @@ class HooksController:
         self._busy = True
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
-        self.status.setText("Analizando letra y audio…")
+        self._set_status("hooks.status.analyzing")
         lyrics, title = p.lyrics, p.title
         samples, offset = p.audio_samples, float(p.audio_offset_ms)
         outro = float(ed.settings.value("export/outro_ms", 500))
@@ -157,15 +173,15 @@ class HooksController:
         if self.ed.project is not project:
             return  # cambió de proyecto mientras se calculaba
         self.results, self.with_audio = results, with_audio
-        self.status.setText("" if with_audio else "Sin audio local: solo se usó la letra, así que la confianza es menor.")
+        self._set_status("" if with_audio else "hooks.status.noAudio")
         self.show_results()
 
     def _failed(self, e):
         self._busy = False
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
-        self.status.setText("")
-        self.ed.notify(f"No pude sugerir rangos: {e}", "error")
+        self._set_status()
+        self.ed.notify(lang.t("hooks.failed", error=e), "error")
 
     # ---------------- lista ----------------
     def _chip_clicked(self, target: float):
@@ -182,7 +198,7 @@ class HooksController:
         self.list.clear()
         items = self.results.get(self.chip_target, [])
         if not items and self.results:
-            self.status.setText("Pulsa «Sugerir rangos» otra vez para calcular esa duración.")
+            self._set_status("hooks.status.recalc")
         for s in items:
             it = QListWidgetItem()
             it.setData(Qt.UserRole, s)
@@ -199,9 +215,14 @@ class HooksController:
         v = QVBoxLayout(w)
         v.setContentsMargins(theme.SPACE[2], 2, theme.SPACE[2], 2)
         v.setSpacing(0)
-        head = QLabel(f"Versos {s.first + 1}–{s.last + 1} · {fmt_ms(lines[s.first].start)}–{fmt_ms(lines[s.last].end)}")
+        head = QLabel()
+        lang.bind(head, "hooks.cardHead", first=s.first + 1, last=s.last + 1,
+                  start=fmt_ms(lines[s.first].start), end=fmt_ms(lines[s.last].end))
         head.setObjectName("Body")
-        sub = QLabel(f"{s.duration_ms / 1000:.0f} s · puntaje {s.score:.0f} · confianza {s.confidence}")
+        sub = QLabel()
+        lang.bind_fn(sub, "setText", lambda: sub.setText(lang.t(
+            "hooks.cardSub", seconds=f"{s.duration_ms / 1000:.0f}", score=f"{s.score:.0f}",
+            confidence=lang.t(CONFIDENCE_KEYS[s.confidence]) if s.confidence in CONFIDENCE_KEYS else s.confidence)))
         sub.setObjectName("Caption")
         why = QLabel(s.explanation)
         why.setObjectName("Muted")
@@ -233,9 +254,9 @@ class HooksController:
         """Corrientes para las variantes (diálogo con una casilla por Corriente); [] si se cancela."""
         infos = self.store.list()
         dlg = QDialog(self.ed)
-        dlg.setWindowTitle("Encolar variantes")
+        dlg.setWindowTitle(lang.t("hooks.variantsTitle"))
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("Una exportación por cada Corriente elegida (el nombre va en el archivo):"))
+        lay.addWidget(QLabel(lang.t("hooks.variantsLabel")))
         boxes = []
         for info in infos:
             cb = QCheckBox(info.name)
@@ -259,13 +280,13 @@ class HooksController:
             for info in presets:
                 self.ed.enqueue_range(s.first, s.last, s.start_ms, s.end_ms, look_preset=info)
         if presets:
-            self.ed.notify(f"{len(sel) * len(presets)} exportaciones añadidas a la cola.", "ok")
+            self.ed.notify(lang.t("hooks.queued", count=len(sel) * len(presets)), "ok")
 
     def reset(self):
         """Proyecto nuevo: las sugerencias anteriores ya no aplican."""
         self.results = {}
         if hasattr(self, "list"):
             self.list.clear()
-            self.status.setText("Elige una duración y pulsa «Sugerir rangos».")
+            self._set_status("hooks.status.pick")
             self._sync_buttons()
         self.ed.set_hover_range(None) if hasattr(self.ed, "list") else None

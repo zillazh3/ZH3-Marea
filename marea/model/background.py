@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Callable
 
 from marea.engine.curves import clamp
+from marea.i18n import t
 from marea.model.cinematic import VideoResource
 
 SCHEMA = "marea.background"
@@ -109,15 +110,15 @@ def check_video(cfg: BackgroundConfig) -> tuple[BackgroundConfig, str | None]:
     try:
         st = os.stat(path)
     except (OSError, ValueError):
-        reason = "no encuentro el archivo"
+        reason = t("errors.background.reasonMissing")
     else:
         if (cfg.video_size and st.st_size != cfg.video_size) or (cfg.video_mtime_ns and st.st_mtime_ns != cfg.video_mtime_ns):
-            reason = "el archivo cambió"
+            reason = t("errors.background.reasonChanged")
         else:
             return cfg, None
     cfg = BackgroundConfig(**{f.name: getattr(cfg, f.name) for f in fields(cfg)})
     cfg.source = "cover"
-    return cfg, f"El video de fondo no está disponible ({reason}). Usé la portada; vuelve a elegir el video en Fondo."
+    return cfg, t("errors.background.videoUnavailable", reason=reason)
 
 
 MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
@@ -129,15 +130,15 @@ def to_dict(cfg: BackgroundConfig) -> dict:
 
 def migrate_dict(raw: dict) -> dict:
     if not isinstance(raw, dict):
-        raise BackgroundError("La configuración de fondo no es un objeto JSON válido.")
+        raise BackgroundError(t("errors.background.notObject"))
     if raw.get("schema", SCHEMA) != SCHEMA:
-        raise BackgroundError(f"Esquema de fondo no soportado: {raw.get('schema')!r}.")
+        raise BackgroundError(t("errors.background.unsupportedSchema", schema=repr(raw.get("schema"))))
     try:
         ver = int(raw.get("version", 1))
     except (TypeError, ValueError):
-        raise BackgroundError("Versión de fondo no válida.") from None
+        raise BackgroundError(t("errors.background.badVersion")) from None
     if ver < 1 or ver > VERSION:
-        raise BackgroundError(f"Versión de fondo no soportada: v{ver} (esta app lee hasta v{VERSION}).")
+        raise BackgroundError(t("errors.background.unsupportedVersion", ver=ver, max=VERSION))
     cur = dict(raw)
     while ver < VERSION:
         cur = MIGRATIONS[ver](cur)

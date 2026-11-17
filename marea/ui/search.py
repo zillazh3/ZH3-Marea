@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QFrame, QLabel, QLineEdit, QListWidget, QListWidg
 
 from marea.async_util import run_async
 from marea.providers.spotify import Track
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import LYRICS_BADGES, EmptyState, fmt_ms, placeholder_pixmap, rounded_pixmap
 
 DEBOUNCE_MS = 450
@@ -40,7 +40,7 @@ class ResultDelegate(QStyledItemDelegate):
         f = opt.font
         x = r.left() + 10 + THUMB + 14
         right = r.right() - 14
-        badge = LYRICS_BADGES.get(kind, "…")  # «…» mientras se consulta
+        badge = lang.t(LYRICS_BADGES[kind]) if kind in LYRICS_BADGES else "…"  # «…» mientras se consulta
         f.setPixelSize(theme.FONT_SIZES["xs"])
         f.setWeight(f.Weight.DemiBold)
         p.setFont(f)
@@ -85,21 +85,28 @@ class SearchPage(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[6])
         lay.setSpacing(theme.SPACE[4])
-        h1 = QLabel("Buscar")
+        h1 = QLabel()
+        lang.bind(h1, "search.title")
         h1.setObjectName("H1")
         self.input = QLineEdit()
         self.input.setObjectName("Search")
-        self.input.setPlaceholderText("Busca una canción por título o artista")
+        lang.bind(self.input, "search.placeholder", "setPlaceholderText")
         self.input.textChanged.connect(self._on_text)
         self.input.returnPressed.connect(self._search_now)
         lay.addWidget(h1)
         lay.addWidget(self.input)
 
         self.stack = QStackedWidget()
-        self.off = EmptyState("search", "Conecta Spotify para buscar",
-                              "Necesitas conectar tu cuenta para buscar canciones. Se hace una sola vez.", [("Ir a Ajustes", on_settings, True)])
-        self.hint = EmptyState("search", "Busca una canción", "Verás qué letra hay disponible: por sílaba, por línea o sin letra.")
-        self.none = EmptyState("search", "No encontré resultados", "Prueba con otro título o agrega el nombre del artista.")
+        self.off = EmptyState("search", "", "", [("", on_settings, True)])
+        lang.bind(self.off.head, "search.offTitle")
+        lang.bind(self.off.body, "search.offBody")
+        lang.bind(self.off.buttons[0], "search.goSettings")
+        self.hint = EmptyState("search", "", "")
+        lang.bind(self.hint.head, "search.hintTitle")
+        lang.bind(self.hint.body, "search.hintBody")
+        self.none = EmptyState("search", "", "")
+        lang.bind(self.none.head, "search.noneTitle")
+        lang.bind(self.none.body, "search.noneBody")
         self.list = QListWidget()
         self.list.setItemDelegate(ResultDelegate(self))
         self.list.setMouseTracking(True)
@@ -117,6 +124,7 @@ class SearchPage(QWidget):
 
         self._timer = QTimer(self, singleShot=True, interval=debounce_ms)
         self._timer.timeout.connect(self._search_now)
+        lang.signals.changed.connect(self.list.viewport().update)  # las etiquetas de letra se pintan con lang.t
         services.connection_changed.connect(lambda _: self._sync())
         self._sync()
 
@@ -149,7 +157,7 @@ class SearchPage(QWidget):
 
     def _failed(self, req: int, error):
         if req == self._req:
-            self.notify(str(error) if hasattr(error, "args") and error.args else "No pude buscar. Intenta de nuevo.", "error")
+            self.notify(str(error) if hasattr(error, "args") and error.args else lang.t("search.failed"), "error")
 
     def _show(self, req: int, tracks: list[Track]):
         if req != self._req:

@@ -12,19 +12,22 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit,
                                QPushButton, QVBoxLayout, QWidget)
 
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import make_button
 from marea.wordfx.profile import ARC_MOODS, TAGS, ArcSegment, SongProfile
 
-LABELS = {  # etiquetas en español de los tags y ánimos
-    "sad": "triste", "nostalgic": "nostálgica", "longing": "anhelo", "anguished": "angustiada", "tender": "tierna",
-    "hopeful": "esperanzada", "joyful": "alegre", "euphoric": "eufórica", "bittersweet": "agridulce", "tribute": "homenaje",
-    "healing": "sanación", "numb": "entumecida", "raw_vocals": "voz cruda", "calm": "calma"}
+LABELS = {  # tag / mood -> i18n key of its label
+    "sad": "wordfxUi.profile.mood.sad", "nostalgic": "wordfxUi.profile.mood.nostalgic", "longing": "wordfxUi.profile.mood.longing",
+    "anguished": "wordfxUi.profile.mood.anguished", "tender": "wordfxUi.profile.mood.tender",
+    "hopeful": "wordfxUi.profile.mood.hopeful", "joyful": "wordfxUi.profile.mood.joyful",
+    "euphoric": "wordfxUi.profile.mood.euphoric", "bittersweet": "wordfxUi.profile.mood.bittersweet",
+    "tribute": "wordfxUi.profile.mood.tribute", "healing": "wordfxUi.profile.mood.healing", "numb": "wordfxUi.profile.mood.numb",
+    "raw_vocals": "wordfxUi.profile.mood.rawVocals", "calm": "wordfxUi.profile.mood.calm"}
 MIN_SEG_S = 1.0
 
 
 def _mood_label(m: str) -> str:
-    return LABELS.get(m, m)
+    return lang.t(LABELS[m]) if m in LABELS else m
 
 
 class ArcTimeline(QWidget):
@@ -36,6 +39,7 @@ class ArcTimeline(QWidget):
         self.arc, self.duration, self.sel = arc, max(1.0, duration), 0
         self.setMinimumHeight(46)
         self.setCursor(Qt.PointingHandCursor)
+        lang.signals.changed.connect(self.update)  # mood names are painted
 
     def set_arc(self, arc: list[ArcSegment], sel: int | None = None):
         self.arc = arc
@@ -76,44 +80,51 @@ class ProfileDialog(QDialog):
 
     def __init__(self, profile: SongProfile, duration_s: float, recompute: Callable[[str], SongProfile], title: str = "", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Perfil de la canción" + (f" · {title}" if title else ""))
+        lang.bind_fn(self, "setWindowTitle", lambda: self.setWindowTitle(
+            lang.t("wordfxUi.profile.title") + (f" · {title}" if title else "")))
         self.setMinimumWidth(660)
         self._recompute = recompute
         self.duration = max(1.0, duration_s)
         self.intensity = profile.intensity
         self.track_id = profile.track_id
         lay = QVBoxLayout(self)
-        hint = QLabel("El ánimo de la canción orienta los efectos: color, peso y energía de cada palabra. Edítalo antes de grabar; "
-                      "«Recalcular» lo rehace desde la letra, el audio y tus notas.")
+        hint = QLabel()
+        lang.bind(hint, "wordfxUi.profile.hint")
         hint.setObjectName("Caption")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
-        lay.addWidget(QLabel("Tags"))
+        tags_label = QLabel()
+        lang.bind(tags_label, "wordfxUi.profile.tags")
+        lay.addWidget(tags_label)
         grid = QGridLayout()
         self.tag_buttons: dict[str, QPushButton] = {}
         for i, tag in enumerate(TAGS):
-            b = make_button(_mood_label(tag), "Ghost")
+            b = make_button("", "Ghost")
+            lang.bind_fn(b, "setText", lambda b=b, tag=tag: b.setText(_mood_label(tag)))
             b.setCheckable(True)
             b.setToolTip(tag)
             self.tag_buttons[tag] = b
             grid.addWidget(b, i // 5, i % 5)
         lay.addLayout(grid)
 
-        lay.addWidget(QLabel("Arco emocional"))
+        arc_label = QLabel()
+        lang.bind(arc_label, "wordfxUi.profile.arc")
+        lay.addWidget(arc_label)
         self.timeline = ArcTimeline([], self.duration)
         self.timeline.selected_changed.connect(self._load_selected)
         lay.addWidget(self.timeline)
         row = QHBoxLayout()
         self.cmb_mood = QComboBox()
-        for m in ARC_MOODS:
-            self.cmb_mood.addItem(_mood_label(m), m)
+        lang.bind_items(self.cmb_mood, [(LABELS[m], m) for m in ARC_MOODS])
         self.sp_start, self.sp_end = QDoubleSpinBox(), QDoubleSpinBox()
         for sp in (self.sp_start, self.sp_end):
             sp.setRange(0.0, self.duration)
             sp.setDecimals(1)
             sp.setSuffix(" s")
-        self.btn_split, self.btn_merge = QPushButton("Dividir"), QPushButton("Unir con siguiente")
+        self.btn_split, self.btn_merge = QPushButton(), QPushButton()
+        lang.bind(self.btn_split, "wordfxUi.profile.split")
+        lang.bind(self.btn_merge, "wordfxUi.profile.merge")
         self.cmb_mood.setMinimumWidth(150)
         for b in (self.btn_split, self.btn_merge):
             b.setObjectName("Ghost")
@@ -128,7 +139,9 @@ class ProfileDialog(QDialog):
         self.btn_split.clicked.connect(self._split)
         self.btn_merge.clicked.connect(self._merge)
 
-        lay.addWidget(QLabel("Notas (contexto de la canción: sesgan los tags al recalcular)"))
+        notes_label = QLabel()
+        lang.bind(notes_label, "wordfxUi.profile.notes")
+        lay.addWidget(notes_label)
         self.notes = QPlainTextEdit(profile.notes)
         self.notes.setFixedHeight(64)
         lay.addWidget(self.notes)
@@ -136,10 +149,11 @@ class ProfileDialog(QDialog):
         self.lb_info.setObjectName("Caption")
         lay.addWidget(self.lb_info)
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        self.btn_recalc = btns.addButton("Recalcular", QDialogButtonBox.ActionRole)
-        btns.button(QDialogButtonBox.Save).setText("Guardar")
+        self.btn_recalc = btns.addButton("", QDialogButtonBox.ActionRole)
+        lang.bind(self.btn_recalc, "wordfxUi.profile.recalc")
+        lang.bind(btns.button(QDialogButtonBox.Save), "wordfxUi.profile.save")
         btns.button(QDialogButtonBox.Save).setObjectName("Primary")
-        btns.button(QDialogButtonBox.Cancel).setText("Cancelar")
+        lang.bind(btns.button(QDialogButtonBox.Cancel), "wordfxUi.profile.cancel")
         for b in (self.btn_recalc, btns.button(QDialogButtonBox.Cancel)):
             b.setObjectName("Ghost")
         for b in btns.buttons():
@@ -155,7 +169,7 @@ class ProfileDialog(QDialog):
         for tag, b in self.tag_buttons.items():
             b.setChecked(tag in profile.tags)
         self.intensity = profile.intensity
-        self.lb_info.setText(f"Intensidad estimada: {round(profile.intensity * 100)} %")
+        lang.bind(self.lb_info, "wordfxUi.profile.intensity", percent=round(profile.intensity * 100))
         self.timeline.set_arc([ArcSegment(s.start, s.end, s.mood) for s in profile.arc], 0)
 
     def result_profile(self) -> SongProfile:

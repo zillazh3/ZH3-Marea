@@ -7,11 +7,14 @@ import shutil
 import subprocess
 import threading
 
+from marea.i18n import t
+from marea.i18n import Labels
 from marea.sysutil import NO_WINDOW, find_ffmpeg
 
 # destino -> (extensión del archivo; "" = carpeta, etiqueta en la UI). Los tres últimos llevan canal alfa.
-TARGETS = {"mp4": (".mp4", "MP4"), "webm": (".webm", "WebM VP9 con transparencia"),
-           "prores": (".mov", "ProRes 4444 (.mov) con transparencia"), "png": ("", "Secuencia PNG con transparencia")}
+# (the label is an i18n key; the Mapping resolves it with t() on every read, so callers keep using `TARGETS[k][1]`)
+TARGETS = Labels({"mp4": (".mp4", "export.target.mp4"), "webm": (".webm", "export.target.webm"),
+                  "prores": (".mov", "export.target.prores"), "png": ("", "export.target.png")}, lambda v: (v[0], t(v[1])))
 ALPHA_TARGETS = ("webm", "prores", "png")
 
 
@@ -184,7 +187,7 @@ class FfmpegWriter:
             else:
                 open(self.out, "xb").close()
         except OSError as e:
-            raise RuntimeError(f"No puedo escribir «{self.out.name}»: ya existe o la carpeta no lo permite.") from e
+            raise RuntimeError(t("export.writeFailed", name=self.out.name)) from e
         try:
             self.proc = subprocess.Popen(
                 self.cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -211,7 +214,7 @@ class FfmpegWriter:
         try:
             self.proc.stdin.write(memoryview(frame))  # sin copia: el array ya es contiguo
         except (BrokenPipeError, OSError) as e:
-            raise RuntimeError(self._error() or "ffmpeg se cerró de forma inesperada.") from e
+            raise RuntimeError(self._error() or t("export.ffmpegClosed")) from e
 
     def abort(self):
         """Forcefully terminate ffmpeg so a blocked pipe write unblocks on cancellation."""
@@ -253,7 +256,7 @@ class FfmpegWriter:
         err = self._error()
         if code != 0:
             self._discard()
-            raise RuntimeError(f"ffmpeg no pudo codificar el video: {err}")
+            raise RuntimeError(t("export.encodeFailed", error=err))
         return False
 
     def _discard(self):

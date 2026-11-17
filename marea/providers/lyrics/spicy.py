@@ -11,6 +11,7 @@ from typing import Callable
 
 import httpx
 
+from marea.i18n import t
 from marea.model.lyrics import BgVocal, Line, Lyrics, Syllable, spread
 from marea.providers.errors import ProviderError
 from marea.providers.lyrics.base import TrackQuery
@@ -24,8 +25,6 @@ MIN_INTERVAL = 0.25  # s entre peticiones a la red
 PROBE_ID = "7KNmIjcmGJIBrhP2s5Vioe"  # pista cualquiera con letra: sirve para comprobar que la llave es aceptada
 SPOTIFY_ID = re.compile(r"[A-Za-z0-9]{22}")
 SOURCES = {"apple_music": "Apple Music", "spicy_lyrics": "Spicy Lyrics", "spotify": "Spotify"}
-KEY_HELP = ("Spicy Lyrics rechazó tu llave. Usa una llave de cliente (empieza con sl_pk_) y activa «Allow requests with no Origin header» "
-            "en developers.spicylyrics.org.")
 
 
 class SpicyKeyError(ProviderError):
@@ -122,7 +121,7 @@ class SpicyLyricsProvider:
         """Pide una pista conocida para comprobar la llave. Levanta SpicyKeyError si no sirve (otros ProviderError: red, límite)."""
         key = self.key().strip()
         if not key:
-            raise SpicyKeyError("Falta la llave de Spicy Lyrics.")
+            raise SpicyKeyError(t("errors.lyrics.spicyKeyMissing"))
         self._get(PROBE_ID, key)  # 200 y 404 significan que la llave pasó; el resto levanta
 
     # ---- red y caché ----
@@ -134,11 +133,11 @@ class SpicyLyricsProvider:
             on_response=self._note_limits,
         )
         if r.status_code == 429:
-            raise ProviderError(f"Spicy Lyrics pide esperar {self._wait(r):.0f} s antes de volver a consultar. Intenta de nuevo en un momento.")
+            raise ProviderError(t("errors.lyrics.spicyRateLimited", wait=f"{self._wait(r):.0f}"))
         if r.status_code in (401, 403):
-            raise SpicyKeyError(KEY_HELP)
+            raise SpicyKeyError(t("errors.lyrics.spicyKeyHelp"))
         if r.status_code >= 500:
-            raise ProviderError("Spicy Lyrics está saturado o caído en este momento. Intenta de nuevo en unos minutos.")
+            raise ProviderError(t("errors.lyrics.overloaded", service="Spicy Lyrics"))
         return r
 
     @staticmethod

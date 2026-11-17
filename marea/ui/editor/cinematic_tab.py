@@ -25,11 +25,12 @@ from marea.model.cinematic import (
     suggest_intervals,
 )
 from marea.render.cinematic import VideoError, probe_video
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor._pkg import pkg_attr
+from marea.ui.editor.style_tab import form_row
 from marea.ui.widgets import CoalescedAction, SliderRow, blocked_signals, fmt_ms, make_button, scrollable
 
-VIDEO_FILTER = "Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v);;Todos los archivos (*.*)"
+VIDEO_FILTER = "cinematic.videoFilter"  # i18n key
 
 
 def _dspin(lo: float, hi: float, val: float, step: float = 0.2) -> QDoubleSpinBox:
@@ -61,33 +62,32 @@ class CinematicController:
         lay.setSpacing(theme.SPACE[2])
 
         top = QHBoxLayout()
-        ed.cb_cinematic = QCheckBox("Activar fondo cinemático")
+        ed.cb_cinematic = QCheckBox()
+        lang.bind(ed.cb_cinematic, "cinematic.enable")
         ed.cb_cinematic.toggled.connect(self.toggled)
-        ed.btn_video = make_button("Importar video…", "Ghost", self.choose_video)
+        ed.btn_video = make_button("", "Ghost", self.choose_video)
+        lang.bind(ed.btn_video, "cinematic.importVideo")
         top.addWidget(ed.cb_cinematic, 1)
         top.addWidget(ed.btn_video)
         lay.addLayout(top)
 
-        ed.lb_video_info = QLabel("Ningún video cargado. El audio del video se excluye siempre.")
+        ed.lb_video_info = QLabel()
+        lang.bind(ed.lb_video_info, "cinematic.noVideo")
         ed.lb_video_info.setObjectName("Caption")
         ed.lb_video_info.setWordWrap(True)
         lay.addWidget(ed.lb_video_info)
 
         actions = QHBoxLayout()
         actions.setSpacing(theme.SPACE[2])
-        ed.btn_suggest = make_button(
-            "Sugerir",
-            "Ghost",
-            self.suggest,
-            "Sugiere momentos usando interludios, pausas, acentos y cambios de energía",
-        )
-        ed.btn_add_iv = make_button(
-            "+ Momento",
-            "Ghost",
-            self.add_interval,
-            "Crea un momento manual en la posición actual del preview",
-        )
-        ed.btn_del_iv = make_button("Quitar", "Ghost", self.remove_interval, "Elimina el momento seleccionado")
+        ed.btn_suggest = make_button("", "Ghost", self.suggest)
+        lang.bind(ed.btn_suggest, "cinematic.suggest")
+        lang.bind(ed.btn_suggest, "cinematic.suggestTip", "setToolTip")
+        ed.btn_add_iv = make_button("", "Ghost", self.add_interval)
+        lang.bind(ed.btn_add_iv, "cinematic.addMoment")
+        lang.bind(ed.btn_add_iv, "cinematic.addMomentTip", "setToolTip")
+        ed.btn_del_iv = make_button("", "Ghost", self.remove_interval)
+        lang.bind(ed.btn_del_iv, "cinematic.remove")
+        lang.bind(ed.btn_del_iv, "cinematic.removeTip", "setToolTip")
         for b in (ed.btn_suggest, ed.btn_add_iv, ed.btn_del_iv):
             actions.addWidget(b)
         lay.addLayout(actions)
@@ -105,19 +105,16 @@ class CinematicController:
         form.setVerticalSpacing(theme.SPACE[1])
 
         ed.sp_open_trim = _dspin(0, 36000, 0)
-        ed.sp_open_trim.setToolTip("Recorte inicial del video para igualar su duración con la pista musical")
+        lang.bind(ed.sp_open_trim, "cinematic.openTrimTip", "setToolTip")
         ed.sp_open_trim.valueChanged.connect(self.opening_trim_edited)
-        ed.btn_open_auto = make_button(
-            "Auto",
-            "Ghost",
-            self.auto_opening_trim,
-            "Calcula el recorte inicial usando las duraciones reales del video y del audio",
-        )
+        ed.btn_open_auto = make_button("", "Ghost", self.auto_opening_trim)
+        lang.bind(ed.btn_open_auto, "cinematic.auto")
+        lang.bind(ed.btn_open_auto, "cinematic.autoTip", "setToolTip")
         open_row = QHBoxLayout()
         open_row.setSpacing(theme.SPACE[1])
         open_row.addWidget(ed.sp_open_trim, 1)
         open_row.addWidget(ed.btn_open_auto)
-        form.addRow("Recorte inicial", open_row)
+        form_row(form, "cinematic.openTrim", open_row)
 
         ed.sp_iv_start, ed.sp_iv_end = _dspin(0, 36000, 0), _dspin(0.2, 36000, 4.5)
         ed.sp_vid_start, ed.sp_vid_end = _dspin(0, 36000, 0), _dspin(0, 36000, 4.5)
@@ -126,9 +123,9 @@ class CinematicController:
             sp.valueChanged.connect(self.interval_edited)
 
         for label, a, b in (
-            ("Canción", ed.sp_iv_start, ed.sp_iv_end),
-            ("Video", ed.sp_vid_start, ed.sp_vid_end),
-            ("Fundidos", ed.sp_fade_in, ed.sp_fade_out),
+            ("cinematic.song", ed.sp_iv_start, ed.sp_iv_end),
+            ("cinematic.video", ed.sp_vid_start, ed.sp_vid_end),
+            ("cinematic.fades", ed.sp_fade_in, ed.sp_fade_out),
         ):
             r = QHBoxLayout()
             r.setSpacing(theme.SPACE[1])
@@ -137,17 +134,17 @@ class CinematicController:
             r.addWidget(a, 1)
             r.addWidget(sep)
             r.addWidget(b, 1)
-            form.addRow(label, r)
+            form_row(form, label, r)
 
         ed._cine_timer = CoalescedAction(16, ed.preview.update_cinematic, ed)
         specs = (
-            ("Opacidad", "sl_cine_op", "lb_cine_op", 20, 100, 100),
-            ("Desenfoque", "sl_cine_blur", "lb_cine_blur", 0, 100, 35),
-            ("Velo", "sl_cine_dim", "lb_cine_dim", 0, 75, 32),
-            ("Viñeta", "sl_cine_vig", "lb_cine_vig", 0, 100, 45),
-            ("Grano", "sl_cine_grain", "lb_cine_grain", 0, 35, 8),
-            ("Saturación", "sl_cine_sat", "lb_cine_sat", 0, 140, 82),
-            ("Contraste", "sl_cine_con", "lb_cine_con", 60, 130, 92),
+            ("cinematic.opacity", "sl_cine_op", "lb_cine_op", 20, 100, 100),
+            ("cinematic.blur", "sl_cine_blur", "lb_cine_blur", 0, 100, 35),
+            ("cinematic.scrim", "sl_cine_dim", "lb_cine_dim", 0, 75, 32),
+            ("cinematic.vignette", "sl_cine_vig", "lb_cine_vig", 0, 100, 45),
+            ("cinematic.grain", "sl_cine_grain", "lb_cine_grain", 0, 35, 8),
+            ("cinematic.saturation", "sl_cine_sat", "lb_cine_sat", 0, 140, 82),
+            ("cinematic.contrast", "sl_cine_con", "lb_cine_con", 60, 130, 92),
         )
         sliders = []
         for title, sl_attr, lb_attr, lo, hi, val in specs:
@@ -155,7 +152,7 @@ class CinematicController:
             setattr(ed, sl_attr, srow.slider)
             setattr(ed, lb_attr, srow.label)
             sliders.append((title, srow.slider, srow.label))
-            form.addRow(title, srow)
+            form_row(form, title, srow)
             srow.valueChanged.connect(self.treatment_changed)
             srow.sliderReleased.connect(self.flush_treatment)
         ed._cine_sliders = tuple(sliders)
@@ -206,7 +203,7 @@ class CinematicController:
         p.cinematic.auto_opening_trim = True
         self.sync_auto_opening_trim()
         self.refresh()
-        ed.notify(f"Recorte inicial ajustado a {fmt_ms(p.cinematic.opening_trim_ms, tenths=True)}.", "ok")
+        ed.notify(lang.t("cinematic.trimSet", time=fmt_ms(p.cinematic.opening_trim_ms, tenths=True)), "ok")
 
     def refresh(self, keep_id: str | None = None):
         ed = self.editor
@@ -218,16 +215,22 @@ class CinematicController:
             ed.cb_cinematic.setChecked(cfg.enabled)
 
         res = cfg.primary_video
-        ed.btn_video.setText("Reemplazar video…" if res else "Importar video…")
         if res:
+            lang.bind(ed.btn_video, "cinematic.replaceVideo")
             fps_txt = f"{int(round(res.fps))} fps" if abs(res.fps - round(res.fps)) < 0.01 else f"{res.fps:.2f} fps"
-            trim_txt = f" · inicio +{fmt_ms(cfg.opening_trim_ms, tenths=True)}" if cfg.opening_trim_ms >= 50.0 else ""
-            missing = " · no encontrado" if not Path(res.path).is_file() else ""
-            ed.lb_video_info.setText(
-                f"{Path(res.path).name} · {fmt_ms(res.duration_ms, tenths=True)} · {res.width}×{res.height} · {fps_txt}{trim_txt}{missing}"
-            )
+            has_trim, is_missing = cfg.opening_trim_ms >= 50.0, not Path(res.path).is_file()
+            trim_ms = cfg.opening_trim_ms
+
+            def info_text():
+                trim_txt = lang.t("cinematic.infoTrim", time=fmt_ms(trim_ms, tenths=True)) if has_trim else ""
+                missing = lang.t("cinematic.infoMissing") if is_missing else ""
+                return (f"{Path(res.path).name} · {fmt_ms(res.duration_ms, tenths=True)} · {res.width}×{res.height} · {fps_txt}"
+                        f"{trim_txt}{missing}")
+
+            lang.bind_fn(ed.lb_video_info, "setText", lambda: ed.lb_video_info.setText(info_text()))
         else:
-            ed.lb_video_info.setText("Ningún video cargado. El audio del video se excluye siempre.")
+            lang.bind(ed.btn_video, "cinematic.importVideo")
+            lang.bind(ed.lb_video_info, "cinematic.noVideo")
 
         prev_id = keep_id or (self.selected_interval().id if self.selected_interval() else "")
         with blocked_signals(ed.iv_list):
@@ -299,7 +302,7 @@ class CinematicController:
         ed = self.editor
         if not ed.project or self._video_busy:
             return
-        path, _ = QFileDialog.getOpenFileName(ed, "Elegir video musical", "", VIDEO_FILTER)
+        path, _ = QFileDialog.getOpenFileName(ed, lang.t("cinematic.chooseTitle"), "", lang.t(VIDEO_FILTER))
         if path:
             self.import_video(path)
 
@@ -312,7 +315,7 @@ class CinematicController:
         had_video = project.cinematic.primary_video is not None
         self._video_busy = True
         ed.btn_video.setEnabled(False)
-        ed.notify("Inspeccionando el video…")
+        ed.notify(lang.t("cinematic.probing"))
 
         def done(resource):
             self._video_busy = False
@@ -325,12 +328,12 @@ class CinematicController:
                 project.cinematic.enabled = True
             self.refresh()
             ed.preview.update_cinematic()
-            ed.notify(f"Video listo: {Path(resource.path).name} ({resource.width}×{resource.height}).", "ok")
+            ed.notify(lang.t("cinematic.videoReady", name=Path(resource.path).name, size=f"{resource.width}×{resource.height}"), "ok")
 
         def failed(err):
             self._video_busy = False
             ed.btn_video.setEnabled(True)
-            msg = str(err) if isinstance(err, VideoError) else "No pude abrir ese archivo de video."
+            msg = str(err) if isinstance(err, VideoError) else lang.t("cinematic.openFailed")
             ed.notify(msg, "error")
 
         pkg_attr("run_async", run_async)(lambda: probe_video(path, vid_id), done, failed)
@@ -339,7 +342,7 @@ class CinematicController:
         ed = self.editor
         p = ed.project
         if not p or not p.cinematic.primary_video:
-            ed.notify("Importa primero un video para sugerir momentos.", "error")
+            ed.notify(lang.t("cinematic.importFirst"), "error")
             return
         self.sync_auto_opening_trim()
         res = p.cinematic.primary_video
@@ -362,7 +365,7 @@ class CinematicController:
         )
         self._suggest_gen += 1
         if not suggested:
-            ed.notify("No encontré momentos claros en esta canción. Puedes añadir uno manual con «+ Momento».", "info")
+            ed.notify(lang.t("cinematic.noMoments"), "info")
             return
         p.cinematic.intervals = suggested
         p.cinematic.enabled = True
@@ -370,7 +373,7 @@ class CinematicController:
         focus_iv = next((iv for iv in suggested if iv.end_ms > c_start and iv.start_ms < c_end), suggested[0])
         self.refresh(keep_id=focus_iv.id)
         ed.preview.update_cinematic()
-        ed.notify(f"Se sugirieron {len(suggested)} momentos sincronizados con la canción.", "ok")
+        ed.notify(lang.t("cinematic.suggested", count=len(suggested)), "ok")
 
     def add_interval(self):
         ed = self.editor

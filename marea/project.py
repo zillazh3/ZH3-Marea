@@ -10,6 +10,7 @@ import skia
 
 from marea.demo_cover import demo_cover
 from marea.demo_song import exact_lyrics
+from marea.i18n import t
 from marea.model import background as bg_model
 from marea.model import cinematic as cine_model
 from marea.model.background import BackgroundConfig, BackgroundError
@@ -56,14 +57,14 @@ def project_from_ttml(path: str | Path) -> ClipProject:
     path = Path(path)
     lyrics = TtmlFileProvider(path).fetch()
     if not lyrics.lines:
-        raise ValueError("El archivo no tiene versos con tiempos.")
+        raise ValueError(t("errors.project.ttmlNoTimedLines"))
     return ClipProject(lyrics, path.stem, "", demo_cover(label=False), path)
 
 
 def load_cover(path: str | Path) -> skia.Image:
     img = skia.Image.open(str(path))
     if img is None:
-        raise ValueError("No pude abrir esa imagen. Usa un PNG, JPG o WebP.")
+        raise ValueError(t("errors.project.imageOpen"))
     return img
 
 
@@ -75,19 +76,19 @@ def _syl_to_dict(s: Syllable) -> dict:
 
 def _obj(v, where: str) -> dict:
     if not isinstance(v, dict):
-        raise ProjectError(f"El proyecto no es válido: {where} no es un objeto.")
+        raise ProjectError(t("errors.project.notObject", where=where))
     return v
 
 
 def _list(v, where: str) -> list:
     if not isinstance(v, list):
-        raise ProjectError(f"El proyecto no es válido: {where} no es una lista.")
+        raise ProjectError(t("errors.project.notList", where=where))
     return v
 
 
 def _num(v, where: str) -> float:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
-        raise ProjectError(f"El proyecto no es válido: {where} debe ser un número finito (llegó {v!r}).")
+        raise ProjectError(t("errors.project.notNumber", where=where, value=repr(v)))
     return v
 
 
@@ -95,17 +96,17 @@ def _span(d: dict, a: str, b: str, where: str) -> tuple[float, float]:
     """Intervalo obligatorio, numérico y finito, que no termina antes de empezar."""
     for key in (a, b):
         if key not in d:
-            raise ProjectError(f"El proyecto no es válido: a {where} le falta «{key}».")
+            raise ProjectError(t("errors.project.missingKey", where=where, field=key))
     start, end = _num(d[a], f"{where}.{a}"), _num(d[b], f"{where}.{b}")
     if end < start:
-        raise ProjectError(f"El proyecto no es válido: {where} termina antes de empezar ({start} > {end}).")
+        raise ProjectError(t("errors.project.endsBeforeStart", where=where, start=start, end=end))
     return start, end
 
 
 def _syl_from_dict(d, where: str) -> Syllable:
     d = _obj(d, where)
     if not isinstance(d.get("text"), str):
-        raise ProjectError(f"El proyecto no es válido: {where}.text falta o no es texto.")
+        raise ProjectError(t("errors.project.textMissing", where=where))
     begin, end = _span(d, "begin", "end", where)
     return Syllable(d["text"], begin, end, bool(d.get("word_end", False)))
 
@@ -146,22 +147,22 @@ def lyrics_to_dict(lyrics: Lyrics) -> dict:
 
 def lyrics_from_dict(d: dict) -> Lyrics:
     if not isinstance(d, dict) or not isinstance(d.get("lines"), list):
-        raise ProjectError("El proyecto no contiene una letra válida.")
+        raise ProjectError(t("errors.project.noLyrics"))
     lines: list[Line] = []
     # Solo se valida cada intervalo: versos solapados, duetos y voces de fondo son datos válidos.
     for i, ld in enumerate(d["lines"], 1):
-        where = f"verso {i}"
+        where = t("errors.project.whereLine", i=i)
         ld = _obj(ld, where)
-        syls = [_syl_from_dict(s, f"{where}, sílaba {j}")
+        syls = [_syl_from_dict(s, t("errors.project.whereSyl", where=where, j=j))
                 for j, s in enumerate(_list(ld.get("syllables") or [], f"{where}.syllables"), 1)]
         bgs = []
         for k, bd in enumerate(_list(ld.get("bg") or [], f"{where}.bg"), 1):
-            bw = f"{where}, voz de fondo {k}"
+            bw = t("errors.project.whereBg", where=where, k=k)
             bd = _obj(bd, bw)
             if not bd.get("syllables"):
                 continue
             bs, be = _span(bd, "start", "end", bw)
-            bgs.append(BgVocal(bs, be, [_syl_from_dict(s, f"{bw}, sílaba {j}")
+            bgs.append(BgVocal(bs, be, [_syl_from_dict(s, t("errors.project.whereSyl", where=bw, j=j))
                                         for j, s in enumerate(_list(bd["syllables"], f"{bw}.syllables"), 1)],
                                role=str(bd.get("role", "backing")), agent=str(bd.get("agent", ""))))
         if not syls and not bgs:
@@ -170,7 +171,7 @@ def lyrics_from_dict(d: dict) -> Lyrics:
         lines.append(Line(start, end, str(ld.get("agent", "v1")), syls, bgs, bool(ld.get("approx", False)),
                           role=str(ld.get("role", "")), raw_agent=str(ld.get("raw_agent", ""))))
     if not lines:
-        raise ProjectError("El proyecto no tiene versos con tiempos.")
+        raise ProjectError(t("errors.project.noTimedLines"))
     return Lyrics(lines, str(d.get("source", "")), str(d.get("credit", "")), [str(w) for w in (d.get("writers") or [])])
 
 
@@ -196,15 +197,15 @@ def project_to_dict(project: ClipProject, editor_state: dict | None = None) -> d
 
 def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
     if not isinstance(raw, dict):
-        raise ProjectError("El archivo de proyecto no es un JSON válido.")
+        raise ProjectError(t("errors.project.notJson"))
     if raw.get("schema") != PROJECT_SCHEMA:
-        raise ProjectError(f"Formato de proyecto no soportado: {raw.get('schema')!r}.")
+        raise ProjectError(t("errors.project.unsupportedFormat", schema=repr(raw.get("schema"))))
     try:
         ver = int(raw.get("version", 0))
     except (TypeError, ValueError):
-        raise ProjectError(f"Versión de proyecto no válida: {raw.get('version')!r}.") from None
+        raise ProjectError(t("errors.project.badVersion", version=repr(raw.get("version")))) from None
     if ver < 1 or ver > PROJECT_VERSION:
-        raise ProjectError(f"Versión de proyecto no soportada: v{ver} (esta app lee hasta v{PROJECT_VERSION}).")
+        raise ProjectError(t("errors.project.unsupportedVersion", ver=ver, max=PROJECT_VERSION))
     d = dict(raw)
     while ver < PROJECT_VERSION:
         d = PROJECT_MIGRATIONS[ver](d)
@@ -227,7 +228,7 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
     if isinstance(td, dict) and td.get("id"):
         raw_artists = td.get("artists")
         if raw_artists is not None and not isinstance(raw_artists, list):
-            raise ProjectError("El campo 'track.artists' debe ser una lista.")
+            raise ProjectError(t("errors.project.artistsNotList"))
         track = Track(
             id=str(td["id"]),
             title=str(td.get("title", "")),
@@ -297,7 +298,7 @@ def load_project_file(path: str | Path) -> tuple[ClipProject, dict]:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise ProjectError(f"No pude leer el proyecto: {e}") from e
+        raise ProjectError(t("errors.project.cannotRead", error=e)) from e
     project, editor_state = project_from_dict(raw)
     project.project_path = p
     return project, editor_state

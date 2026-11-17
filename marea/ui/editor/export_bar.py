@@ -5,12 +5,16 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QLabel, QMenu, QPushBut
 
 from marea.export import ffmpeg
 from marea.export.job import PRESETS
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import make_button
 
-MARKERS = {"none": "Ninguno", "flash": "Flash de 1 frame", "beep": "Pitido de 120 ms (solo sin audio)"}
-MODES = {"lyrics": "Solo letra", "song": "Con canción", "full": "Canción completa"}
-OUTROS = {"500": "0.5 s (corte seco)", "2000": "2 s", "4000": "4 s", "8000": "8 s"}
+# option value -> i18n key (resolved by lang.bind where the menu/chip is built)
+MARKERS = {"none": "exportBar.marker.none", "flash": "exportBar.marker.flash", "beep": "exportBar.marker.beep"}
+MODES = {"lyrics": "exportBar.mode.lyrics", "song": "exportBar.mode.song", "full": "exportBar.mode.full"}
+OUTROS = {"500": "exportBar.outro.500", "2000": "exportBar.outro.2000", "4000": "exportBar.outro.4000", "8000": "exportBar.outro.8000"}
+PRESET_KEYS = {"tiktok": "exportBar.preset.tiktok", "square": "exportBar.preset.square", "wide": "exportBar.preset.wide"}
+TARGET_KEYS = {"mp4": "exportBar.target.mp4", "webm": "exportBar.target.webm", "prores": "exportBar.target.prores",
+               "png": "exportBar.target.png"}
 
 
 class ExportBarController:
@@ -30,7 +34,8 @@ class ExportBarController:
         group = QButtonGroup(ed)
         ed.mode_chips = {}
         for key, action in ed.mode_actions.items():
-            chip = QPushButton(action.text())
+            chip = QPushButton()
+            lang.bind(chip, MODES[key])
             chip.setObjectName("Chip")
             chip.setCheckable(True)
             chip.setChecked(action.isChecked())
@@ -41,14 +46,16 @@ class ExportBarController:
             bar.addWidget(chip)
             ed.mode_chips[key] = chip
         ed.preset_menu = QMenu(ed)
-        ed.preset_actions = self._radio_actions(
-            ed.preset_menu, {k: v[0] for k, v in PRESETS.items()}, "export/preset", "tiktok")
-        ed.btn_format = make_button("", "Ghost", tooltip="Formato del clip")
+        ed.preset_actions = self._radio_actions(ed.preset_menu, {k: PRESET_KEYS[k] for k in PRESETS}, "export/preset", "tiktok")
+        ed.btn_format = make_button("", "Ghost")
+        lang.bind(ed.btn_format, "exportBar.formatTip", "setToolTip")
         ed.btn_format.setMenu(ed.preset_menu)
         ed.summary = QLabel()
         ed.summary.setObjectName("Caption")
-        ed.btn_export = make_button("Exportar", "Primary", ed.export)
-        ed.btn_menu = make_button("", "Ghost", tooltip="Más opciones de exportación")
+        ed.btn_export = make_button("", "Primary", ed.export)
+        lang.bind(ed.btn_export, "exportBar.export")
+        ed.btn_menu = make_button("", "Ghost")
+        lang.bind(ed.btn_menu, "exportBar.moreTip", "setToolTip")
         ed.menu = self.build_menu()
         ed.btn_menu.setMenu(ed.menu)
         bar.addWidget(ed.btn_format)
@@ -58,42 +65,47 @@ class ExportBarController:
         bar.addWidget(ed.btn_menu)
         for w in (ed.btn_export, ed.btn_menu, ed.btn_format, *ed.mode_chips.values()):
             w.setEnabled(False)
-        self.update_summary()
+        lang.bind_fn(ed.summary, "summary", self.update_summary)  # also relabels btn_format from the (bound) action texts
         return bar
 
     def build_menu(self) -> QMenu:
         ed = self.editor
         m = QMenu(ed)
-        self._radio_submenu(m, "Marcador de inicio", MARKERS, "export/marker", "none")
-        for a in self._radio_submenu(m, "Outro", OUTROS, "export/outro_ms", "500").values():
+        self._radio_submenu(m, "exportBar.markerTitle", MARKERS, "export/marker", "none")
+        for a in self._radio_submenu(m, "exportBar.outroTitle", OUTROS, "export/outro_ms", "500").values():
             a.triggered.connect(lambda: ed.project and ed._range_changed())
         ed.target_actions = self._radio_submenu(
-            m, "Archivo", {k: v[1] for k, v in ffmpeg.TARGETS.items()}, "export/target", "mp4")
+            m, "exportBar.targetTitle", {k: TARGET_KEYS[k] for k in ffmpeg.TARGETS}, "export/target", "mp4")
         for key, a in ed.target_actions.items():
             a.triggered.connect(lambda _=False, k=key: self.target_picked(k))
             if key in ffmpeg.ALPHA_TARGETS:
-                a.setToolTip("Exporta sin fondo y con canal alfa: al elegirlo, el fondo cambia a «Transparente».")
-        ed.codec_menu = m.addMenu("Códec de video")
-        ed.codec_actions = self._radio_actions(ed.codec_menu, ffmpeg.CODECS, "export/codec", "h264")
-        ed.codec_actions["h264"].setToolTip("El más compatible: lo reproduce y acepta cualquier app. Predeterminado.")
-        ed.codec_actions["hevc"].setToolTip("Archivos más chicos con la misma calidad; algunos reproductores antiguos no lo abren.")
-        ed.codec_actions["av1"].setToolTip("El más eficiente, pero no todas las apps y reproductores lo aceptan.")
-        ed.act_alpha_wm = m.addAction("Marca de agua en exports con transparencia")
+                lang.bind(a, "exportBar.alphaTip", "setToolTip")
+        ed.codec_menu = m.addMenu("")
+        lang.bind(ed.codec_menu, "exportBar.codecTitle", "setTitle")
+        ed.codec_actions = self._radio_actions(ed.codec_menu, ffmpeg.CODECS, "export/codec", "h264", raw=True)  # codec names are not translated
+        lang.bind(ed.codec_actions["h264"], "exportBar.codec.h264Tip", "setToolTip")
+        lang.bind(ed.codec_actions["hevc"], "exportBar.codec.hevcTip", "setToolTip")
+        lang.bind(ed.codec_actions["av1"], "exportBar.codec.av1Tip", "setToolTip")
+        ed.act_alpha_wm = m.addAction("")
+        lang.bind(ed.act_alpha_wm, "exportBar.alphaWatermark")
         ed.act_alpha_wm.setCheckable(True)
         ed.act_alpha_wm.setChecked(ed.settings.value("export/alpha_watermark", True, type=bool))
         ed.act_alpha_wm.toggled.connect(lambda v: ed.settings.setValue("export/alpha_watermark", v))
         m.addSeparator()
-        m.addAction("Guardar proyecto…", ed.save_project_dialog)
-        m.addAction("Abrir proyecto…", ed.open_project_dialog)
-        m.addAction("Reemplazar letra con .ttml…", ed._replace_ttml)
+        lang.bind(m.addAction("", ed.save_project_dialog), "exportBar.saveProject")
+        lang.bind(m.addAction("", ed.open_project_dialog), "exportBar.openProject")
+        lang.bind(m.addAction("", ed._replace_ttml), "exportBar.replaceLyrics")
         ed.act_sync_sep = m.addSeparator()
-        ed.act_sync = m.addAction("Sincronizar con audio (experimental)…", ed._open_sync)
+        ed.act_sync = m.addAction("", ed._open_sync)
+        lang.bind(ed.act_sync, "exportBar.syncAudio")
         ed.act_sync.setVisible(False)
         ed.act_sync_sep.setVisible(False)
         ed.act_fx_sep = m.addSeparator()
-        ed.act_fxprofile = m.addAction("Perfil de la canción (efectos por palabra)…", ed._open_fx_profile)
+        ed.act_fxprofile = m.addAction("", ed._open_fx_profile)
+        lang.bind(ed.act_fxprofile, "exportBar.fxProfile")
         ed.act_fxprofile.setVisible(False)
-        ed.act_fxgallery = m.addAction("Galería de efectos…", ed._open_fx_gallery)
+        ed.act_fxgallery = m.addAction("", ed._open_fx_gallery)
+        lang.bind(ed.act_fxgallery, "exportBar.fxGallery")
         ed.act_fxgallery.setVisible(False)
         ed.act_fx_sep.setVisible(False)
         m.aboutToShow.connect(self.sync_menu)
@@ -124,19 +136,26 @@ class ExportBarController:
         ed = self.editor
         if target in ffmpeg.ALPHA_TARGETS and ed.project and ed.project.background.source != "transparent":
             ed._bgctl.set_source("transparent")
-            ed.notify("Fondo cambiado a «Transparente»: los formatos con canal alfa no llevan fondo.", "info")
+            ed.notify(lang.t("exportBar.transparentSwitched"), "info")
         self.update_summary()
 
-    def _radio_submenu(self, menu: QMenu, title: str, options: dict, key: str, default: str) -> dict:
-        return self._radio_actions(menu.addMenu(title), options, key, default)
+    def _radio_submenu(self, menu: QMenu, title_key: str, options: dict, key: str, default: str) -> dict:
+        sub = menu.addMenu("")
+        lang.bind(sub, title_key, "setTitle")
+        return self._radio_actions(sub, options, key, default)
 
-    def _radio_actions(self, target: QMenu | None, options: dict, key: str, default: str) -> dict:
-        """Exclusive checkable actions persisted under `key`; added to `target`, or free-standing (for chips) when None."""
+    def _radio_actions(self, target: QMenu | None, options: dict, key: str, default: str, raw: bool = False) -> dict:
+        """Exclusive checkable actions persisted under `key`; added to `target`, or free-standing (for chips) when None.
+        `options` maps value -> i18n key (or value -> literal label when `raw`)."""
         ed = self.editor
         group, actions = QActionGroup(ed), {}
         current = ed.settings.value(key, default)
         for value, label in options.items():
-            a = target.addAction(label) if target is not None else QAction(label, ed)
+            a = target.addAction("") if target is not None else QAction(ed)
+            if raw:
+                a.setText(label)
+            else:
+                lang.bind(a, label)
             a.setCheckable(True)
             a.setChecked(value == current or (current not in options and value == default))
             a.triggered.connect(
@@ -152,9 +171,11 @@ class ExportBarController:
 
     def update_summary(self):
         ed = self.editor
-        preset = PRESETS.get(ed.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])[0]
-        target = ffmpeg.TARGETS.get(ed.settings.value("export/target", "mp4"), ffmpeg.TARGETS["mp4"])[1]
-        ed.btn_format.setText(preset)
+        preset_id = ed.settings.value("export/preset", "tiktok")
+        target_id = ed.settings.value("export/target", "mp4")
+        # the labels live in the (language-bound) menu actions
+        ed.btn_format.setText(ed.preset_actions[preset_id if preset_id in PRESETS else "tiktok"].text())
+        target = ed.target_actions[target_id if target_id in ffmpeg.TARGETS else "mp4"].text()
         # mode and format are already visible as chips / picker; the codec only exists for the MP4
         codec = ffmpeg.CODECS.get(ed.settings.value("export/codec", "h264"), ffmpeg.CODECS["h264"])
         ed.summary.setText(f"{target} · {codec}" if ed.settings.value("export/target", "mp4") == "mp4" else target)

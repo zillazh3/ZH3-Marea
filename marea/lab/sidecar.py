@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from marea.i18n import t
 from marea.sysutil import NO_WINDOW, kill_tree
 
 GRACE_MS = 3000  # tiempo que se le da al worker para cancelar por las buenas antes de matarlo
@@ -66,7 +67,7 @@ class SidecarClient(QObject):
     def request(self, cmd: str, **params) -> str:
         """Manda una petición y devuelve su id. El resultado llega por `result`/`failed`/`cancelled`."""
         if not self.running:
-            raise RuntimeError("El proceso de sincronía no está en marcha.")
+            raise RuntimeError(t("errors.lab.workerNotRunning"))
         self._n += 1
         rid = f"r{self._n}"
         self._pending.add(rid)
@@ -142,14 +143,14 @@ class SidecarClient(QObject):
 
     def _on_error(self, error):
         if error == QProcess.FailedToStart:
-            message = "No pude iniciar el proceso de sincronía."
+            message = t("errors.lab.workerStartFailed")
             self._fail_pending(message)
             self.start_failed.emit(message, self._proc.errorString())  # sin `finished`: quien espera `ready` debe enterarse aquí
 
     def _on_finished(self, code, _status):
         self._on_stdout()  # lo último que dijo antes de salir (un resultado, p. ej.) aún puede estar en el pipe
         self._on_stderr()
-        self._fail_pending("El proceso de sincronía se cerró inesperadamente.")
+        self._fail_pending(t("errors.lab.workerExited"))
         self.exited.emit(code)
 
     def _fail_pending(self, message: str):

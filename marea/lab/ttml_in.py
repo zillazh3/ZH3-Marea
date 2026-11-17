@@ -6,6 +6,7 @@ approximate text interval until alignment supplies measured subdivisions.
 import defusedxml.ElementTree as ET
 from defusedxml import DefusedXmlException
 
+from marea.i18n import t
 from marea.lab.alignment import BG_ROLES, Alignment, Line, Syl, Word, assign_layers
 from marea.model.lyrics import MAREA, TT, TTM, XML, iter_word_groups, parse_time, plain_text, spread
 
@@ -50,7 +51,7 @@ def from_ttml(data: bytes, duration_ms: int) -> Alignment:
     try:
         root = ET.fromstring(data)
     except (ET.ParseError, DefusedXmlException) as e:
-        raise ValueError(f"El archivo no es un TTML válido: {e}") from e
+        raise ValueError(t("errors.lab.invalidTtml", error=e)) from e
     lines = []
     for i, p in enumerate(root.iter(f"{TT}p")):
         words = _words(p, f"L{i}")

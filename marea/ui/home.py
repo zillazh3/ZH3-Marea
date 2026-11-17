@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QLabel, Q
 from marea import library
 from marea.async_util import run_async
 from marea.providers.spotify import Playback
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.library import TILE, make_item, project_caption
 from marea.ui.widgets import make_button, placeholder_pixmap, rounded_pixmap, scrollable
 
 COVER = 200
+LYRICS_STATUS = {"syllable": "home.lyricsSyllable", "line": "home.lyricsLine", "none": "home.lyricsNone",
+                 "error": "home.lyricsError"}  # tipo de letra -> clave i18n
 
 
 class NowPlayingCard(QWidget):
@@ -34,7 +36,8 @@ class NowPlayingCard(QWidget):
         for lb in (self.title, self.artist):
             lb.setWordWrap(True)
             lb.setMaximumWidth(420)
-        self.btn = make_button("Crear clip con esta canción", "Primary", lambda: self.track and self.on_open_track(self.track))
+        self.btn = make_button("", "Primary", lambda: self.track and self.on_open_track(self.track))
+        lang.bind(self.btn, "home.createClip")
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE[3])
         row.addWidget(self.btn)
@@ -57,7 +60,10 @@ class NowPlayingCard(QWidget):
 
     def set_playback(self, pb: Playback):
         t = pb.track
-        self.state.setText("SONANDO AHORA" if pb.is_playing else "EN PAUSA")
+        if pb.is_playing:
+            lang.bind(self.state, "home.nowPlaying")
+        else:
+            lang.bind(self.state, "home.paused")
         if self.track and self.track.id == t.id:
             return  # misma canción: solo cambió play/pausa
         self.track, self._has_cover = t, False
@@ -65,7 +71,7 @@ class NowPlayingCard(QWidget):
         token = self._token
         self.title.setText(t.title)
         self.artist.setText(f"{t.artist} · {t.album}" if t.album else t.artist)
-        self.badge.setText("Buscando letra…")
+        lang.bind(self.badge, "home.lyricsLooking")
         self._placeholder()
         if t.cover_url:
             run_async(lambda: self.services.cover_bytes(t.cover_url), lambda data: self._set_cover(token, data), lambda e: None)
@@ -79,8 +85,7 @@ class NowPlayingCard(QWidget):
 
     def _set_kind(self, token: int, kind: str):
         if token == self._token:
-            self.badge.setText({"syllable": "Letra por sílaba", "line": "Letra por línea",
-                                "none": "Sin letra sincronizada", "error": "No pude comprobar la letra"}[kind])
+            lang.bind(self.badge, LYRICS_STATUS[kind])
             self.btn.setEnabled(kind in ("syllable", "line"))
 
 
@@ -102,6 +107,7 @@ class RecentProjects(QListWidget):
         self.setWordWrap(True)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.itemClicked.connect(lambda it: on_open_project(it.data(Qt.UserRole)[1]))
+        lang.signals.changed.connect(self.reload)  # los subtítulos de las tarjetas llevan texto traducido
 
     def reload(self) -> int:
         self.clear()
@@ -134,11 +140,12 @@ class HomePage(QWidget):
         self.hero_cover.setFixedSize(COVER, COVER)
         info = QVBoxLayout()
         info.setSpacing(theme.SPACE[3])
-        self.title = QLabel("Haz un clip con la letra de tu canción")
+        self.title = QLabel()
+        lang.bind(self.title, "home.heroTitle")
         self.title.setObjectName("H1")
         self.title.setWordWrap(True)
-        sub = QLabel("Busca una canción, abre una letra o retoma un proyecto guardado. "
-                     "Sale un clip vertical listo para TikTok.")
+        sub = QLabel()
+        lang.bind(sub, "home.heroBody")
         sub.setObjectName("Body")
         sub.setWordWrap(True)
         info.addWidget(self.title)
@@ -146,13 +153,18 @@ class HomePage(QWidget):
         info.addSpacing(theme.SPACE[2])
         main_row = QHBoxLayout()
         main_row.setSpacing(theme.SPACE[3])
-        self.btn_search = make_button("Buscar una canción", "Primary", on_search)
-        for w in (self.btn_search, make_button("Abrir .ttml…", "Ghost", on_open_ttml),
-                  make_button("Abrir proyecto…", "Ghost", on_open_project_dialog)):
+        self.btn_search = make_button("", "Primary", on_search)
+        btn_ttml, btn_project = make_button("", "Ghost", on_open_ttml), make_button("", "Ghost", on_open_project_dialog)
+        lang.bind(self.btn_search, "home.searchSong")
+        lang.bind(btn_ttml, "home.openTtml")
+        lang.bind(btn_project, "home.openProject")
+        for w in (self.btn_search, btn_ttml, btn_project):
             main_row.addWidget(w)
         main_row.addStretch()
         demo_row = QHBoxLayout()
-        demo_row.addWidget(make_button("Probar con la canción demo", "Ghost", on_demo))
+        btn_demo = make_button("", "Ghost", on_demo)
+        lang.bind(btn_demo, "home.tryDemo")
+        demo_row.addWidget(btn_demo)
         demo_row.addStretch()
         info.addLayout(main_row)
         info.addLayout(demo_row)
@@ -171,10 +183,12 @@ class HomePage(QWidget):
         self.connect_hint = QWidget()
         hint = QHBoxLayout(self.connect_hint)
         hint.setContentsMargins(0, 0, 0, 0)
-        hint_text = QLabel("Conecta Spotify para ver aquí lo que suena y crear su clip con un clic.")
+        hint_text = QLabel()
+        lang.bind(hint_text, "home.connectHint")
         hint_text.setObjectName("Body")
         hint_text.setWordWrap(True)
-        self.btn_connect = make_button("Conectar Spotify", "Ghost", on_settings)
+        self.btn_connect = make_button("", "Ghost", on_settings)
+        lang.bind(self.btn_connect, "home.connectSpotify")
         hint.addWidget(hint_text, 1)
         hint.addWidget(self.btn_connect)
         self.card = NowPlayingCard(services, on_open_track)
@@ -183,7 +197,8 @@ class HomePage(QWidget):
         nl.addWidget(self.card)
         lay.addWidget(self.now)
 
-        self.recents_title = QLabel("Proyectos recientes")
+        self.recents_title = QLabel()
+        lang.bind(self.recents_title, "home.recents")
         self.recents_title.setObjectName("H2")
         self.recents = RecentProjects(on_open_project)
         lay.addWidget(self.recents_title)
@@ -217,7 +232,11 @@ class HomePage(QWidget):
     def _sync(self):
         connected = self.services.connected
         playing = connected and self._pb is not None
-        self.now_title.setText("Sonando en Spotify" if playing else "Spotify")
+        if playing:
+            lang.bind(self.now_title, "home.nowOnSpotify")
+        else:
+            lang.unbind(self.now_title)
+            self.now_title.setText("Spotify")
         self.connect_hint.setVisible(not connected)
         self.card.setVisible(playing)
         self.now.setVisible(not connected or playing)

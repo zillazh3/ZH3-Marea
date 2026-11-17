@@ -4,22 +4,21 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QAbstractButton, QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
                                QWidget)
 
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import ElidedLabel
 
 # mismo orden que la web: crear (Inicio, Buscar, Editor) | guardado (Biblioteca, Exportaciones) | Ajustes al fondo
-ITEMS = [("house", "Inicio"), ("search", "Buscar"), ("sliders-horizontal", "Editor"), ("library", "Biblioteca"),
-         ("download", "Exportaciones"), ("settings", "Ajustes")]
+ITEMS = [("house", "nav.home"), ("search", "nav.search"), ("sliders-horizontal", "nav.editor"), ("library", "nav.library"),
+         ("download", "nav.exports"), ("settings", "nav.settings")]  # (ícono, clave i18n)
 SEPARATOR_BEFORE = 3  # índice de ITEMS tras el cual se dibuja la línea divisoria
-COMMAND_TEXT = "Buscar o ir a…    Ctrl K"
 ICON = 20
 LABEL_X = 64  # las etiquetas empiezan donde acaba la columna de íconos colapsada
 
 
 class NavButton(QAbstractButton):
-    def __init__(self, icon_name: str, label: str):
+    def __init__(self, icon_name: str, label_key: str):
         super().__init__()
-        self.icon_name, self.label, self._hover = icon_name, label, 0.0
+        self.icon_name, self.label_key, self._hover = icon_name, label_key, 0.0
         self.vis_w = theme.SIDEBAR["expanded"]  # ancho visible del sidebar (el botón siempre mide 220)
         self.setCheckable(True)
         self.setFixedHeight(44)
@@ -28,6 +27,11 @@ class NavButton(QAbstractButton):
         self._anim = QVariantAnimation(self, valueChanged=self._set_hover)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         theme.signals.changed.connect(self.update)
+        lang.signals.changed.connect(self.update)
+
+    @property
+    def label(self) -> str:
+        return lang.t(self.label_key)
 
     def _set_hover(self, v):
         self._hover = v
@@ -139,34 +143,41 @@ class MiniPlayer(QWidget):
         row = QHBoxLayout(self.controls)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(theme.SPACE[2])
-        self.prev, self.play, self.next = (self._button(tip, sig) for tip, sig in (
-            ("Anterior", self.prev_clicked), ("Reproducir / pausar", self.play_clicked), ("Siguiente", self.next_clicked)))
+        self.prev, self.play, self.next = (self._button(sig) for sig in (self.prev_clicked, self.play_clicked, self.next_clicked))
+        lang.bind(self.prev, "nav.playerPrev", "setToolTip")
+        lang.bind(self.play, "nav.playerPlayPause", "setToolTip")
+        lang.bind(self.next, "nav.playerNext", "setToolTip")
         row.addStretch()
         for b in (self.prev, self.play, self.next):
             row.addWidget(b)
         row.addStretch()
         col.addWidget(self.controls)
         self.playing = False
+        self._title = self._artist = None
         theme.signals.changed.connect(self._refresh)
+        lang.bind_fn(self, "texts", self._texts)
         self.set_track(None, None)
 
     @staticmethod
-    def _button(tooltip: str, signal) -> QPushButton:
+    def _button(signal) -> QPushButton:
         b = QPushButton()
         b.setObjectName("IconBtn")
         b.setFixedSize(32, 32)
         b.setCursor(Qt.PointingHandCursor)
-        b.setToolTip(tooltip)
         b.clicked.connect(signal)
         return b
 
     def set_track(self, title, artist, playing=False):
         self.has_track, self.playing = bool(title), playing
-        self.title.set_full_text(title or "Nada sonando")
-        self.artist.set_full_text(artist or "Conecta Spotify")
+        self._title, self._artist = title, artist
+        self._texts()
         for b in (self.prev, self.play, self.next):
             b.setEnabled(self.has_track)
         self._refresh()
+
+    def _texts(self):
+        self.title.set_full_text(self._title or lang.t("nav.nothingPlaying"))
+        self.artist.set_full_text(self._artist or lang.t("nav.connectSpotify"))
 
     def _refresh(self):
         t, dpr = theme.current, self.devicePixelRatioF()
@@ -201,7 +212,7 @@ class Sidebar(QFrame):
         self.toggle.setObjectName("IconBtn")
         self.toggle.setFixedSize(40, 40)
         self.toggle.setCursor(Qt.PointingHandCursor)
-        self.toggle.setToolTip("Alternar menú (Ctrl+B)")
+        lang.bind(self.toggle, "nav.toggleMenu", "setToolTip")
         self.toggle.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
         self.logo = QLabel()
         self.logo.setFixedSize(26, 26)
@@ -215,7 +226,8 @@ class Sidebar(QFrame):
         lay.addLayout(head)
         lay.addSpacing(theme.SPACE[2])
 
-        self.command = QPushButton(COMMAND_TEXT)  # paleta Ctrl+K; colapsado solo se ve el ícono
+        self.command = QPushButton()  # paleta Ctrl+K; colapsado solo se ve el ícono
+        lang.bind(self.command, "nav.commandButton")
         self.command.setObjectName("CommandBtn")
         self.command.setCursor(Qt.PointingHandCursor)
         self.command.clicked.connect(self.palette_requested)
@@ -226,8 +238,8 @@ class Sidebar(QFrame):
         lay.addSpacing(theme.SPACE[2])
 
         self.group, self.buttons = QButtonGroup(self), []
-        for i, (icon_name, label) in enumerate(ITEMS):
-            b = NavButton(icon_name, label)
+        for i, (icon_name, label_key) in enumerate(ITEMS):
+            b = NavButton(icon_name, label_key)
             b.clicked.connect(lambda _=False, i=i: self.navigated.emit(i))
             self.group.addButton(b, i)
             self.buttons.append(b)
@@ -245,6 +257,7 @@ class Sidebar(QFrame):
         lay.addWidget(self.player)
         theme.signals.changed.connect(self._refresh)
         self._refresh()
+        lang.bind_fn(self, "tooltips", self._tooltips)
         self.set_collapsed(False, animate=False)
 
     @staticmethod
@@ -273,6 +286,11 @@ class Sidebar(QFrame):
             b.vis_w = w
             b.update()
 
+    def _tooltips(self):
+        for b in self.buttons:  # tooltip solo cuando las etiquetas no se ven
+            b.setToolTip(b.label if self._collapsed else "")
+        self.command.setToolTip(lang.t("nav.commandTooltip") if self._collapsed else "")
+
     def current(self) -> int:
         return self.group.checkedId()
 
@@ -286,9 +304,7 @@ class Sidebar(QFrame):
     def set_collapsed(self, collapsed: bool, animate: bool = True):
         self._collapsed = collapsed
         target = theme.SIDEBAR["collapsed" if collapsed else "expanded"]
-        for b in self.buttons:  # tooltip solo cuando las etiquetas no se ven
-            b.setToolTip(b.label if collapsed else "")
-        self.command.setToolTip("Buscar o ir a… (Ctrl+K)" if collapsed else "")
+        self._tooltips()
         self.player.controls.setVisible(not collapsed)
         self._anim.stop()
         if animate and theme.duration() and self.isVisible():

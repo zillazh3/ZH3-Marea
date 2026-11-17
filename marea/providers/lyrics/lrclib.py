@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 
+from marea.i18n import t
 from marea.model.lyrics import Lyrics, parse_lrc, parse_lyricsfile
 from marea.providers.errors import ProviderError
 from marea.providers.lyrics.base import TrackQuery
@@ -46,7 +47,7 @@ class LrclibProvider:
     def _get(self, path: str, params: dict) -> httpx.Response:
         r = self._client.get(f"{BASE}{path}", params=params, service_name="LRCLIB")
         if r.status_code >= 500 or r.status_code == 429:
-            raise ProviderError("LRCLIB está saturado o caído en este momento. Intenta de nuevo en unos minutos.")
+            raise ProviderError(t("errors.lyrics.overloaded", service="LRCLIB"))
         return r
 
     def _cache_path(self, q: TrackQuery) -> Path:

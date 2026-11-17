@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from marea.audio.loopback import Recording
+from marea.i18n import t
 from marea.providers.errors import PositionSample
 
 
@@ -15,7 +16,7 @@ def estimate_c(samples: list[PositionSample], max_rtt: float = 0.5) -> tuple[flo
     """(c en s, incertidumbre en s). Mediana de las muestras con menor RTT: son las menos afectadas por la red."""
     good = [s for s in samples if s.rtt <= max_rtt]
     if not good:
-        raise ValueError("Ninguna medición de posición fue lo bastante rápida para alinear el audio.")
+        raise ValueError(t("errors.audio.noMeasurements"))
     good.sort(key=lambda s: s.rtt)
     best = good[: max(1, (len(good) + 1) // 2)]
     cs = np.array([s.c for s in best])
@@ -317,7 +318,7 @@ def detect_offset(samples: np.ndarray, rate: int, lyrics, start_ms: float = 0.0,
         _extract_vocal_cues(vocal_stem, vocal_rate) if use_stem else _extract_vocal_cues(samples, rate)
     )
     if len(e_on) < round(0.5 * fps) or float(e_on.max()) <= 0.0:
-        raise ValueError("El audio está en silencio o es demasiado corto para estimar el desfase.")
+        raise ValueError(t("errors.audio.silent"))
 
     n = len(e_on)
     dur_s = n / fps
@@ -329,7 +330,7 @@ def detect_offset(samples: np.ndarray, rate: int, lyrics, start_ms: float = 0.0,
 
     lyr_on, lyr_vad, imp_times = _lyric_targets(lyrics, start_ms, dur_s, pad_s, fps, frame_shift_s, m, t0_grid)
     if len(imp_times) < MIN_ONSETS:
-        raise ValueError("Hay muy pocas sílabas o versos dentro del audio para estimar el desfase. Prueba con un tramo más largo.")
+        raise ValueError(t("errors.audio.tooFewSyllables"))
 
     d_search = int(round(max_lag_s * fps))
     d_null = min(pad_f - 10, max(d_search + round(2.0 * fps), round(0.75 * n)))

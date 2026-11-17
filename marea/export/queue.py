@@ -15,6 +15,7 @@ from marea.audio.session import RecordingCancelled, record_song_range
 from marea.export import history
 from marea.export.job import ExportJob
 from marea.export.runner import ExportRunner
+from marea.i18n import t
 from marea.providers.errors import ProviderError
 from marea.sysutil import unique_path
 
@@ -44,7 +45,7 @@ class QueueItem:
     job: ExportJob
     audio: AudioSpec | None = None
     state: str = QUEUED
-    stage: str = "En cola"
+    stage: str = field(default_factory=lambda: t("export.stage.queued"))
     progress: float = 0.0  # 0..1 de la etapa actual
     eta: float | None = None  # segundos
     error: str = ""
@@ -90,7 +91,7 @@ class ExportQueue(QObject):
 
     def cancel(self, item: QueueItem):
         if item.state == QUEUED:
-            item.state, item.stage = CANCELLED, "Cancelado"
+            item.state, item.stage = CANCELLED, t("export.stage.cancelled")
             self.changed.emit()
         elif item.state == AUDIO:
             item.cancel_event.set()  # el hilo de grabación pausa Spotify y termina
@@ -128,7 +129,7 @@ class ExportQueue(QObject):
             return
         self._active = nxt
         if nxt.audio:
-            nxt.state, nxt.stage, nxt.progress = AUDIO, "Preparando el audio…", 0.0
+            nxt.state, nxt.stage, nxt.progress = AUDIO, t("export.stage.preparingAudio"), 0.0
             self.changed.emit()
             run_async(lambda: self._make_audio(nxt), lambda wav: self._audio_ready(nxt, wav), lambda e: self._audio_failed(nxt, e))
         else:
@@ -164,15 +165,15 @@ class ExportQueue(QObject):
         if dur_ms > 0.0:
             item.job.end_ms = item.job.start_ms + dur_ms
         if item.cancel_event.is_set():
-            return self._finish(item, CANCELLED, "Cancelado")
+            return self._finish(item, CANCELLED, t("export.stage.cancelled"))
         self._render(item)
 
     def _audio_failed(self, item: QueueItem, error):
         if isinstance(error, RecordingCancelled):
-            self._finish(item, CANCELLED, "Cancelado")
+            self._finish(item, CANCELLED, t("export.stage.cancelled"))
         else:
-            msg = str(error) if isinstance(error, ProviderError) else "No pude preparar el audio. Intenta de nuevo."
-            self._finish(item, FAILED, "Falló", msg)
+            msg = str(error) if isinstance(error, ProviderError) else t("export.audioFailed")
+            self._finish(item, FAILED, t("export.stage.failed"), msg)
 
     def _on_audio_progress(self, item: QueueItem, fraction: float, text: str):
         if item.state == AUDIO:
@@ -180,7 +181,7 @@ class ExportQueue(QObject):
             self.item_changed.emit(item)
 
     def _render(self, item: QueueItem):
-        item.state, item.stage, item.progress, item.eta = RENDER, "Renderizando video…", 0.0, None
+        item.state, item.stage, item.progress, item.eta = RENDER, t("export.stage.rendering"), 0.0, None
         self.changed.emit()
         self._runner.start(item.job)
 
@@ -191,7 +192,7 @@ class ExportQueue(QObject):
 
     def _on_render_done(self, path: str):
         item = self._active
-        self._finish(item, DONE, "Listo")
+        self._finish(item, DONE, t("export.stage.done"))
         run_async(
             lambda: self._record_history(item),
             lambda thumb: self._thumb_ready(item, thumb),
@@ -220,11 +221,11 @@ class ExportQueue(QObject):
     def _on_render_failed(self, message: str, detail: str):
         if detail:
             print(detail)
-        self._finish(self._active, FAILED, "Falló",
-                     f"{message}. Revisa que ffmpeg funcione y que haya espacio en la carpeta de salida.")
+        self._finish(self._active, FAILED, t("export.stage.failed"),
+                     t("export.renderFailed", message=message))
 
     def _on_render_cancelled(self):
-        self._finish(self._active, CANCELLED, "Cancelado")
+        self._finish(self._active, CANCELLED, t("export.stage.cancelled"))
 
     def _finish(self, item: QueueItem, state: str, stage: str, error: str = ""):
         item.state, item.stage, item.error, item.eta = state, stage, error, None

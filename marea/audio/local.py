@@ -6,6 +6,7 @@ import numpy as np
 
 from marea.audio.align import slice_padded
 from marea.audio.loopback import AudioError
+from marea.i18n import t
 from marea.sysutil import run_ffmpeg
 
 RATE = 48000
@@ -20,9 +21,9 @@ def decode(path: str | Path) -> np.ndarray:
     except FileNotFoundError as e:
         raise AudioError(str(e)) from e
     except subprocess.TimeoutExpired as e:
-        raise AudioError("El archivo de audio tardó demasiado en leerse. Prueba con un archivo más corto.") from e
+        raise AudioError(t("errors.audio.readTimeout")) from e
     if r.returncode != 0 or not r.stdout:
-        raise AudioError("No pude leer ese archivo de audio. Usa un MP3, WAV, FLAC, M4A u OGG válido.")
+        raise AudioError(t("errors.audio.unreadable"))
     return np.frombuffer(r.stdout, dtype=np.float32).reshape(-1, CHANNELS).copy()
 
 

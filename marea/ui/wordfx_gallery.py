@@ -15,7 +15,7 @@ from marea.demo_cover import demo_cover
 from marea.engine.engine import Params
 from marea.model.lyrics import Line, Lyrics, Syllable
 from marea.render.scene import Style
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.preview import PreviewWidget
 from marea.ui.widgets import SliderRow, blocked_signals, make_button
 from marea.wordfx import config, library, rules as rules_mod, variants
@@ -28,22 +28,29 @@ ALL = "*"  # data of the "all variants" entry
 WORD_MS, LINE_START_MS = 900, 1000  # every sample word lasts this long (a held word)
 PRE_MS, POST_MS = 500, 1500  # the loop runs from PRE before the word to POST after its release
 LANGS = (("es", "Español"), ("en", "English"))
-# key -> (label, min, max, default, readout); every slider is an int, the value is /100 except where noted
+# key -> (label i18n key, min, max, default, readout); every slider is an int, the value is /100 except where noted
 _pct = lambda v: f"{v} %"
 SLIDERS = (
-    ("intensity", "Intensidad de los efectos", 0, 150, 100, _pct),
-    ("glow", "Brillo (glow)", 0, 200, 100, lambda v: f"×{v / 100:.2f}"),
-    ("streak", "Destello: fuerza (categoría)", 0, 100, 0, lambda v: f"{v / 100:.2f}"),
-    ("opacity", "Destello: opacidad", 0, 100, round(DEFAULTS.streak_opacity * 100), lambda v: f"{v / 100:.2f}"),
-    ("thickness", "Destello: grosor (px a 1080p)", 50, 400, round(DEFAULTS.streak_thickness_px * 100), lambda v: f"{v / 100:.2f}"),
-    ("front", "Destello: largo delante (em)", 5, 100, round(DEFAULTS.streak_front_em * 100), lambda v: f"{v / 100:.2f}"),
-    ("trail", "Destello: largo de la estela (em)", 20, 300, round(DEFAULTS.streak_trail_em * 100), lambda v: f"{v / 100:.2f}"),
-    ("decay", "Destello: decaimiento", 50, 600, round(DEFAULTS.streak_decay * 100), lambda v: f"{v / 100:.2f}"),
-    ("overshoot", "Destello: se pasa del borde (em)", 0, 50, round(DEFAULTS.streak_overshoot_em * 100), lambda v: f"{v / 100:.2f}"),
+    ("intensity", "wordfxUi.gallery.intensity", 0, 150, 100, _pct),
+    ("glow", "wordfxUi.gallery.glow", 0, 200, 100, lambda v: f"×{v / 100:.2f}"),
+    ("streak", "wordfxUi.gallery.streak", 0, 100, 0, lambda v: f"{v / 100:.2f}"),
+    ("opacity", "wordfxUi.gallery.opacity", 0, 100, round(DEFAULTS.streak_opacity * 100), lambda v: f"{v / 100:.2f}"),
+    ("thickness", "wordfxUi.gallery.thickness", 50, 400, round(DEFAULTS.streak_thickness_px * 100), lambda v: f"{v / 100:.2f}"),
+    ("front", "wordfxUi.gallery.front", 5, 100, round(DEFAULTS.streak_front_em * 100), lambda v: f"{v / 100:.2f}"),
+    ("trail", "wordfxUi.gallery.trail", 20, 300, round(DEFAULTS.streak_trail_em * 100), lambda v: f"{v / 100:.2f}"),
+    ("decay", "wordfxUi.gallery.decay", 50, 600, round(DEFAULTS.streak_decay * 100), lambda v: f"{v / 100:.2f}"),
+    ("overshoot", "wordfxUi.gallery.overshoot", 0, 50, round(DEFAULTS.streak_overshoot_em * 100), lambda v: f"{v / 100:.2f}"),
 )
 SLIDER_DEFAULTS = {s[0]: s[4] for s in SLIDERS}
 DIRECT = {"opacity": "streak_opacity", "thickness": "streak_thickness_px", "front": "streak_front_em", "trail": "streak_trail_em",
           "decay": "streak_decay", "overshoot": "streak_overshoot_em"}  # slider key -> FxConfig field (value / 100)
+
+
+def _row(form: QFormLayout, key: str, field: QWidget):
+    """`form.addRow(label, field)` with a label that follows the UI language."""
+    label = QLabel()
+    lang.bind(label, key)
+    form.addRow(label, field)
 
 
 def config_snippet(cfg: FxConfig) -> str:
@@ -69,7 +76,7 @@ def _lemmas(lib: library.Library, cat: str, lang: str) -> list[str]:
 class WordFxGallery(QDialog):
     def __init__(self, lib: library.Library | None = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Galería de efectos")
+        lang.bind(self, "wordfxUi.gallery.title", "setWindowTitle")
         self._lib = lib or library.load()
         self._rules = rules_mod.load()
         self._prev = config.FX  # restored on close
@@ -83,23 +90,28 @@ class WordFxGallery(QDialog):
         self.cmb_cat.addItems(self.cats)
         for code, name in LANGS:
             self.cmb_lang.addItem(name, code)
-        self.cb_light = QCheckBox("Palabra ligera")
-        self.cb_light.setToolTip("Dibuja la palabra como la secundaria de un verso (otra palabra forzada hace de principal).")
+        self.cb_light = QCheckBox()
+        lang.bind(self.cb_light, "wordfxUi.gallery.light")
+        lang.bind(self.cb_light, "wordfxUi.gallery.lightTip", "setToolTip")
         self.lbl_word = QLabel()
         self.lbl_word.setObjectName("Caption")
         self.rows = {k: SliderRow(lo, hi, d, fmt, min_label_width=52) for k, _, lo, hi, d, fmt in SLIDERS}
 
         form = QFormLayout()
-        form.addRow("Categoría", self.cmb_cat)
-        form.addRow("Variante", self.cmb_var)
-        form.addRow("Idioma", self.cmb_lang)
-        form.addRow("Palabra", self.lbl_word)
+        _row(form, "wordfxUi.gallery.category", self.cmb_cat)
+        _row(form, "wordfxUi.gallery.variant", self.cmb_var)
+        _row(form, "wordfxUi.gallery.language", self.cmb_lang)
+        _row(form, "wordfxUi.gallery.word", self.lbl_word)
         form.addRow(self.cb_light)
         for k, label, *_ in SLIDERS:
-            form.addRow(label, self.rows[k])
-        self.btn_play = make_button("Pausar", "Ghost", self._toggle_play)
+            _row(form, label, self.rows[k])
+        self.btn_play = make_button("", "Ghost", self._toggle_play)
+        lang.bind(self.btn_play, "wordfxUi.gallery.pause")
+        btn_reset, btn_copy = make_button("", "Ghost", self.reset), make_button("", "Ghost", self.copy_config)
+        lang.bind(btn_reset, "wordfxUi.gallery.reset")
+        lang.bind(btn_copy, "wordfxUi.gallery.copyConfig")
         buttons = QHBoxLayout()
-        for b in (self.btn_play, make_button("Restablecer", "Ghost", self.reset), make_button("Copiar config", "Ghost", self.copy_config)):
+        for b in (self.btn_play, btn_reset, btn_copy):
             buttons.addWidget(b)
         left = QVBoxLayout()
         left.addLayout(form)
@@ -112,7 +124,7 @@ class WordFxGallery(QDialog):
         self.preview = PreviewWidget(self, prefer_gpu=False, async_video=False)  # CPU: works offscreen, same Scene as the editor
         self.preview.setMinimumSize(300, 530)
         self.preview.position.connect(self._on_position)
-        self.preview.playing_changed.connect(lambda on: self.btn_play.setText("Pausar" if on else "Reproducir"))
+        self.preview.playing_changed.connect(self._on_playing_changed)
         root = QHBoxLayout(self)
         root.addWidget(side)
         root.addWidget(self.preview, 1)
@@ -154,7 +166,9 @@ class WordFxGallery(QDialog):
             self.cmb_var.clear()
             for v in variants.options_for(self.category):
                 self.cmb_var.addItem(v.name, v.name)
-            self.cmb_var.addItem("Todas las variantes (ciclar)", ALL)
+            self.cmb_var.addItem(lang.t("wordfxUi.gallery.allVariants"), ALL)
+        lang.bind_fn(self.cmb_var, "all", lambda: self.cmb_var.setItemText(
+            max(0, self.cmb_var.findData(ALL)), lang.t("wordfxUi.gallery.allVariants")))
 
     def _reset_streak(self):
         with blocked_signals(self.rows["streak"]):
@@ -211,6 +225,12 @@ class WordFxGallery(QDialog):
             if self.cmb_var.currentData() == ALL:
                 self._build()
                 self.preview.set_wordfx(self.plan)
+
+    def _on_playing_changed(self, on: bool):
+        if on:
+            lang.bind(self.btn_play, "wordfxUi.gallery.pause")
+        else:
+            lang.bind(self.btn_play, "wordfxUi.gallery.play")
 
     def _toggle_play(self):
         self.preview.set_playing(not self.preview.playing)

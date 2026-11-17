@@ -7,14 +7,16 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFileDialog, QFormLayou
 from marea.async_util import run_async
 from marea.export.ffmpeg import ALPHA_TARGETS
 from marea.model.background import FITS, LOOPS, BackgroundConfig
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor._pkg import pkg_attr
+from marea.ui.editor.style_tab import form_row
 from marea.ui.widgets import CoalescedAction, SliderRow, blocked_signals, make_button
 
-SOURCE_LABELS = {"cover": "Portada (difuminada)", "video": "Video propio", "transparent": "Transparente (para WebM / ProRes / PNG)"}
-LOOP_LABELS = {"repeat": "Repetir", "pingpong": "Ida y vuelta", "hold": "Congelar último cuadro"}
-FIT_LABELS = {"cover": "Cubrir", "contain": "Contener"}
-VIDEO_FILTER = "Videos (*.mp4 *.mov *.webm *.mkv);;Todos los archivos (*.*)"
+# value -> i18n key (resolved where shown)
+SOURCE_LABELS = {"cover": "background.source.cover", "video": "background.source.video", "transparent": "background.source.transparent"}
+LOOP_LABELS = {"repeat": "background.loop.repeat", "pingpong": "background.loop.pingpong", "hold": "background.loop.hold"}
+FIT_LABELS = {"cover": "background.fit.cover", "contain": "background.fit.contain"}
+VIDEO_FILTER = "background.videoFilter"
 assert set(LOOP_LABELS) == set(LOOPS) and set(FIT_LABELS) == set(FITS)
 
 
@@ -24,7 +26,7 @@ def _spin(tip: str) -> QDoubleSpinBox:
     s.setSingleStep(0.1)
     s.setSuffix(" s")
     s.setRange(-3600.0, 3600.0)
-    s.setToolTip(tip)
+    lang.bind(s, tip, "setToolTip")
     return s
 
 
@@ -38,14 +40,12 @@ class BackgroundController:
     def build(self, form: QFormLayout):
         ed = self.ed
         ed.cmb_bgsrc = QComboBox()
-        for key, label in SOURCE_LABELS.items():
-            ed.cmb_bgsrc.addItem(label, key)
-        ed.cmb_bgsrc.setToolTip("Portada: el fondo animado de siempre. Video propio: tu video detrás de la letra. "
-                                "Transparente: sin fondo, para exportar con canal alfa.")
-        form.addRow("Fondo", ed.cmb_bgsrc)
+        lang.bind_items(ed.cmb_bgsrc, [(label, key) for key, label in SOURCE_LABELS.items()])
+        lang.bind(ed.cmb_bgsrc, "background.sourceTip", "setToolTip")
+        form_row(form, "background.title", ed.cmb_bgsrc)
 
-        self.hint = QLabel("Sin fondo: la vista previa muestra un tablero de ajedrez. Elige WebM, ProRes o PNG en el menú de "
-                           "exportación para conservar la transparencia.")
+        self.hint = QLabel()
+        lang.bind(self.hint, "background.transparentHint")
         self.hint.setObjectName("Caption")
         self.hint.setWordWrap(True)
         form.addRow(self.hint)
@@ -54,41 +54,44 @@ class BackgroundController:
         vf = QFormLayout(self.video)
         vf.setContentsMargins(0, 0, 0, 0)
         vf.setVerticalSpacing(theme.SPACE[2])
-        ed.btn_bgvideo = make_button("Elegir video…", "Ghost", self.choose_video)
-        self.lb_video = QLabel("Ningún video")
+        ed.btn_bgvideo = make_button("", "Ghost", self.choose_video)
+        lang.bind(ed.btn_bgvideo, "background.chooseVideo")
+        self.lb_video = QLabel()
+        lang.bind(self.lb_video, "background.noVideo")
         self.lb_video.setObjectName("Caption")
         self.lb_video.setWordWrap(True)
-        vf.addRow("Video", ed.btn_bgvideo)
+        form_row(vf, "background.video", ed.btn_bgvideo)
         vf.addRow(self.lb_video)
-        self.sp_in = _spin("Dónde empieza el video (se recorta lo anterior)")
-        self.sp_out = _spin("Dónde termina el video (0 = hasta el final)")
-        self.sp_off = _spin("Adelanta (+) o atrasa (−) el video respecto al inicio del clip")
+        self.sp_in = _spin("background.trimInTip")
+        self.sp_out = _spin("background.trimOutTip")
+        self.sp_off = _spin("background.offsetTip")
         self.cmb_loop, self.cmb_fit = QComboBox(), QComboBox()
-        for k, v in LOOP_LABELS.items():
-            self.cmb_loop.addItem(v, k)
-        for k, v in FIT_LABELS.items():
-            self.cmb_fit.addItem(v, k)
-        self.cmb_fit.setToolTip("Cubrir llena el cuadro recortando; Contener muestra el video completo sobre la portada difuminada")
-        vf.addRow("Entrada", self.sp_in)
-        vf.addRow("Salida", self.sp_out)
-        vf.addRow("Desfase", self.sp_off)
-        vf.addRow("Al terminar", self.cmb_loop)
-        vf.addRow("Ajuste", self.cmb_fit)
+        lang.bind_items(self.cmb_loop, [(label, k) for k, label in LOOP_LABELS.items()])
+        lang.bind_items(self.cmb_fit, [(label, k) for k, label in FIT_LABELS.items()])
+        lang.bind(self.cmb_fit, "background.fitTip", "setToolTip")
+        form_row(vf, "background.trimIn", self.sp_in)
+        form_row(vf, "background.trimOut", self.sp_out)
+        form_row(vf, "background.offset", self.sp_off)
+        form_row(vf, "background.loopLabel", self.cmb_loop)
+        form_row(vf, "background.fitLabel", self.cmb_fit)
         pct = lambda v: f"{v} %"
         self.sl = {
             "zoom": SliderRow(100, 300, 100, lambda v: f"{v / 100:.2f}×"),
             "pan_x": SliderRow(-100, 100, 0, pct),
             "pan_y": SliderRow(-100, 100, 0, pct),
-            "dim": SliderRow(0, 85, 25, pct, tooltip="Oscurece el video para que la letra se lea"),
+            "dim": SliderRow(0, 85, 25, pct),
             "blur": SliderRow(0, 100, 0, pct),
             "saturation": SliderRow(0, 160, 100, pct),
-            "scrim": SliderRow(0, 100, 0, pct, tooltip="Degradado oscuro suave detrás del bloque de letra"),
-            "cover_tint": SliderRow(0, 100, 0, pct, tooltip="Deja ver la portada difuminada por encima del video"),
+            "scrim": SliderRow(0, 100, 0, pct),
+            "cover_tint": SliderRow(0, 100, 0, pct),
         }
-        for key, label in (("zoom", "Zoom"), ("pan_x", "Posición X"), ("pan_y", "Posición Y"), ("dim", "Oscurecer"),
-                           ("blur", "Desenfoque"), ("saturation", "Saturación"), ("scrim", "Velo de lectura"),
-                           ("cover_tint", "Tinte de portada")):
-            vf.addRow(label, self.sl[key])
+        lang.bind(self.sl["dim"].slider, "background.dimTip", "setToolTip")
+        lang.bind(self.sl["scrim"].slider, "background.scrimTip", "setToolTip")
+        lang.bind(self.sl["cover_tint"].slider, "background.coverTintTip", "setToolTip")
+        for key, label in (("zoom", "background.zoom"), ("pan_x", "background.panX"), ("pan_y", "background.panY"),
+                           ("dim", "background.dim"), ("blur", "background.blur"), ("saturation", "background.saturation"),
+                           ("scrim", "background.scrim"), ("cover_tint", "background.coverTint")):
+            form_row(vf, label, self.sl[key])
         form.addRow(self.video)
 
         self._action = CoalescedAction(120, self._apply, ed)
@@ -144,7 +147,11 @@ class BackgroundController:
         for row in self.sl.values():
             row.update_readout()
         v = cfg.video
-        self.lb_video.setText(f"{Path(v.path).name} · {v.width}×{v.height} · {v.duration_ms / 1000:.1f} s · {v.fps:.0f} fps" if v else "Ningún video")
+        if v:
+            lang.unbind(self.lb_video)
+            self.lb_video.setText(f"{Path(v.path).name} · {v.width}×{v.height} · {v.duration_ms / 1000:.1f} s · {v.fps:.0f} fps")
+        else:
+            lang.bind(self.lb_video, "background.noVideo")
         self._show_rows(cfg.source)
 
     def set_source(self, source: str):
@@ -167,7 +174,7 @@ class BackgroundController:
         if src != "transparent" and ed.settings.value("export/target", "mp4") in ALPHA_TARGETS:
             ed.settings.setValue("export/target", "mp4")
             ed._export_bar.sync_menu()
-            ed.notify("El formato volvió a MP4: los formatos con transparencia necesitan el fondo «Transparente».", "info")
+            ed.notify(lang.t("background.formatReset"), "info")
 
     def _apply(self):
         ed = self.ed
@@ -182,7 +189,7 @@ class BackgroundController:
 
     def choose_video(self):
         ed = self.ed
-        path, _ = QFileDialog.getOpenFileName(ed, "Elegir video de fondo", "", VIDEO_FILTER)
+        path, _ = QFileDialog.getOpenFileName(ed, lang.t("background.chooseTitle"), "", lang.t(VIDEO_FILTER))
         if not path:
             if ed.project and ed.project.background.video is None:
                 self.refresh()  # sin video no hay fondo de video: vuelve a lo anterior
@@ -194,7 +201,7 @@ class BackgroundController:
 
         ed = self.ed
         ed.btn_bgvideo.setEnabled(False)
-        self.lb_video.setText("Leyendo el video…")
+        lang.bind(self.lb_video, "background.probing")
 
         def done(res):
             ed.btn_bgvideo.setEnabled(True)
@@ -211,7 +218,7 @@ class BackgroundController:
 
         def failed(e):
             ed.btn_bgvideo.setEnabled(True)
-            ed.notify(str(e) if isinstance(e, VideoError) else f"No pude abrir ese video: {e}", "error")
+            ed.notify(str(e) if isinstance(e, VideoError) else lang.t("background.openFailed", error=e), "error")
             self.refresh()
 
         pkg_attr("run_async", run_async)(lambda: probe_video(path, "bg_video"), done, failed)

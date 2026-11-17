@@ -5,6 +5,7 @@ import queue as queue_mod
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from marea.export.job import ExportJob, worker_main
+from marea.i18n import t
 
 
 class ExportRunner(QObject):
@@ -69,7 +70,7 @@ class ExportRunner(QObject):
             if self._queue.empty():  # murió sin avisar
                 self._cleanup()
                 self._job.out_path.unlink(missing_ok=True)
-                self.failed.emit("El proceso de render se cerró inesperadamente.", "")
+                self.failed.emit(t("export.renderDied"), "")
 
     def _cleanup(self):
         self._timer.stop()

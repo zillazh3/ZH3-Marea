@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMessa
 
 from marea.paths import reveal_in_folder
 from marea.export.queue import ACTIVE, AUDIO, DONE, QUEUED, RENDER, ExportQueue, QueueItem
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import ElidedLabel, EmptyState, make_button, placeholder_pixmap, rounded_pixmap
 
 THUMB = 56
@@ -15,7 +15,7 @@ THUMB = 56
 def fmt_eta(seconds: float | None) -> str:
     if seconds is None:
         return ""
-    return f"quedan {int(seconds // 60)}:{int(seconds % 60):02d}"
+    return lang.t("exports.eta", time=f"{int(seconds // 60)}:{int(seconds % 60):02d}")
 
 
 class ExportRow(QFrame):
@@ -51,6 +51,7 @@ class ExportRow(QFrame):
         lay.addLayout(self.buttons)
         self._set_thumb()
         self.refresh()
+        lang.signals.changed.connect(self._texts)
 
     def _set_thumb(self):
         px = QPixmap()
@@ -61,8 +62,8 @@ class ExportRow(QFrame):
         else:
             self.thumb.setPixmap(placeholder_pixmap(THUMB, theme.RADIUS["control"]))
 
-    def _button(self, text: str, callback, primary: bool = False) -> QPushButton:
-        b = make_button(text, "Primary" if primary else "Ghost", callback)
+    def _button(self, callback, primary: bool = False) -> QPushButton:
+        b = make_button("", "Primary" if primary else "Ghost", callback)
         self.buttons.addWidget(b)
         return b
 
@@ -75,18 +76,22 @@ class ExportRow(QFrame):
             old.deleteLater()
         self.bar.setVisible(it.state in (QUEUED, AUDIO, RENDER, DONE))
         self.bar.setValue(round(it.progress * 1000))
-        self.sub.set_full_text(it.error or it.stage)
-        self.eta.setText(fmt_eta(it.eta) if it.state in ACTIVE else "")
+        self._texts()
         if it.state in (QUEUED,) + ACTIVE:
-            self._button("Cancelar", self._cancel)
+            lang.bind(self._button(self._cancel), "exports.cancel")
         elif it.state == DONE:
-            self._button("Abrir carpeta", lambda: reveal_in_folder(str(it.out_path)), True)
-            self._button("Copiar ruta", lambda: QApplication.clipboard().setText(str(it.out_path)))
-            self._button("Quitar", lambda: self.queue.remove(it))
+            lang.bind(self._button(lambda: reveal_in_folder(str(it.out_path)), True), "common.openFolder")
+            lang.bind(self._button(lambda: QApplication.clipboard().setText(str(it.out_path))), "exports.copyPath")
+            lang.bind(self._button(lambda: self.queue.remove(it)), "exports.remove")
         else:
-            self._button("Quitar", lambda: self.queue.remove(it))
+            lang.bind(self._button(lambda: self.queue.remove(it)), "exports.remove")
         if it.thumb:
             self._set_thumb()
+
+    def _texts(self):
+        it = self.item
+        self.sub.set_full_text(it.error or it.stage)
+        self.eta.setText(fmt_eta(it.eta) if it.state in ACTIVE else "")
 
     def update_progress(self):
         self.bar.setValue(round(self.item.progress * 1000))
@@ -95,10 +100,10 @@ class ExportRow(QFrame):
 
     def _cancel(self):
         if self.item.state in ACTIVE:  # único diálogo modal permitido: confirmar que se descarta un trabajo en curso
-            box = QMessageBox(QMessageBox.Question, "Cancelar exportación",
-                              "¿Cancelar esta exportación? Se descartará el video a medias.", QMessageBox.Yes | QMessageBox.No, self)
-            box.button(QMessageBox.Yes).setText("Sí, cancelar")
-            box.button(QMessageBox.No).setText("Seguir exportando")
+            box = QMessageBox(QMessageBox.Question, lang.t("exports.cancelTitle"),
+                              lang.t("exports.cancelConfirm"), QMessageBox.Yes | QMessageBox.No, self)
+            box.button(QMessageBox.Yes).setText(lang.t("exports.cancelYes"))
+            box.button(QMessageBox.No).setText(lang.t("exports.cancelNo"))
             if box.exec() != QMessageBox.Yes:
                 return
         self.queue.cancel(self.item)
@@ -113,16 +118,19 @@ class ExportsPage(QWidget):
         lay.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[6])
         lay.setSpacing(theme.SPACE[4])
         head = QHBoxLayout()
-        h1 = QLabel("Exportaciones")
+        h1 = QLabel()
+        lang.bind(h1, "exports.title")
         h1.setObjectName("H1")
-        self.btn_clear = make_button("Limpiar terminadas", "Ghost", queue.clear_finished)
+        self.btn_clear = make_button("", "Ghost", queue.clear_finished)
+        lang.bind(self.btn_clear, "exports.clearFinished")
         head.addWidget(h1)
         head.addStretch()
         head.addWidget(self.btn_clear)
         lay.addLayout(head)
         self.stack = QStackedWidget()
-        self.empty = EmptyState("download", "Todavía no hay exportaciones",
-                                "Los clips que exportes desde el Editor aparecerán aquí con su progreso.")
+        self.empty = EmptyState("download", "", "")
+        lang.bind(self.empty.head, "exports.emptyTitle")
+        lang.bind(self.empty.body, "exports.emptyBody")
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)

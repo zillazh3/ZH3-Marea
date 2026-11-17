@@ -5,6 +5,7 @@ import numpy as np
 
 from marea.audio import align
 from marea.audio.loopback import AudioError, LoopbackRecorder
+from marea.i18n import t
 from marea.providers.spotify import SpotifyError
 
 PREROLL_MS = 500  # se empieza a reproducir un poco antes del tramo: la latencia de arranque no se come el inicio
@@ -42,7 +43,7 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
                 raise RecordingCancelled()
             if elapsed >= total_s:
                 break
-            progress(elapsed / total_s, "Grabando audio…")
+            progress(elapsed / total_s, t("errors.audio.recording"))
             if now >= next_poll:
                 try:
                     pb, sample = client.position_sample()
@@ -60,7 +61,7 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
                 else:
                     bad += 1
                     if bad >= 3 and elapsed > 3:
-                        raise AudioError("La reproducción en Spotify se interrumpió mientras grabábamos. Evita pausar o cambiar de canción durante la exportación.")
+                        raise AudioError(t("errors.audio.spotifyInterrupted"))
                 next_poll = now + (0.25 if elapsed < DENSE_S else 2.0)
             sleep(0.05)
         aborted = False
@@ -75,13 +76,13 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
             else:
                 recording = rec.stop()
     if len(samples) < MIN_SAMPLES:
-        raise AudioError("No pude medir la posición de Spotify para alinear el audio. Revisa tu conexión y vuelve a intentar.")
+        raise AudioError(t("errors.audio.noPosition"))
     try:
         c, _ = align.estimate_c(samples)
     except ValueError as e:
         raise AudioError(str(e)) from e
     segment = align.cut(recording, start_ms, end_ms, c, offset_ms, fade_ms)
     if not len(segment) or float(np.abs(segment).max()) < SILENCE_PEAK:
-        raise AudioError("No se captó audio. Revisa que Spotify suene por el dispositivo elegido en Ajustes > Audio y que el volumen de Spotify no esté en cero.")
-    progress(1.0, "Audio grabado")
+        raise AudioError(t("errors.audio.nothingCaptured"))
+    progress(1.0, t("errors.audio.recorded"))
     return segment, recording.rate

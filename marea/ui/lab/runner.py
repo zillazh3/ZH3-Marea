@@ -3,29 +3,33 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from marea.i18n import t
 from marea.lab import env
 from marea.lab.sidecar import SidecarClient, worker_argv
 
-STAGE_NAMES = {
-    "decode": "Leyendo el audio",
-    "separate": "Separando la voz",
-    "emissions": "Analizando el audio con el modelo",
-    "energy": "Midiendo la energía de la voz",
-    "align": "Alineando la letra",
-    "asr": "Transcribiendo",
-    "download": "Descargando",
-    "separate_layers": "Separating lead and backing vocals",
+STAGE_NAMES = {  # stage id -> i18n key
+    "decode": "lab.stage.decode",
+    "separate": "lab.stage.separate",
+    "emissions": "lab.stage.emissions",
+    "energy": "lab.stage.energy",
+    "align": "lab.stage.align",
+    "asr": "lab.stage.asr",
+    "download": "lab.stage.download",
+    "separate_layers": "lab.stage.separateLayers",
 }
 
 
 def stage_text(name: str, state: str, seconds: float = 0.0) -> str:
-    label = STAGE_NAMES.get(name, name)
-    return {
-        "start": f"{label}…",
-        "done": f"{label}: listo en {seconds:.1f} s",
-        "cached": f"{label}: ya estaba hecho (caché)",
-        "error": f"{label}: falló",
-    }.get(state, f"{label}: {state}")
+    label = t(STAGE_NAMES[name]) if name in STAGE_NAMES else name
+    if state == "start":
+        return t("lab.stage.start", label=label)
+    if state == "done":
+        return t("lab.stage.done", label=label, seconds=f"{seconds:.1f}")
+    if state == "cached":
+        return t("lab.stage.cached", label=label)
+    if state == "error":
+        return t("lab.stage.error", label=label)
+    return t("lab.stage.other", label=label, state=state)
 
 
 class Runner(QObject):

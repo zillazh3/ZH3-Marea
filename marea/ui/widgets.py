@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
 
 from marea.ui import theme
 
-# tipo de letra disponible (el valor viene de Lyrics.kind o 'none'/'error')
-LYRICS_BADGES = {"syllable": "Sílaba", "line": "Línea", "none": "Sin letra", "error": "—"}
+# tipo de letra disponible (el valor viene de Lyrics.kind o 'none'/'error') -> clave i18n; resolver con lang.t al usarla
+LYRICS_BADGES = {"syllable": "widgets.badgeSyllable", "line": "widgets.badgeLine", "none": "widgets.badgeNone",
+                 "error": "widgets.badgeError"}
 
 
 def fmt_ms(ms: float, tenths: bool = False) -> str:
@@ -211,6 +212,7 @@ class EmptyState(QWidget):
         self.glyph = QLabel(self.tile)
         self.glyph.setGeometry(18, 18, 28, 28)
         head, body = QLabel(title), QLabel(message)
+        self.head, self.body, self.buttons = head, body, []  # para que quien la crea los enlace a claves i18n
         head.setObjectName("H2")
         body.setObjectName("Body")
         for lb in (head, body):
@@ -226,7 +228,8 @@ class EmptyState(QWidget):
             row.setAlignment(Qt.AlignCenter)
             row.setSpacing(theme.SPACE[3])
             for text, callback, primary in actions:
-                row.addWidget(make_button(text, "Primary" if primary else "Ghost", callback))
+                self.buttons.append(make_button(text, "Primary" if primary else "Ghost", callback))
+                row.addWidget(self.buttons[-1])
             lay.addSpacing(theme.SPACE[2])
             lay.addLayout(row)
         theme.signals.changed.connect(self._refresh)
@@ -246,7 +249,7 @@ class Page(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[6])
         lay.setSpacing(theme.SPACE[4])
-        h1 = QLabel(title)
+        self.h1 = h1 = QLabel(title)
         h1.setObjectName("H1")
         lay.addWidget(h1)
         if header:

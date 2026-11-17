@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from marea.i18n import t
+
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # prevent console flash on Windows
 
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -25,7 +27,7 @@ def find_ffmpeg(name: str = "ffmpeg") -> str:
             return str(bundled)
     found = shutil.which(name)
     if not found:
-        raise FileNotFoundError("No encontré ffmpeg. Instálalo o ponlo en la carpeta ffmpeg/ junto a la app.")
+        raise FileNotFoundError(t("errors.sysutil.noFfmpeg"))
     return found
 
 

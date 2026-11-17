@@ -4,7 +4,7 @@ import unicodedata
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
 
-from marea.ui import theme
+from marea.ui import lang, theme
 
 WIDTH, MAX_VISIBLE = 520, 9
 
@@ -27,7 +27,7 @@ class CommandPalette(QDialog):
         lay.setSpacing(theme.SPACE[2])
         self.edit = QLineEdit()
         self.edit.setObjectName("Search")
-        self.edit.setPlaceholderText("Buscar o ir a…")
+        lang.bind(self.edit, "palette.placeholder", "setPlaceholderText")
         self.edit.textChanged.connect(self._filter)
         self.edit.installEventFilter(self)
         self.list = QListWidget()

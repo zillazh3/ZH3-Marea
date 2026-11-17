@@ -38,7 +38,7 @@ from marea.paths import default_output_dir
 from marea.presets import schema as preset_schema
 from marea.project import ClipProject, ProjectError, load_cover, load_project_file, project_from_ttml, save_project
 from marea.render.scene import Style
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor._pkg import pkg_attr
 from marea.ui.editor.audio_tab import AudioController
 from marea.ui.editor.cinematic_tab import CinematicController
@@ -53,7 +53,11 @@ from marea.ui.widgets import CoalescedAction, EmptyState, blocked_signals, fmt_m
 
 PANEL_W = 448  # las 6 pestañas (con Anzuelo) caben sin botones de desplazamiento
 DEFAULT_VERSES = 6
-PROJECT_FILTER = "Proyecto ZH3 Marea (*.marea.json);;Todos los archivos (*.*)"
+
+
+def project_filter() -> str:
+    """File-dialog filter for project files, in the current UI language."""
+    return lang.t("editor.projectFilter")
 
 
 def system_reduces_motion() -> bool:
@@ -134,7 +138,8 @@ class EditorPage(QWidget):
         root.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[5])
         root.setSpacing(theme.SPACE[3])
         head = QHBoxLayout()
-        title = QLabel("Editor")
+        title = QLabel()
+        lang.bind(title, "editor.title")
         title.setObjectName("H1")
         self.subtitle = QLabel()
         self.subtitle.setObjectName("Body")
@@ -146,13 +151,10 @@ class EditorPage(QWidget):
         self.stack = QStackedWidget()
         card = QFrame()
         card.setObjectName("Card")
-        QVBoxLayout(card).addWidget(
-            EmptyState(
-                "sliders-horizontal",
-                "Elige una canción para editar",
-                "Abre un .ttml o la canción demo desde Inicio, o busca una canción de Spotify; aquí eliges los versos y el estilo.",
-            )
-        )
+        empty = EmptyState("sliders-horizontal", "", "")
+        lang.bind(empty.head, "editor.empty.title")
+        lang.bind(empty.body, "editor.empty.message")
+        QVBoxLayout(card).addWidget(empty)
         self.stack.addWidget(card)
         self.stack.addWidget(self._build_body(prefer_gpu))
         root.addWidget(self.stack, 1)
@@ -239,7 +241,7 @@ class EditorPage(QWidget):
         self.btn_play.setObjectName("IconBtn")
         self.btn_play.setFixedSize(40, 40)
         self.btn_play.setCursor(Qt.PointingHandCursor)
-        self.btn_play.setToolTip("Reproducir / pausar")
+        lang.bind(self.btn_play, "editor.playPause", "setToolTip")
         self.btn_play.clicked.connect(lambda: self.preview.set_playing(not self.preview.playing))
         self.scrub = QSlider(Qt.Horizontal)
         self.scrub.setRange(0, 1000)
@@ -261,7 +263,8 @@ class EditorPage(QWidget):
         verses.setObjectName("Card")
         vl = QVBoxLayout(verses)
         vl.setContentsMargins(theme.SPACE[2], theme.SPACE[3], theme.SPACE[2], theme.SPACE[3])
-        hint = QLabel("Clic en el primer verso y Shift+clic en el último")
+        hint = QLabel()
+        lang.bind(hint, "editor.versesHint")
         hint.setObjectName("Caption")
         hint.setContentsMargins(theme.SPACE[2], 0, 0, 0)
         self.list = QListWidget()
@@ -291,12 +294,12 @@ class EditorPage(QWidget):
         tl = QVBoxLayout(tabs_card)
         tl.setContentsMargins(theme.SPACE[3], theme.SPACE[2], theme.SPACE[3], theme.SPACE[3])
         self.tabs = QTabWidget()
-        self.tabs.addTab(build_style_tab(self, system_reduces_motion), "Estilo")
-        self.tabs.addTab(build_background_tab(self), "Fondo")
-        self.tabs.addTab(self._cinematic.build_tab(), "Cinemático")
-        self.tabs.addTab(self._audio.build_tab(), "Audio")
-        self.tabs.addTab(build_watermark_tab(self), "Marca de agua")
-        self.tabs.addTab(self._hooks.build_tab(), "Anzuelo")
+        self._add_tab(build_style_tab(self, system_reduces_motion), lambda: lang.t("editor.tabs.style"))
+        self._add_tab(build_background_tab(self), lambda: lang.t("editor.tabs.background"))
+        self._add_tab(self._cinematic.build_tab(), lambda: lang.t("editor.tabs.cinematic"))
+        self._add_tab(self._audio.build_tab(), lambda: lang.t("editor.tabs.audio"))
+        self._add_tab(build_watermark_tab(self), lambda: lang.t("editor.tabs.watermark"))
+        self._add_tab(self._hooks.build_tab(), lambda: lang.t("editor.tabs.hooks"))
         tl.addWidget(self.tabs)
         right.addWidget(tabs_card, 2)
         container = QWidget()
@@ -305,6 +308,11 @@ class EditorPage(QWidget):
         right.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(container)
         return body
+
+    def _add_tab(self, widget: QWidget, title) -> None:
+        """Add a tab whose name (`title()` -> text) follows the UI language; the widget itself is never rebuilt."""
+        idx = self.tabs.addTab(widget, "")
+        lang.bind_fn(self.tabs, f"tab-{idx}", lambda: self.tabs.setTabText(idx, title()))
 
     def _open_sync(self):
         from marea.ui.lab import open_review  # lazy import when experimental/align is active
@@ -496,10 +504,10 @@ class EditorPage(QWidget):
         default_name = (
             self.project.project_path.name
             if self.project.project_path
-            else f"{self.project.title or 'proyecto'}.marea.json"
+            else f"{self.project.title or lang.t('editor.defaultProjectName')}.marea.json"
         )
         start_dir = str((self.project.project_path.parent if self.project.project_path else self._output_dir()) / default_name)
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar proyecto", start_dir, PROJECT_FILTER)
+        path, _ = QFileDialog.getSaveFileName(self, lang.t("editor.saveProject"), start_dir, project_filter())
         if not path:
             return
         if not path.lower().endswith(".json"):
@@ -507,10 +515,10 @@ class EditorPage(QWidget):
         try:
             saved = save_project(self.project, path, editor_state=self.editor_state())
         except OSError as e:
-            self.notify(f"No pude guardar el proyecto: {e}", "error")
+            self.notify(lang.t("editor.saveFailed", error=e), "error")
             return
         self.register_in_library()
-        self.notify(f"Proyecto guardado: {saved.name}", "ok")
+        self.notify(lang.t("editor.saved", name=saved.name), "ok")
 
     def register_in_library(self):
         """Anota el proyecto actual (ya guardado o abierto desde archivo) en la Biblioteca."""
@@ -519,7 +527,7 @@ class EditorPage(QWidget):
             self.library_changed.emit()
 
     def open_project_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir proyecto", "", PROJECT_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("editor.openProject"), "", project_filter())
         if path:
             self.open_project_path(path)
 
@@ -561,7 +569,7 @@ class EditorPage(QWidget):
         self.list.viewport().update()
         lines = self.project.lyrics.lines[self.first:self.last + 1]
         span = max(l.end for l in lines) - lines[0].start
-        self.range_label.setText(f"Versos {self.first + 1}–{self.last + 1} · {fmt_ms(span, tenths=True)}")
+        lang.bind(self.range_label, "editor.range", first=self.first + 1, last=self.last + 1, span=fmt_ms(span, tenths=True))
         if seek:
             self.preview.set_range(self._clip_range())
         self._export_bar.update_summary()
@@ -652,7 +660,7 @@ class EditorPage(QWidget):
         self.preview.refresh()
 
     def _choose_cover(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Elegir portada", "", "Imágenes (*.png *.jpg *.jpeg *.webp)")
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("editor.chooseCover"), "", lang.t("editor.imageFilter"))
         if not path:
             return
         try:
@@ -664,13 +672,13 @@ class EditorPage(QWidget):
         self.preview.rebuild()
 
     def _replace_ttml(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Reemplazar letra", "", "Letras TTML (*.ttml *.xml)")
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("editor.replaceLyrics"), "", lang.t("editor.ttmlFilter"))
         if not path:
             return
         try:
             lyrics = project_from_ttml(path).lyrics
         except (ValueError, OSError) as e:
-            self.notify(f"No pude abrir esa letra: {e} Usa un .ttml de Apple Music con tiempos por sílaba.", "error")
+            self.notify(lang.t("editor.lyricsOpenFailed", error=e), "error")
             return
         self.set_project(replace(self.project, lyrics=lyrics, source=Path(path), audio_offset_ms=0.0))
 
@@ -754,8 +762,9 @@ class EditorPage(QWidget):
             key = (want_backend, want_codec, backend, codec)
             if key not in self._encoder_warned:
                 self._encoder_warned.add(key)
-                self.notify(f"{ffmpeg.BACKENDS.get(want_backend, 'Este equipo')} no puede codificar {ffmpeg.CODECS.get(want_codec, want_codec)} "
-                            f"en este equipo: se usó {ffmpeg.BACKENDS[backend]} con {ffmpeg.CODECS[codec]}.", "info")
+                self.notify(lang.t("editor.encoderFallback", backend=ffmpeg.BACKENDS.get(want_backend) or lang.t("editor.thisMachine"),
+                                   codec=ffmpeg.CODECS.get(want_codec, want_codec), usedBackend=ffmpeg.BACKENDS[backend],
+                                   usedCodec=ffmpeg.CODECS[codec]), "info")
         return backend, codec
 
     def build_job(self, start_ms: float | None = None, end_ms: float | None = None, full: bool = False,
@@ -780,7 +789,7 @@ class EditorPage(QWidget):
                 style.wm_text = ""
         elif background.transparent:
             background.source = "cover"
-            self.notify("El fondo transparente solo aplica a WebM, ProRes o PNG: este MP4 salió con la portada.", "info")
+            self.notify(lang.t("editor.transparentIgnored"), "info")
         first, last = (self.first if first is None else first), (self.last if last is None else last)
         name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (first, last)), target=target,
                          tag=look_preset.name if look_preset is not None else "")
@@ -822,7 +831,7 @@ class EditorPage(QWidget):
             self.notify(str(e), "error")
             return None
         except OSError as e:
-            self.notify(f"No pude crear la carpeta de salida ({e.strerror}). Elige otra en el menú de exportación.", "error")
+            self.notify(lang.t("editor.outDirFailed", reason=e.strerror), "error")
             return None
         item = QueueItem(self.project.title, self.project.artist, job.cover_png, job, audio)
         self.queue.add(item)
@@ -854,7 +863,7 @@ class EditorPage(QWidget):
             self.notify(str(e), "error")
             return
         except OSError as e:
-            self.notify(f"No pude crear la carpeta de salida ({e.strerror}). Elige otra en el menú de exportación.", "error")
+            self.notify(lang.t("editor.outDirFailed", reason=e.strerror), "error")
             return
         item = QueueItem(self.project.title, self.project.artist, job.cover_png, job, audio)
         self.preview.set_playing(False)

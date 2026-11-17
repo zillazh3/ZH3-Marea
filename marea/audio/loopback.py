@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from marea.i18n import t
 from marea.providers.errors import ProviderError
 
 GAP_S = 0.02  # un hueco mayor entre bloques se rellena con silencio; menos es jitter y se ignora
@@ -102,8 +103,7 @@ class LoopbackRecorder:
             self._stream.start_stream()
         except OSError as e:
             self.stop(assemble=False)
-            raise AudioError(f"No pude abrir «{self.device_name or 'el dispositivo de audio'}» para capturar. Revisa que esté "
-                             "conectado y activo, o elige otro en Ajustes > Audio.") from e
+            raise AudioError(t("errors.audio.openDevice", device=self.device_name or t("errors.audio.defaultDevice"))) from e
         except BaseException:
             self.stop(assemble=False)
             raise
@@ -113,7 +113,7 @@ class LoopbackRecorder:
             try:
                 return self._pa.get_default_wasapi_loopback()
             except (OSError, LookupError) as e:
-                raise AudioError("No encontré un dispositivo de audio para capturar. Revisa que tengas una salida de audio activa.") from e
+                raise AudioError(t("errors.audio.noDevice")) from e
         import pyaudiowpatch as pa
         wasapi = self._pa.get_host_api_info_by_type(pa.paWASAPI)["index"]
         loop = list(self._pa.get_loopback_device_info_generator())
@@ -124,7 +124,7 @@ class LoopbackRecorder:
             d = self._pa.get_device_info_by_index(i)
             if d["hostApi"] == wasapi and d["maxInputChannels"] > 0 and d["name"] == self.device_name:
                 return d
-        raise AudioError(f"No encontré el dispositivo «{self.device_name}». Elige otro en Ajustes > Audio.")
+        raise AudioError(t("errors.audio.deviceNotFound", device=self.device_name))
 
     def _callback(self, data, frames, time_info, status):
         arrival = time.perf_counter()

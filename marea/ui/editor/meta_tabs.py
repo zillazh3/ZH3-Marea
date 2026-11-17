@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QFrame, QLabel, QLineEdit, QScrollArea, QWidget
 
 from marea.render.scene import Style
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor.background_tab import BackgroundController
 from marea.ui.widgets import make_button
 
@@ -16,10 +16,12 @@ def build_background_tab(editor) -> QWidget:
     editor.ed_title, editor.ed_artist = QLineEdit(), QLineEdit()
     editor.ed_title.textChanged.connect(editor._meta_changed)
     editor.ed_artist.textChanged.connect(editor._meta_changed)
-    btn = make_button("Elegir imagen…", "Ghost", editor._choose_cover)
-    form.addRow("Título", editor.ed_title)
-    form.addRow("Artista", editor.ed_artist)
-    form.addRow("Portada", btn)
+    btn = make_button("", "Ghost", editor._choose_cover)
+    lang.bind(btn, "editor.meta.chooseImage")
+    for key, field in (("editor.meta.title", editor.ed_title), ("editor.meta.artist", editor.ed_artist), ("editor.meta.cover", btn)):
+        label = QLabel()
+        lang.bind(label, key)
+        form.addRow(label, field)
     editor._bgctl = BackgroundController(editor)
     editor._bgctl.build(form)
     scroll = QScrollArea()  # con los controles de video la pestaña ya no cabe en el panel
@@ -38,21 +40,21 @@ def build_watermark_tab(editor) -> QWidget:
     form.setVerticalSpacing(theme.SPACE[2])
     s = editor.settings
     editor.ed_wm = QLineEdit(s.value("watermark/text", Style.wm_text))
-    editor.ed_wm.setPlaceholderText("Vacío = sin marca de agua")
+    lang.bind(editor.ed_wm, "editor.watermark.placeholder", "setPlaceholderText")
     editor.cmb_wm_side = QComboBox()
-    editor.cmb_wm_side.addItem("Esquina inferior izquierda", "left")
-    editor.cmb_wm_side.addItem("Esquina inferior derecha", "right")
+    lang.bind_items(editor.cmb_wm_side, [("editor.watermark.left", "left"), ("editor.watermark.right", "right")])
     editor.cmb_wm_side.setCurrentIndex(max(0, editor.cmb_wm_side.findData(s.value("watermark/side", Style.wm_side))))
-    editor.cb_wm_glyph = QCheckBox("Ondas junto al texto")
+    editor.cb_wm_glyph = QCheckBox()
+    lang.bind(editor.cb_wm_glyph, "editor.watermark.glyph")
     editor.cb_wm_glyph.setChecked(s.value("watermark/glyph", False, type=bool))
-    hint = QLabel(
-        "Queda fuera de la zona que tapa la interfaz de TikTok, entra con un fundido de 0.6 s y baja su opacidad "
-        "si cruza la línea que se está cantando."
-    )
+    hint = QLabel()
+    lang.bind(hint, "editor.watermark.hint")
     hint.setObjectName("Caption")
     hint.setWordWrap(True)
-    form.addRow("Texto", editor.ed_wm)
-    form.addRow("Posición", editor.cmb_wm_side)
+    for key, field in (("editor.watermark.text", editor.ed_wm), ("editor.watermark.position", editor.cmb_wm_side)):
+        label = QLabel()
+        lang.bind(label, key)
+        form.addRow(label, field)
     form.addRow(editor.cb_wm_glyph)
     form.addRow(hint)
     editor.ed_wm.textChanged.connect(editor._wm_changed)

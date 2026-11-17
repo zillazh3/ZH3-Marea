@@ -12,14 +12,14 @@ from marea.export.job import clip_range
 from marea.export.queue import AudioSpec
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import Track
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor._pkg import pkg_attr
 from marea.ui.waveform import WaveformWidget
 from marea.ui.widgets import blocked_signals, make_button
 
 LOOPBACK_OFFSET_RANGE, LOCAL_OFFSET_RANGE = (-500, 500), (-15000, 15000)  # ms
 AUTO_RECORD_MS = 25_000
-AUDIO_FILTER = "Audio (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus);;Todos los archivos (*.*)"
+AUDIO_FILTER = "audio.fileFilter"  # i18n key
 
 
 class AudioController:
@@ -37,8 +37,7 @@ class AudioController:
         lay.setSpacing(theme.SPACE[2])
 
         ed.cmb_source = QComboBox()
-        ed.cmb_source.addItem("Loopback de Spotify", "spotify")
-        ed.cmb_source.addItem("Archivo de audio", "local")
+        lang.bind_items(ed.cmb_source, [("audio.source.spotify", "spotify"), ("audio.source.local", "local")])
         ed.cmb_source.currentIndexChanged.connect(self.source_changed)
         if ed.services:
             ed.services.now_playing.connect(self.on_playback)
@@ -49,7 +48,8 @@ class AudioController:
         ed.lb_audio.setWordWrap(True)
         lay.addWidget(ed.lb_audio)
 
-        ed.btn_audio_file = make_button("Elegir archivo…", "Ghost", self.choose_audio)
+        ed.btn_audio_file = make_button("", "Ghost", self.choose_audio)
+        lang.bind(ed.btn_audio_file, "audio.chooseFile")
         lay.addWidget(ed.btn_audio_file)
 
         ed.wave = WaveformWidget()
@@ -61,14 +61,12 @@ class AudioController:
         ed.lb_offset.setObjectName("Caption")
         ed.lb_offset.setMinimumWidth(52)
         ed.sl_offset.valueChanged.connect(self.offset_changed)
-        offset_label = QLabel("Desfase")
+        offset_label = QLabel()
+        lang.bind(offset_label, "audio.offset")
         offset_label.setObjectName("Muted")
-        ed.btn_auto = make_button(
-            "Auto",
-            "Ghost",
-            self.auto_offset,
-            "Detecta el desfase comparando los ataques del audio con los inicios de sílaba de la letra",
-        )
+        ed.btn_auto = make_button("", "Ghost", self.auto_offset)
+        lang.bind(ed.btn_auto, "audio.auto")
+        lang.bind(ed.btn_auto, "audio.autoTip", "setToolTip")
         row.addWidget(offset_label)
         row.addWidget(ed.sl_offset, 1)
         row.addWidget(ed.lb_offset)
@@ -89,8 +87,8 @@ class AudioController:
     def spotify_hint(self) -> str:
         ed = self.editor
         if not (ed.services and ed.services.connected):
-            return "Conecta tu cuenta de Spotify en Ajustes; o elige «Archivo de audio»."
-        return "No hay nada sonando en Spotify. Dale play a la canción y se vinculará sola; o elige «Archivo de audio»."
+            return lang.t("audio.hint.connect")
+        return lang.t("audio.hint.nothingPlaying")
 
     def link_playing(self):
         ed = self.editor
@@ -135,22 +133,22 @@ class AudioController:
             ed.sl_offset.setValue(round(value))
         ed.lb_offset.setText(f"{round(value):+d} ms")
         if is_local:
-            name = ed.project.audio_file.name if ed.project.audio_file else "ningún archivo"
-            ed.lb_audio.setText(
-                f"Archivo: {name}. Mueve el desfase hasta que los golpes de la forma de onda coincidan "
-                "con las líneas azules (inicio de cada verso)."
-            )
+            fname = ed.project.audio_file.name if ed.project.audio_file else None
+            lang.bind_fn(ed.lb_audio, "setText", lambda: ed.lb_audio.setText(
+                lang.t("audio.localHint", name=fname or lang.t("audio.noFile"))))
         else:
-            device = ed.settings.value("audio/device", "") or "la salida por defecto de Windows"
-            t = self.spotify_track()
-            if t:
-                link = f"Vinculada con «{t.artist} – {t.title}» (la que suena en tu Spotify). " if ed._linked and not ed.project.track else ""
-                ed.lb_audio.setText(
-                    f"{link}Se reproducirá la canción en tu Spotify y se grabará lo que suene por {device}. "
-                    "Requiere Spotify Premium y que nada más suene en ese momento. El desfase corrige la latencia de tu equipo."
-                )
+            device = ed.settings.value("audio/device", "")
+            trk = self.spotify_track()
+            if trk:
+                linked = bool(ed._linked and not ed.project.track)
+
+                def spotify_text():
+                    link = lang.t("audio.linkedWith", artist=trk.artist, title=trk.title) if linked else ""
+                    return lang.t("audio.spotifyHint", link=link, device=device or lang.t("audio.defaultOutput"))
+
+                lang.bind_fn(ed.lb_audio, "setText", lambda: ed.lb_audio.setText(spotify_text()))
             else:
-                ed.lb_audio.setText(self.spotify_hint())
+                lang.bind_fn(ed.lb_audio, "setText", lambda: ed.lb_audio.setText(self.spotify_hint()))
         self.refresh_wave()
 
     def offset_changed(self, v: int):
@@ -177,7 +175,7 @@ class AudioController:
         lyrics = p.lyrics
         if is_local:
             if p.audio_samples is None:
-                ed.notify("Elige primero un archivo de audio para medir el desfase.", "error")
+                ed.notify(lang.t("audio.pickFirst"), "error")
                 return
             samples, audio_file = p.audio_samples, p.audio_file
 
@@ -187,13 +185,13 @@ class AudioController:
                 stem = audiofeat.find_cached_stem(audio_file) if audio_file else None
                 return align.detect_offset(samples, local.RATE, lyrics, 0.0, hi, vocal_stem=stem)
 
-            ed.notify("Midiendo el desfase…")
+            ed.notify(lang.t("audio.measuring"))
         else:
             if not ed._spotify_ready():
                 ed.notify(self.spotify_hint(), "error")
                 return
             if ed.queue.busy:
-                ed.notify("Espera a que termine la exportación en curso: Spotify no puede reproducir dos cosas a la vez.", "error")
+                ed.notify(lang.t("audio.exportBusy"), "error")
                 return
             start, end = clip_range(lyrics, ed.first, ed.last)
             end = min(end, start + AUTO_RECORD_MS)
@@ -204,7 +202,7 @@ class AudioController:
                 segment, rate = record_fn(client, track, start, end, device=device, offset_ms=0.0, fade_ms=0.0)
                 return align.detect_offset(segment, rate, lyrics, start, hi)
 
-            ed.notify(f"Se reproducirá la canción en Spotify unos {(end - start) / 1000:.0f} s para medir el desfase…")
+            ed.notify(lang.t("audio.willPlay", seconds=f"{(end - start) / 1000:.0f}"))
         self._auto_busy = True
         ed.btn_auto.setEnabled(False)
         origin = self._auto_input()
@@ -225,25 +223,21 @@ class AudioController:
         now = self._auto_input()
         same_audio = now[2] is origin[2] if origin[1] == "local" else now[2] == origin[2]
         if now[0] is not origin[0] or now[1] != origin[1] or not same_audio:
-            ed.notify("Descarté la medición del desfase: cambiaste de proyecto o de audio mientras se medía.", "info")
+            ed.notify(lang.t("audio.discarded"), "info")
             return
         if not d.reliable:
-            ed.notify(
-                "No pude medir el desfase con seguridad: la letra y el audio no coinciden lo bastante en este tramo. "
-                "Prueba con un tramo con más voz o ajústalo a mano.",
-                "error",
-            )
+            ed.notify(lang.t("audio.unreliable"), "error")
             return
         v = max(ed.sl_offset.minimum(), min(ed.sl_offset.maximum(), round(d.offset_ms)))
         ed.sl_offset.setValue(v)
-        ed.notify(f"Desfase detectado: {v:+d} ms.", "ok")
+        ed.notify(lang.t("audio.detected", offset=f"{v:+d}"), "ok")
 
     def _auto_failed(self, e):
         ed = self.editor
         self._auto_busy = False
         ed.btn_auto.setEnabled(True)
         known = (ValueError, AudioError, ProviderError)
-        ed.notify(str(e) if isinstance(e, known) else "No pude medir el desfase. Intenta de nuevo.", "error")
+        ed.notify(str(e) if isinstance(e, known) else lang.t("audio.measureFailed"), "error")
 
     def refresh_wave(self):
         ed = self.editor
@@ -258,10 +252,10 @@ class AudioController:
 
     def choose_audio(self):
         ed = self.editor
-        path, _ = QFileDialog.getOpenFileName(ed, "Elegir audio", "", AUDIO_FILTER)
+        path, _ = QFileDialog.getOpenFileName(ed, lang.t("audio.chooseTitle"), "", lang.t(AUDIO_FILTER))
         if not path:
             return
-        ed.notify("Leyendo el audio…")
+        ed.notify(lang.t("audio.reading"))
         project = ed.project
 
         def done(samples):
@@ -275,7 +269,7 @@ class AudioController:
         pkg_attr("run_async", run_async)(
             lambda: local.decode(path),
             done,
-            lambda e: ed.notify(str(e) if isinstance(e, AudioError) else "No pude leer ese archivo de audio.", "error"),
+            lambda e: ed.notify(str(e) if isinstance(e, AudioError) else lang.t("audio.readFailed"), "error"),
         )
 
     def audio_spec(self, start_ms: float, end_ms: float) -> AudioSpec | None:
@@ -294,6 +288,6 @@ class AudioController:
                 offset_ms=float(ed.settings.value("audio/loopback_offset_ms", 0)),
             )
         if p.audio_samples is None:
-            ed.notify("Elige un archivo de audio en la pestaña Audio para exportar con canción.", "error")
+            ed.notify(lang.t("audio.pickForExport"), "error")
             return None
         return AudioSpec("local", start_ms, end_ms, samples=p.audio_samples, offset_ms=p.audio_offset_ms)

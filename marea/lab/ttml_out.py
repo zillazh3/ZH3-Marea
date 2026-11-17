@@ -13,6 +13,7 @@ import xml.etree.ElementTree as XET  # solo serializa: los archivos ajenos se pa
 
 import defusedxml.ElementTree as ET
 
+from marea.i18n import t
 from marea.lab.alignment import Alignment, AlignmentError, Line, Word, apply_offset, validate
 from marea.model.lyrics import MAREA, MAREA_URI, TT, TTM, XML, join_text, parse_time, parse_ttml, timed_span_children as _timed
 from marea.sysutil import safe_filename, unique_path
@@ -48,18 +49,18 @@ def _retime(container, line: Line, label: str):
     """Reescribe begin/end de los spans con tiempo de `container` según `span_index` de cada sílaba."""
     spans, syls = _timed(container), [s for w in line.words for s in w.syllables]
     if not syls:
-        raise AlignmentError([f"{label}: sin sílabas que correspondan a los spans del TTML original"])
+        raise AlignmentError([t("errors.lab.ttml.noSyllableSpans", label=label)])
     done = set()
     for s in syls:
         j = s.ref.get("span_index")
         if j is None or not 0 <= j < len(spans):
-            raise AlignmentError([f"{label}: la sílaba {s.text!r} no apunta a un span del TTML original"])
+            raise AlignmentError([t("errors.lab.ttml.syllableNoSpan", label=label, text=repr(s.text))])
         spans[j].set("begin", clock(s.start))
         spans[j].set("end", clock(s.end))
         done.add(j)
     left = [c for j, c in enumerate(spans) if j not in done and "".join(c.itertext()).strip()]
     if left:  # dejarlo con su tiempo viejo mezclaría dos relojes en la misma línea
-        raise AlignmentError([f"{label}: {len(left)} span(s) del TTML sin alinear (p. ej. {''.join(left[0].itertext())!r})"])
+        raise AlignmentError([t("errors.lab.ttml.spansUnaligned", label=label, count=len(left), example=repr("".join(left[0].itertext())))])
 
 
 def _needs_marea_role(line: Line) -> bool:
@@ -115,13 +116,13 @@ def ensure_editable(original: bytes, line: Line):
         return
     _, _, nested = _original_metadata(original)
     if (line.ref["ttml_p_index"], line.ref.get("bg_index")) in nested:
-        raise AlignmentError(["This performance contains nested inline metadata; edit its source structure explicitly."])
+        raise AlignmentError([t("errors.lab.ttml.nestedMetadata")])
 
 
 def _replace_spans(container, line: Line, wrap: bool = False):
     old, new = _timed(container), _spans(line.words, wrap=wrap)
     if len(old) > len(new) and any(set(s.attrib) - {"begin", "end"} for s in old[len(new):]):
-        raise AlignmentError(["Text correction would discard span metadata; preserve segmentation or edit individual syllables."])
+        raise AlignmentError([t("errors.lab.ttml.discardsMetadata")])
     for previous, replacement in zip(old, new):
         replacement.attrib.update({k: v for k, v in previous.attrib.items() if k not in ("begin", "end")})
     for c in list(container):
@@ -145,19 +146,19 @@ def _rewrite(original: bytes, al: Alignment) -> bytes:
             continue
         i = line.ref.get("ttml_p_index")
         if i is None or not 0 <= i < len(ps):
-            raise AlignmentError([f"línea {line.id}: no apunta a un <p> del TTML original"])
+            raise AlignmentError([t("errors.lab.ttml.lineNoParagraph", id=line.id)])
         by_p.setdefault(i, []).append(line)
     for i, lines in by_p.items():
         p, rebuilt = ps[i], False
         p_agent = p.get(f"{TTM}agent") or "v1"
         for line in lines:
-            label = f"línea {line.id}"
+            label = t("errors.lab.v.line", id=line.id)
             edited = bool(line.ref.get("text_edited"))
             if "bg_index" in line.ref:
                 bgs = [c for c in p if c.tag == f"{TT}span" and c.get(f"{TTM}role") == "x-bg"]
                 k = line.ref["bg_index"]
                 if not 0 <= k < len(bgs):
-                    raise AlignmentError([f"{label}: la voz de fondo {k} no existe en el TTML original"])
+                    raise AlignmentError([t("errors.lab.ttml.bgMissing", label=label, index=k)])
                 if edited:
                     raw_bg = "".join(bgs[k].itertext()).strip()
                     wrap = raw_bg.startswith("(") and raw_bg.endswith(")") or not raw_bg
@@ -254,7 +255,7 @@ def _rewrite(original: bytes, al: Alignment) -> bytes:
                 touched.add(id(pp))
             elif line.bg:
                 if not line.ref.get("standalone"):
-                    raise AlignmentError([f"voz de fondo {line.id!r} sin línea principal (ref.parent)"])
+                    raise AlignmentError([t("errors.lab.ttml.bgNoParent", id=repr(line.id))])
                 pp = XET.SubElement(div0, f"{TT}p", {"begin": clock(line.start), "end": clock(line.end), f"{TTM}agent": line.agent})
                 _apply_role_attrs(pp, line, "backing")
                 sp = XET.SubElement(pp, f"{TT}span", {f"{TTM}role": "x-bg", "begin": clock(line.start), "end": clock(line.end)})
@@ -297,7 +298,7 @@ def _generate(al: Alignment) -> bytes:
     ids = {l.id for l in main if l.id}
     orphans = [l for l in al.lines if l.bg and l.ref.get("parent") not in ids and not l.ref.get("standalone")]
     if orphans:
-        raise AlignmentError([f"voz de fondo {l.id!r} sin línea principal (ref.parent)" for l in orphans])
+        raise AlignmentError([t("errors.lab.ttml.bgNoParent", id=repr(l.id)) for l in orphans])
     entries = []
     for idx, line in enumerate(main):
         bgs = [b for b in al.lines if b.bg and b.ref.get("parent") == line.id and line.id]
@@ -331,7 +332,7 @@ def _generate(al: Alignment) -> bytes:
 def export_ttml(al: Alignment, original: bytes | None = None, *, allow_pending: bool = False) -> bytes:
     """Valida (con el offset global ya aplicado), genera el TTML y comprueba que el texto de cada capa sobrevive sin mezclarse."""
     if not allow_pending and any(line.review_state == "pending" for line in al.lines):
-        raise AlignmentError(["Accept, correct, or reject pending vocal candidates before export (review required)."])
+        raise AlignmentError([t("errors.lab.ttml.pendingBeforeExport")])
     applied = apply_offset(al)
     errs = validate(applied)
     if errs:
@@ -351,7 +352,7 @@ def export_ttml(al: Alignment, original: bytes | None = None, *, allow_pending: 
     got_bg = Counter(join_text(b.syllables) for l in parsed_out.lines for b in l.bg)
     if want_main != got_main or want_bg != got_bg:
         diff = sorted(((want_main - got_main) | (got_main - want_main) | (want_bg - got_bg) | (got_bg - want_bg)))[:3]
-        raise AlignmentError([f"el texto exportado no coincide con el original (p. ej. {diff})"])
+        raise AlignmentError([t("errors.lab.ttml.textMismatch", diff=diff)])
     from marea.lab.ttml_in import from_ttml
 
     def signature(line):
@@ -361,7 +362,7 @@ def export_ttml(al: Alignment, original: bytes | None = None, *, allow_pending: 
     expected = Counter(signature(l) for l in applied.lines)
     actual = Counter(signature(l) for l in from_ttml(out, applied.duration_ms).lines)
     if expected - actual or (original is None and actual != expected):
-        raise AlignmentError(["TTML round trip changed a performance's agent, role, timing, or syllables."])
+        raise AlignmentError([t("errors.lab.ttml.roundTrip")])
     return out
 
 

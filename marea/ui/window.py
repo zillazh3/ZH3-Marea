@@ -14,8 +14,8 @@ from marea.paths import make_settings, reveal_in_folder
 from marea.project import ClipProject, ProjectError, demo_project, load_project_file, project_from_ttml
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import Track
-from marea.ui import theme
-from marea.ui.editor import PROJECT_FILTER, EditorPage
+from marea.ui import lang, theme
+from marea.ui.editor import EditorPage, project_filter
 from marea.ui.exports import ExportsPage
 from marea.ui.home import HomePage
 from marea.ui.library import LibraryPage
@@ -162,11 +162,11 @@ class MainWindow(QWidget):
         self.editor = EditorPage(self.settings, self.toast, self.queue, self.services, prefer_gpu=gpu)
         self.editor.project_changed.connect(self._on_editor_project_changed)
         self.editor.enqueued.connect(
-            lambda _: self.toast("Añadido a la cola de exportaciones.", "info", ("Ver cola", lambda: self._goto_page(self.page_exports)))
+            lambda _: self.toast(lang.t("window.queued"), "info", (lang.t("window.viewQueue"), lambda: self._goto_page(self.page_exports)))
         )
-        self.queue.item_done.connect(lambda it: self.toast(f"Listo: {it.out_path.name}", "ok",
-                                                           ("Abrir carpeta", lambda: reveal_in_folder(str(it.out_path)))))
-        self.queue.item_failed.connect(lambda it: self.toast(f"No pude exportar «{it.title}»: {it.error}", "error"))
+        self.queue.item_done.connect(lambda it: self.toast(lang.t("window.exportDone", name=it.out_path.name), "ok",
+                                                           (lang.t("common.openFolder"), lambda: reveal_in_folder(str(it.out_path)))))
+        self.queue.item_failed.connect(lambda it: self.toast(lang.t("window.exportFailed", title=it.title, error=it.error), "error"))
         self.settings_body = SettingsBody(self.settings, self.set_theme, self.services, self.toast)
         self.settings_scroll = scrollable(self.settings_body)
         self.page_home = HomePage(
@@ -181,7 +181,8 @@ class MainWindow(QWidget):
         self.queue.item_done.connect(lambda _: self.page_library.reload())
         self.page_editor = self.editor
         self.page_exports = ExportsPage(self.queue)
-        self.page_settings = Page("Ajustes", self.settings_scroll, framed=False)
+        self.page_settings = Page("", self.settings_scroll, framed=False)
+        lang.bind(self.page_settings.h1, "nav.settings")
         # mismo orden que ITEMS del sidebar: el índice del botón es el de la página
         for p in (self.page_home, self.page_search, self.page_editor, self.page_library, self.page_exports, self.page_settings):
             self.pages.addWidget(p)
@@ -241,7 +242,7 @@ class MainWindow(QWidget):
 
     def open_ttml(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Abrir letra o proyecto", "", "Letras TTML o proyectos (*.ttml *.xml *.marea.json)"
+            self, lang.t("window.openLyricsTitle"), "", lang.t("window.openLyricsFilter")
         )
         if not path:
             return
@@ -251,10 +252,10 @@ class MainWindow(QWidget):
         try:
             self.load_project(project_from_ttml(path))
         except (ValueError, OSError) as e:
-            self.toast(f"No pude abrir esa letra: {e} Usa un .ttml de Apple Music con tiempos por sílaba.", "error")
+            self.toast(lang.t("window.openLyricsFailed", error=e), "error")
 
     def open_project_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir proyecto", "", PROJECT_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("window.openProjectTitle"), "", project_filter())
         if path:
             self.open_project_file(path)
 
@@ -270,9 +271,9 @@ class MainWindow(QWidget):
 
     def open_track(self, track: Track):
         """Una canción de Spotify: busca su letra y portada y abre el Editor."""
-        self.toast(f"Preparando «{track.title}»…")
+        self.toast(lang.t("window.preparing", title=track.title))
         run_async(lambda: self.services.build_project(track), self.load_project,
-                  lambda e: self.toast(str(e) if isinstance(e, ProviderError) else "No pude preparar esa canción. Intenta de nuevo.", "error"))
+                  lambda e: self.toast(str(e) if isinstance(e, ProviderError) else lang.t("window.prepareFailed"), "error"))
 
     def _on_playback(self, pb):
         t = pb.track if pb else None
@@ -300,16 +301,18 @@ class MainWindow(QWidget):
 
     def palette_commands(self) -> list[tuple[str, str, object]]:
         go = lambda page: (lambda: self._goto_page(page))  # noqa: E731
-        screens = [("Inicio", self.page_home), ("Buscar", self.page_search), ("Editor", self.page_editor),
-                   ("Biblioteca", self.page_library), ("Exportaciones", self.page_exports), ("Ajustes", self.page_settings)]
+        screens = [(lang.t("nav.home"), self.page_home), (lang.t("nav.search"), self.page_search),
+                   (lang.t("nav.editor"), self.page_editor), (lang.t("nav.library"), self.page_library),
+                   (lang.t("nav.exports"), self.page_exports), (lang.t("nav.settings"), self.page_settings)]
         combo = self.settings_body.combo
-        return [("Ir a", name, go(page)) for name, page in screens] + [
-            ("Acción", "Buscar canción", go(self.page_search)),
-            ("Acción", "Cambiar tema", lambda: combo.setCurrentIndex(1 - combo.currentIndex())),
-            ("Acción", "Contraer o expandir menú", self.toggle_sidebar),
-            ("Acción", "Abrir .ttml", self.open_ttml),
-            ("Acción", "Abrir proyecto", self.open_project_dialog),
-            ("Acción", "Probar con la canción demo", self.load_demo),
+        action = lang.t("palette.groupAction")
+        return [(lang.t("palette.groupGo"), name, go(page)) for name, page in screens] + [
+            (action, lang.t("palette.searchSong"), go(self.page_search)),
+            (action, lang.t("palette.toggleTheme"), lambda: combo.setCurrentIndex(1 - combo.currentIndex())),
+            (action, lang.t("palette.toggleSidebar"), self.toggle_sidebar),
+            (action, lang.t("palette.openTtml"), self.open_ttml),
+            (action, lang.t("palette.openProject"), self.open_project_dialog),
+            (action, lang.t("palette.tryDemo"), self.load_demo),
         ]
 
     def open_palette(self):

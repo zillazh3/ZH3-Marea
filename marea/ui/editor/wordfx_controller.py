@@ -5,6 +5,7 @@ from PySide6.QtCore import QFileSystemWatcher, QObject
 
 from marea.async_util import run_async
 from marea.audio import local
+from marea.ui import lang
 from marea.ui.editor._pkg import pkg_attr
 from marea.ui.widgets import CoalescedAction
 
@@ -228,7 +229,7 @@ class WordFXController:
                 self.state = state
             except (library.LibraryError, rules.RulesError, songs.SongError, ProfileError) as err:
                 self._cached_base = None
-                ed.notify(f"Efectos por palabra: {err} Se mantiene el plan anterior.", "error")
+                ed.notify(lang.t("wordfxUi.syncError", error=err), "error")
         ed.preview.set_wordfx(self.plan, state[1], rebuild=rebuild)
 
     def plan_for(self, intensity: float, adapt_bg: bool):
@@ -247,7 +248,7 @@ class WordFXController:
         try:
             dlg = WordFxGallery(library.load(), self.editor)
         except library.LibraryError as err:
-            self.editor.notify(f"Biblioteca de efectos no válida: {err}", "error")
+            self.editor.notify(lang.t("wordfxUi.invalidLibrary", error=err), "error")
             return
         dlg.exec()
 
@@ -265,14 +266,14 @@ class WordFXController:
             return
         self.sync()
         if self.profile is None:
-            ed.notify("Activa los efectos por palabra en Ajustes para editar el perfil.", "info")
+            ed.notify(lang.t("wordfxUi.enableFirst"), "info")
             return
         key = track_key(p.lyrics, p.track.id if p.track else "")
         stats = self._audio[1] if p.audio_samples is not None else None
         try:
             lib = library.load()
         except library.LibraryError as err:
-            ed.notify(f"Biblioteca de efectos no válida: {err}", "error")
+            ed.notify(lang.t("wordfxUi.invalidLibrary", error=err), "error")
             return
         end = max((l.end for l in p.lyrics.lines), default=1000) / 1000
         arc_end = self.profile.arc[-1].end if self.profile.arc else 0.0
@@ -287,7 +288,7 @@ class WordFXController:
             try:
                 songs.save_profile(key, dlg.result_profile())
             except (songs.SongError, ProfileError, OSError) as err:
-                ed.notify(f"No pude guardar el perfil: {err}", "error")
+                ed.notify(lang.t("wordfxUi.profileSaveFailed", error=err), "error")
                 return
             self.reset_cached_base()
             self.sync()

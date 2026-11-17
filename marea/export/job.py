@@ -12,6 +12,7 @@ import skia
 
 from marea.engine.engine import Params
 from marea.export.ffmpeg import ALPHA_TARGETS, TARGETS, FfmpegWriter
+from marea.i18n import t
 from marea.model.background import BackgroundConfig
 from marea.model.cinematic import CinematicConfig
 from marea.model.lyrics import Lyrics
@@ -66,9 +67,9 @@ def clip_name(artist: str, title: str, first: int | None = None, last: int | Non
     """`Artista - Canción (versos X–Y) [ZH3 Marea].mp4`; first/last son índices de 0. Sin ellos: `(completa)`.
     `tag` (p. ej. el nombre de una Corriente) va entre corchetes antes de la marca; `target` fija la extensión
     (la secuencia PNG es una carpeta, sin extensión)."""
-    base = f"{artist.strip()} - {title.strip()}" if artist.strip() else title.strip() or "Sin título"
-    base = safe_filename(base, "Sin título")
-    span = "completa" if first is None else f"versos {first + 1}–{last + 1}"
+    base = f"{artist.strip()} - {title.strip()}" if artist.strip() else title.strip() or t("export.untitled")
+    base = safe_filename(base, t("export.untitled"))
+    span = t("export.clipSpanFull") if first is None else t("export.clipSpanLines", first=first + 1, last=last + 1)
     tag = f" [{safe_filename(tag, '')}]" if tag.strip() else ""
     return f"{base} ({span}){tag} [ZH3 Marea]{TARGETS.get(target, TARGETS['mp4'])[0]}"
 

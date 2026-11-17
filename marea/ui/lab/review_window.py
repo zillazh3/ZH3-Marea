@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from marea.async_util import run_async
 from marea.audio import local
+from marea.i18n import t
 from marea.lab import alignment as A
 from marea.lab import env
 from marea.lab.align_job import apply_result, format_draft_line, from_text_result, request_layers, text_request_lines
@@ -32,7 +33,7 @@ from marea.lab.session import Session
 from marea.lab.ttml_in import from_ttml
 from marea.paths import app_data, reveal_in_folder
 from marea.sysutil import find_ffmpeg, safe_filename
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.lab._pkg import pkg_attr
 from marea.ui.lab.prepare_view import build_prepare_page
 from marea.ui.lab.runner import Runner
@@ -41,6 +42,13 @@ from marea.ui.lab.timeline import TimelineWidget
 from marea.ui.widgets import make_button
 
 FLAG = "experimental/align"
+
+
+def _btn(key: str, kind: str, handler):
+    """make_button whose text follows the UI language."""
+    b = make_button("", kind, handler)
+    lang.bind(b, key)
+    return b
 
 
 def enabled(settings) -> bool:
@@ -55,31 +63,31 @@ def layer_problem(root: Path) -> str | None:
     """Describe missing optional layer assets without loading models or using the network."""
     missing = []
     if not env.separation_installed(root):
-        missing.append("separation package (Settings > Experimental features)")
-    for label, filename in (("vocal-isolation model", env.SEPARATION_MODEL), ("lead/backing model", env.KARAOKE_MODEL)):
+        missing.append(lang.t("lab.layerMissing.package"))
+    for key, filename in (("lab.layerMissing.vocalModel", env.SEPARATION_MODEL), ("lab.layerMissing.karaokeModel", env.KARAOKE_MODEL)):
         if not env.separator_model_ready(root, filename):
-            missing.append(f"{label} ({filename})")
+            missing.append(lang.t(key, filename=filename))
     if missing:
-        return f"Missing: {', '.join(missing)}. Model folder: {root / 'separator-models'}."
+        return lang.t("lab.layerMissing.summary", items=", ".join(missing), folder=root / "separator-models")
     return None
 
 
 def prerequisites(root: Path, *, lang: str, separate: bool, audio: Path | None, asr: bool = False, karaoke: bool = False) -> str | None:
     """Lo que falta para poder alinear/transcribir, en palabras (None = todo listo). Solo mira el disco."""
     if audio is None or not audio.exists():
-        return "Elige primero un archivo de audio."
+        return t("lab.prereq.audio")
     if not env.is_installed(root):
-        return "Falta instalar el entorno de sincronía (Ajustes → Funciones experimentales → Instalar)."
+        return t("lab.prereq.env")
     if not lang and not asr:
-        return "Elige el idioma de la letra."
+        return t("lab.prereq.lang")
     for _, kind, ident, _cmd, params, _size in COMPONENTS:
         wanted = (kind == "hf" and params.get("lang") == lang and not asr) or (asr and ident.endswith("large-v3-turbo"))
         if wanted and not env.hf_model_ready(root, ident):
-            return "Falta descargar el modelo de " + ("transcripción" if asr else f"alineación ({lang})") + " (Ajustes → Funciones experimentales)."
+            return t("lab.prereq.modelAsr") if asr else t("lab.prereq.modelAlign", language=lang)
     if karaoke and (problem := layer_problem(root)):
-        return problem + " Turn off 'Separate lead/backing vocals' to continue with standard transcription/alignment."
+        return problem + " " + t("lab.prereq.karaokeHint")
     if separate and not (env.separation_installed(root) and env.separator_model_ready(root)):
-        return "Falta instalar o descargar la separación de voz (Ajustes → Funciones experimentales), o desactiva «Separar la voz»."
+        return t("lab.prereq.separation")
     return None
 
 
@@ -94,7 +102,7 @@ class LabReviewWindow(QWidget):
     def __init__(self, editor, runner: Runner | None = None, player: Player | None = None):
         super().__init__(None, Qt.Window)
         self.setObjectName("LabWindow")
-        self.setWindowTitle("Sincronizar con audio (experimental)")
+        lang.bind(self, "lab.window.title", "setWindowTitle")
         self.setWindowIcon(theme.app_icon())
         self.resize(1240, 800)
         self.editor, self.settings, self.notify = editor, editor.settings, editor.notify
@@ -121,11 +129,13 @@ class LabReviewWindow(QWidget):
         root.setContentsMargins(theme.SPACE[5], theme.SPACE[4], theme.SPACE[5], theme.SPACE[4])
         root.setSpacing(theme.SPACE[3])
         head = QHBoxLayout()
-        title = QLabel("Sincronizar con audio")
+        title = QLabel()
+        lang.bind(title, "lab.title")
         title.setObjectName("H1")
-        tag = QLabel("EXPERIMENTAL")
+        tag = QLabel()
+        lang.bind(tag, "lab.experimental")
         tag.setObjectName("Caption")
-        self.btn_prepare = make_button("← Preparar", "Ghost", lambda: self.pages.setCurrentIndex(0))
+        self.btn_prepare = _btn("lab.prepareBack", "Ghost", lambda: self.pages.setCurrentIndex(0))
         self.btn_prepare.setVisible(False)
         head.addWidget(title)
         head.addWidget(tag, 0, Qt.AlignBottom)
@@ -137,6 +147,7 @@ class LabReviewWindow(QWidget):
         self.pages.addWidget(build_prepare_page(self))
         self.pages.addWidget(self._build_review())
         root.addWidget(self.pages, 1)
+        lang.signals.changed.connect(self._refresh_layers)
 
         self.lb_progress = QLabel()
         self.lb_progress.setObjectName("Caption")
@@ -180,10 +191,8 @@ class LabReviewWindow(QWidget):
         self.timeline.unit_selected.connect(self._select)
         self.timeline.unit_edited.connect(self._dragged)
         self.timeline.play_requested.connect(lambda ms: self._play(ms, ms + 8000))
-        hint = QLabel(
-            "Clic: seleccionar · arrastra los bordes para ajustar · Ctrl+rueda: zoom · rueda: desplazar · doble clic: escuchar desde ahí. "
-            "Verde = confianza alta, azul = media, rojo = baja; borde punteado = tiempo aproximado; borde de acento = fijado por ti."
-        )
+        hint = QLabel()
+        lang.bind(hint, "lab.review.timelineHint")
         hint.setObjectName("Caption")
         hint.setWordWrap(True)
         self.timeline_scroll = QScrollArea()
@@ -194,7 +203,8 @@ class LabReviewWindow(QWidget):
         left.addWidget(hint)
 
         bottom = QHBoxLayout()
-        lb = QLabel("Desfase global")
+        lb = QLabel()
+        lang.bind(lb, "lab.review.globalOffset")
         lb.setObjectName("Muted")
         self.sp_offset = QSpinBox()
         self.sp_offset.setRange(-20000, 20000)
@@ -203,10 +213,10 @@ class LabReviewWindow(QWidget):
         self.sp_offset.editingFinished.connect(self._offset_edited)
         self.lb_offset = QLabel()
         self.lb_offset.setObjectName("Caption")
-        self.btn_undo = make_button("Deshacer", "Ghost", self._undo)
-        self.btn_preview = make_button("Vista previa en el Editor", "Ghost", self._preview)
-        self.btn_back = make_button("Volver al original", "Ghost", self._back)
-        self.btn_approve = make_button("Aprobar y exportar TTML nuevo", "Primary", self._approve)
+        self.btn_undo = _btn("lab.review.undo", "Ghost", self._undo)
+        self.btn_preview = _btn("lab.review.preview", "Ghost", self._preview)
+        self.btn_back = _btn("lab.review.backToOriginal", "Ghost", self._back)
+        self.btn_approve = _btn("lab.review.approve", "Primary", self._approve)
         bottom.addWidget(lb)
         bottom.addWidget(self.sp_offset)
         bottom.addWidget(self.lb_offset, 1)
@@ -227,7 +237,8 @@ class LabReviewWindow(QWidget):
         self.review_list.itemDoubleClicked.connect(lambda it: (self._select(it.data(Qt.UserRole), center=True), self._play_selected()))
         rl.addWidget(self.lb_review)
         rl.addWidget(self.review_list, 1)
-        self.lb_sel = QLabel("Selecciona una unidad")
+        self.lb_sel = QLabel()
+        lang.bind(self.lb_sel, "lab.review.selectUnit")
         self.lb_sel.setObjectName("Body")
         self.lb_sel.setWordWrap(True)
         rl.addWidget(self.lb_sel)
@@ -242,50 +253,50 @@ class LabReviewWindow(QWidget):
         rl.addLayout(row)
 
         row = QHBoxLayout()
-        self.btn_apply = make_button("Aplicar tiempos", "Primary", self._apply_times)
-        self.btn_play = make_button("▶ Escuchar", "Ghost", self._play_selected)
+        self.btn_apply = _btn("lab.review.applyTimes", "Primary", self._apply_times)
+        self.btn_play = _btn("lab.review.listen", "Ghost", self._play_selected)
         row.addWidget(self.btn_apply)
         row.addWidget(self.btn_play)
         rl.addLayout(row)
 
         self.ed_line = QLineEdit()
-        self.ed_line.setPlaceholderText("Texto de la línea")
-        self.btn_realign = make_button("Recalcular esta sección", "Ghost", self._realign)
+        lang.bind(self.ed_line, "lab.review.linePlaceholder", "setPlaceholderText")
+        self.btn_realign = _btn("lab.review.realign", "Ghost", self._realign)
         rl.addWidget(self.ed_line)
-        self.btn_text = make_button("Replace line text (reset segmentation)", "Ghost", self._apply_text)
+        self.btn_text = _btn("lab.review.replaceLine", "Ghost", self._apply_text)
         rl.addWidget(self.btn_text)
 
         self.ed_unit = QLineEdit()
-        self.ed_unit.setPlaceholderText("Selected word / syllable text")
-        self.ed_unit.setAccessibleName("Selected unit text")
-        self.btn_unit_text = make_button("Correct selected word / syllable", "Ghost", self._apply_unit_text)
+        lang.bind(self.ed_unit, "lab.review.unitPlaceholder", "setPlaceholderText")
+        lang.bind(self.ed_unit, "lab.review.unitAccessible", "setAccessibleName")
+        self.btn_unit_text = _btn("lab.review.correctUnit", "Ghost", self._apply_unit_text)
         rl.addWidget(self.ed_unit)
         rl.addWidget(self.btn_unit_text)
 
         self.cb_role = QComboBox()
         for role in A.ROLES:
             self.cb_role.addItem(role, role)
-        self.cb_role.setAccessibleName("Vocal role")
+        lang.bind(self.cb_role, "lab.review.roleAccessible", "setAccessibleName")
         self.ed_agent = QLineEdit()
-        self.ed_agent.setPlaceholderText("Agent ID (empty = unknown)")
-        self.ed_agent.setAccessibleName("Agent identifier")
+        lang.bind(self.ed_agent, "lab.review.agentPlaceholder", "setPlaceholderText")
+        lang.bind(self.ed_agent, "lab.review.agentAccessible", "setAccessibleName")
         rl.addWidget(self.cb_role)
         rl.addWidget(self.ed_agent)
-        self.btn_identity = make_button("Apply role / agent", "Ghost", self._apply_identity)
+        self.btn_identity = _btn("lab.review.applyIdentity", "Ghost", self._apply_identity)
         rl.addWidget(self.btn_identity)
 
         row = QHBoxLayout()
-        self.btn_accept = make_button("Accept candidate", "Ghost", lambda: self._decision(True))
-        self.btn_reject = make_button("Reject performance", "Ghost", lambda: self._decision(False))
+        self.btn_accept = _btn("lab.review.accept", "Ghost", lambda: self._decision(True))
+        self.btn_reject = _btn("lab.review.reject", "Ghost", lambda: self._decision(False))
         row.addWidget(self.btn_accept)
         row.addWidget(self.btn_reject)
         rl.addLayout(row)
 
-        self.btn_add = make_button("Add performance", "Ghost", self._add_performance)
-        self.btn_split = make_button("Split before selected word", "Ghost", self._split_performance)
+        self.btn_add = _btn("lab.review.addPerformance", "Ghost", self._add_performance)
+        self.btn_split = _btn("lab.review.split", "Ghost", self._split_performance)
         rl.addWidget(self.btn_add)
         rl.addWidget(self.btn_split)
-        self.btn_save = make_button("Save review JSON", "Ghost", self._save_review)
+        self.btn_save = _btn("lab.review.saveJson", "Ghost", self._save_review)
         rl.addWidget(self.btn_save)
         rl.addWidget(self.btn_realign)
         self._set_unit_controls(False)
@@ -302,10 +313,9 @@ class LabReviewWindow(QWidget):
     def _refresh_layers(self):
         problem = layer_problem(self.root)
         self.cb_layers.setEnabled(problem is None or self.cb_layers.isChecked())
-        self.cb_layers.setToolTip(problem or "Local models are available. Role suggestions still require review.")
+        self.cb_layers.setToolTip(problem or lang.t("lab.layers.available"))
         self.lb_layers_status.setText(
-            "Optional lead/backing model setup is incomplete. Leave this option off to transcribe or align without it.\n"
-            + f"Model folder: {self.root / 'separator-models'}"
+            lang.t("lab.layers.incomplete", folder=self.root / "separator-models")
             if problem else ""
         )
         self.lb_layers_status.setToolTip(problem or "")
@@ -319,14 +329,17 @@ class LabReviewWindow(QWidget):
 
     def _refresh_audio(self):
         f = getattr(self.project, "audio_file", None)
-        self.lb_audio.setText(f"Audio: {Path(f).name}" if f else "Audio: ninguno (elige el archivo de la canción)")
+        if f:
+            lang.bind(self.lb_audio, "lab.audio.file", name=Path(f).name)
+        else:
+            lang.bind(self.lb_audio, "lab.audio.none")
         self._samples = getattr(self.project, "audio_samples", None)
 
     def _choose_audio(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Elegir audio", "", "Audio (*.mp3 *.wav *.flac *.m4a *.ogg)")
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("lab.audio.chooseTitle"), "", lang.t("lab.audio.chooseFilter"))
         if not path:
             return
-        self._progress("Leyendo el audio…")
+        self._progress(lang.t("lab.progress.readingAudio"))
 
         def done(samples):
             self.project.audio_file, self.project.audio_samples = Path(path), samples
@@ -334,7 +347,7 @@ class LabReviewWindow(QWidget):
             self._progress("")
             self.audio_changed.emit()
 
-        pkg_attr("run_async", run_async)(lambda: local.decode(path), done, lambda e: self._progress(f"No pude leer ese audio: {e}"))
+        pkg_attr("run_async", run_async)(lambda: local.decode(path), done, lambda e: self._progress(lang.t("lab.progress.cannotReadChosen", error=e)))
 
     def _ensure_samples(self, then):
         if self._samples is not None:
@@ -349,7 +362,7 @@ class LabReviewWindow(QWidget):
             self.timeline.set_samples(s)
             then()
 
-        pkg_attr("run_async", run_async)(lambda: local.decode(str(f)), got, lambda e: self._progress(f"No pude leer el audio: {e}"))
+        pkg_attr("run_async", run_async)(lambda: local.decode(str(f)), got, lambda e: self._progress(lang.t("lab.progress.cannotRead", error=e)))
 
     # ---- progreso ----
     def _progress(self, text: str):
@@ -362,7 +375,7 @@ class LabReviewWindow(QWidget):
 
     def _cancel(self):
         self.runner.cancel()
-        self._progress("Cancelando…")
+        self._progress(lang.t("lab.common.cancelling"))
 
     # ---- preparar / alinear ----
     def _lang_code(self) -> str:
@@ -418,7 +431,7 @@ class LabReviewWindow(QWidget):
                 self._progress(str(e))
                 return
             if not lines:
-                self._progress("Escribe o transcribe primero la letra.")
+                self._progress(t("lab.progress.needLyrics"))
                 return
         self._busy(True)
         self._realign_id = ""
@@ -445,18 +458,15 @@ class LabReviewWindow(QWidget):
                 self.cb_lang.setCurrentIndex(i)
             sus = sum(l.get("suspect", False) for l in data["lines"])
             self._progress(
-                f"Borrador de Whisper ({data['language']}): {len(data['lines'])} líneas"
-                + (f", {sus} sospechosas (poca voz o poca confianza)" if sus else "")
-                + ". Revísalo y corrígelo antes de alinear."
+                lang.t("lab.progress.draft", language=data["language"], count=len(data["lines"]))
+                + (lang.t("lab.progress.draftSuspect", count=sus) if sus else "")
+                + lang.t("lab.progress.draftReview")
             )
             if self._draft_overlaps:
-                self._progress(
-                    f"{len(self._draft_overlaps)} possible overlap regions; no secondary text was inferred. "
-                    "Align, then add or split performances for review."
-                )
+                self._progress(lang.t("lab.progress.overlaps", count=len(self._draft_overlaps)))
         elif cmd == "align" and self._realign_id:
             errors = self.session.apply_realign(self._realign_id, data)
-            self._progress("Sección recalculada." if not errors else "No pude integrar el recálculo: " + errors[0])
+            self._progress(lang.t("lab.progress.realigned") if not errors else lang.t("lab.progress.realignFailed", error=errors[0]))
             self._after_edit()
         elif cmd == "align":
             if self.mode == "ttml":
@@ -466,16 +476,16 @@ class LabReviewWindow(QWidget):
                 if self._draft_overlaps:
                     al.source_lyrics["overlaps"] = self._draft_overlaps
             self.session = Session(al, original)
-            self._progress(f"Alineado ({data['device']['device']}). {len(self.session.review_ids())} unidades requieren revisión.")
+            self._progress(lang.t("lab.progress.aligned", device=data["device"]["device"], count=len(self.session.review_ids())))
             self._populate()
 
     def _on_failed(self, _cmd: str, message: str):
         self._busy(False)
-        self._progress(message or "Algo falló en la sincronía automática.")
+        self._progress(message or lang.t("lab.progress.failedGeneric"))
 
     def _on_cancelled(self):
         self._busy(False)
-        self._progress("Cancelado.")
+        self._progress(lang.t("lab.common.cancelled"))
 
     # ---- revisar ----
     def _populate(self):
@@ -483,9 +493,15 @@ class LabReviewWindow(QWidget):
         self._ensure_samples(lambda: self.timeline.set_samples(self._samples))
         go = self.session.alignment.global_offset
         self.sp_offset.setValue(int(go.get("ms", 0)))
-        self.lb_offset.setText(
-            f"{go.get('method', '')} · confianza {go.get('confidence', 0):.0%}"
-            + ("  (sin desfase fiable: ajústalo si lo notas)" if go.get("method", "").endswith("rejected") else "")
+        method, confidence = go.get("method", ""), f"{go.get('confidence', 0):.0%}"
+        unreliable = method.endswith("rejected")
+        lang.bind_fn(
+            self.lb_offset,
+            "setText",
+            lambda: self.lb_offset.setText(
+                lang.t("lab.review.offsetInfo", method=method, confidence=confidence)
+                + (lang.t("lab.review.offsetUnreliable") if unreliable else "")
+            ),
         )
         self._selected = ""
         self._set_unit_controls(False)
@@ -497,16 +513,20 @@ class LabReviewWindow(QWidget):
         self.review_list.clear()
         ids = self.session.review_ids()
         total = sum(len(w.syllables or [w]) for l in self.session.alignment.lines for w in l.words)
-        self.lb_review.setText(f"Requieren revisión: {len(ids)} de {total}")
+        lang.bind(self.lb_review, "lab.review.needsReview", count=len(ids), total=total)
         for uid in ids:
             _kind, unit, _line = self.session.find(uid)
-            it = QListWidgetItem(f"{fmt(unit.start)}  {unit.text}   ·  conf {unit.confidence:.2f}")
+            it = QListWidgetItem(lang.t("lab.review.itemLabel", time=fmt(unit.start), text=unit.text, confidence=f"{unit.confidence:.2f}"))
             it.setData(Qt.UserRole, uid)
             self.review_list.addItem(it)
         self.timeline.refresh()
         pending = self.session.pending_ids()
         self.btn_approve.setEnabled(not pending)
-        self.btn_approve.setToolTip("Accept, correct, or reject pending candidates before export." if pending else "")
+        if pending:
+            lang.bind(self.btn_approve, "lab.review.approveBlocked", "setToolTip")
+        else:
+            lang.unbind(self.btn_approve, "setToolTip")
+            self.btn_approve.setToolTip("")
 
     def _set_unit_controls(self, on: bool):
         for w in (self.sp_start, self.sp_end, self.btn_apply, self.btn_play, self.btn_realign):
@@ -531,15 +551,27 @@ class LabReviewWindow(QWidget):
         found = self.session.find(uid) if (uid and self.session) else None
         self._set_unit_controls(found is not None)
         if not found:
-            self.lb_sel.setText("Selecciona una unidad")
+            lang.bind(self.lb_sel, "lab.review.selectUnit")
             return
         kind, unit, line = found
-        names = {"line": "Línea", "word": "Palabra", "syllable": "Sílaba"}
-        self.lb_sel.setText(
-            f"{names[kind]}: «{unit.text}» · confianza {unit.confidence:.2f}"
-            + (" · aproximada" if unit.approximate else "")
-            + (" · fijada por ti" if unit.manual_override else "")
+        names = {"line": "lab.review.kindLine", "word": "lab.review.kindWord", "syllable": "lab.review.kindSyllable"}
+        info = dict(
+            kind=kind, text=unit.text, confidence=f"{unit.confidence:.2f}", approximate=unit.approximate, pinned=unit.manual_override,
+            role=line.role, agent=line.agent, state=line.review_state,
+            uncalibrated=not line.role_reviewed and "ttml_p_index" not in line.ref,
         )
+
+        def selection_text():
+            unknown_agent = lang.t("lab.review.unknownAgent")
+            return (
+                lang.t("lab.review.unitSummary", kind=lang.t(names[info["kind"]]), text=info["text"], confidence=info["confidence"])
+                + (lang.t("lab.review.approximate") if info["approximate"] else "")
+                + (lang.t("lab.review.pinned") if info["pinned"] else "")
+                + f" / {info['role']} / {info['agent'] or unknown_agent} / {info['state']}"
+                + (lang.t("lab.review.uncalibrated") if info["uncalibrated"] else "")
+            )
+
+        lang.bind_fn(self.lb_sel, "setText", lambda: self.lb_sel.setText(selection_text()))
         self.sp_start.setValue(int(unit.start))
         self.sp_end.setValue(int(unit.end))
         self.ed_line.setText(line.text)
@@ -550,11 +582,6 @@ class LabReviewWindow(QWidget):
         self.ed_agent.setText(line.agent)
         self.btn_accept.setEnabled(line.review_state == "pending" or not line.role_reviewed)
         self.btn_split.setEnabled(kind == "word" and line.words.index(unit) > 0)
-        self.lb_sel.setText(
-            self.lb_sel.text()
-            + f" / {line.role} / {line.agent or 'unknown agent'} / {line.review_state}"
-            + (" / uncalibrated role suggestion" if not line.role_reviewed and "ttml_p_index" not in line.ref else "")
-        )
         if center:
             self.timeline.center_on((unit.start + unit.end) / 2)
 
@@ -569,59 +596,59 @@ class LabReviewWindow(QWidget):
     def _apply_text(self):
         line = self.session.find(self._selected)[2]
         errors = self.session.set_text(line.id, self.ed_line.text())
-        self._progress(errors[0] if errors else "Text corrected; uncertain timing still requires review.")
+        self._progress(errors[0] if errors else lang.t("lab.progress.textCorrected"))
         self._after_edit()
 
     def _apply_unit_text(self):
         errors = self.session.set_text(self._selected, self.ed_unit.text())
-        self._progress(errors[0] if errors else "Unit text corrected; other performances retain their timing.")
+        self._progress(errors[0] if errors else lang.t("lab.progress.unitCorrected"))
         self._after_edit()
 
     def _apply_identity(self):
         line = self.session.find(self._selected)[2]
         errors = self.session.set_identity(line.id, self.cb_role.currentData(), self.ed_agent.text().strip())
-        self._progress(errors[0] if errors else "Role and agent updated without moving timing.")
+        self._progress(errors[0] if errors else lang.t("lab.progress.identityUpdated"))
         self._after_edit()
 
     def _decision(self, accept: bool):
         line = self.session.find(self._selected)[2]
         errors = self.session.accept(line.id) if accept else self.session.reject(line.id)
-        self._progress(errors[0] if errors else "Candidate accepted." if accept else "Performance rejected; undo restores it.")
+        self._progress(errors[0] if errors else lang.t("lab.progress.accepted") if accept else lang.t("lab.progress.rejected"))
         self._after_edit()
 
     def _add_performance(self):
-        text, ok = QInputDialog.getText(self, "Add vocal performance", "Text:")
+        text, ok = QInputDialog.getText(self, lang.t("lab.dialog.addTitle"), lang.t("lab.dialog.addText"))
         if not ok or not text.strip():
             return
         duration = self.session.alignment.duration_ms
-        start, ok = QInputDialog.getInt(self, "Performance start", "Start (ms):", min(self.sp_start.value(), duration - 1), 0, duration - 1)
+        start, ok = QInputDialog.getInt(self, lang.t("lab.dialog.startTitle"), lang.t("lab.dialog.startLabel"), min(self.sp_start.value(), duration - 1), 0, duration - 1)
         if not ok:
             return
-        end, ok = QInputDialog.getInt(self, "Performance end", "End (ms):", min(duration, max(start + 1, self.sp_end.value())), start + 1, duration)
+        end, ok = QInputDialog.getInt(self, lang.t("lab.dialog.endTitle"), lang.t("lab.dialog.endLabel"), min(duration, max(start + 1, self.sp_end.value())), start + 1, duration)
         if ok:
             errors = self.session.add_performance(text, start, end)
-            self._progress(errors[0] if errors else "Performance added with approximate timing.")
+            self._progress(errors[0] if errors else lang.t("lab.progress.performanceAdded"))
             self._after_edit()
 
     def _split_performance(self):
         kind, unit, line = self.session.find(self._selected)
         if kind == "word":
             errors = self.session.split_performance(line.id, line.words.index(unit))
-            self._progress(errors[0] if errors else "Performance split; timings retained.")
+            self._progress(errors[0] if errors else lang.t("lab.progress.performanceSplit"))
             self._after_edit()
 
     def _save_review(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save review", "review.alignment.json", "Alignment JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, lang.t("lab.dialog.saveTitle"), "review.alignment.json", lang.t("lab.dialog.saveFilter"))
         if path:
             try:
                 A.save(self.session.alignment, path)
             except OSError as e:
-                self._progress(f"Could not save review: {e}")
+                self._progress(lang.t("lab.progress.saveFailed", error=e))
 
     def _apply_times(self):
         errors = self.session.set_times(self._selected, self.sp_start.value(), self.sp_end.value())
         if errors:
-            self._progress("No se aplicó: " + errors[0])
+            self._progress(lang.t("lab.progress.notApplied", error=errors[0]))
             self._select(self._selected)
         else:
             self._progress("")
@@ -629,7 +656,7 @@ class LabReviewWindow(QWidget):
 
     def _dragged(self, uid: str, start: int, end: int):
         errors = self.session.set_times(uid, start, end)
-        self._progress("No se aplicó: " + errors[0] if errors else "")
+        self._progress(lang.t("lab.progress.notApplied", error=errors[0]) if errors else "")
         self._after_edit()
 
     def _undo(self):
@@ -640,7 +667,7 @@ class LabReviewWindow(QWidget):
     def _offset_edited(self):
         if self.session and self.sp_offset.value() != int(self.session.alignment.global_offset.get("ms", 0)):
             self.session.set_offset(self.sp_offset.value())
-            self.lb_offset.setText("manual · ajustado por ti")
+            lang.bind(self.lb_offset, "lab.review.offsetManual")
 
     # ---- escuchar ----
     def _play(self, start_ms: float, end_ms: float):
@@ -648,7 +675,7 @@ class LabReviewWindow(QWidget):
             try:
                 self.player.play(self._samples, start_ms, end_ms)
             except OSError:
-                self._progress("No hay dispositivo de salida de audio para reproducir.")
+                self._progress(lang.t("lab.progress.noOutputDevice"))
 
         self._ensure_samples(go)
 
@@ -691,14 +718,14 @@ class LabReviewWindow(QWidget):
         try:
             lyrics = self.session.preview_lyrics()
         except A.AlignmentError as e:
-            self._progress("La vista previa no es válida: " + str(e))
+            self._progress(lang.t("lab.progress.previewInvalid", error=e))
             return
         self.editor.set_project(dataclasses.replace(self._orig_project, lyrics=lyrics, audio_offset_ms=0.0))
-        self.notify("Vista previa cargada en el Editor. El archivo original no se tocó.", "info")
+        self.notify(lang.t("lab.notify.previewLoaded"), "info")
 
     def _back(self):
         self.editor.set_project(self._orig_project)
-        self.notify("Proyecto original restaurado en el Editor.", "info")
+        self.notify(lang.t("lab.notify.originalRestored"), "info")
 
     def _approve(self):
         src = getattr(self._orig_project, "source", None)
@@ -708,18 +735,18 @@ class LabReviewWindow(QWidget):
         try:
             ttml, _js = self.session.export(folder, name)
         except A.AlignmentError as e:
-            self._progress("No se exportó: " + str(e))
+            self._progress(lang.t("lab.progress.notExported", error=e))
             return
         except OSError:
             ttml, _js = self.session.export(app_data_fn() / "letras", name)
         self.notify(
-            f"Exportado {ttml.name} (el original no se tocó).",
+            lang.t("lab.notify.exported", name=ttml.name),
             "ok",
-            ("Abrir carpeta", lambda: reveal_in_folder(str(ttml))),
+            (lang.t("lab.notify.openFolder"), lambda: reveal_in_folder(str(ttml))),
         )
 
     def _open_json(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir alineación", "", "Alineación (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, lang.t("lab.dialog.openTitle"), "", lang.t("lab.dialog.openFilter"))
         if path:
             self.load_alignment(path)
 
@@ -727,7 +754,7 @@ class LabReviewWindow(QWidget):
         try:
             al = A.load(path)
         except (A.AlignmentError, OSError, ValueError) as e:
-            self._progress(f"No pude abrir esa alineación: {e}")
+            self._progress(lang.t("lab.progress.cannotOpenAlignment", error=e))
             return
         original = None
         hint = al.source_lyrics.get("path_hint")
@@ -736,7 +763,7 @@ class LabReviewWindow(QWidget):
             if hashlib.sha256(data).hexdigest() == al.source_lyrics.get("sha256"):
                 original = data
             else:
-                self._progress("El TTML de origen cambió desde que se guardó esta alineación: se exportará como TTML nuevo sin él.")
+                self._progress(lang.t("lab.progress.sourceChanged"))
         self.mode = "ttml" if original else "text"
         self._original = original
         self.session = Session(al, original)

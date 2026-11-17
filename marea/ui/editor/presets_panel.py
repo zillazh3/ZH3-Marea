@@ -7,14 +7,22 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QHBoxLayout,
                                QListWidget, QListWidgetItem, QMenu, QMessageBox, QWidget, QWidgetAction)
 
 from marea.async_util import run_async
-from marea.presets.schema import SECTION_LABELS, SECTIONS, PresetError, apply, changed_sections, current_values
+from marea.presets.schema import SECTIONS, PresetError, apply, changed_sections, current_values
 from marea.presets.store import PresetStore
 from marea.presets.thumbs import ensure_thumb
 from marea.ui.editor._pkg import pkg_attr
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.editor.wordfx_controller import WordFXWatcher
 from marea.ui.widgets import make_button
 
+SECTION_KEYS = {  # preset section -> i18n key
+    "tipografia": "presetsPanel.section.typography",
+    "color": "presetsPanel.section.color",
+    "fondo": "presetsPanel.section.background",
+    "efectos": "presetsPanel.section.effects",
+    "marca_de_agua": "presetsPanel.section.watermark",
+}
+assert set(SECTION_KEYS) == set(SECTIONS)
 THUMB_ICON = QSize(60, 75)  # recorte 4:5 del centro del cuadro 9:16: se ve el verso, no el teléfono entero
 THUMB_CELL = QSize(THUMB_ICON.width() + 16, THUMB_ICON.height() + 34)
 
@@ -38,7 +46,8 @@ class PresetsController:
     # ---------------- construcción ----------------
     def build(self, form: QFormLayout):
         ed = self.ed
-        title = QLabel("Corrientes")
+        title = QLabel()
+        lang.bind(title, "presetsPanel.title")
         title.setObjectName("H2")
         form.addRow(title)
         self.list = QListWidget()
@@ -60,18 +69,26 @@ class PresetsController:
         form.addRow(self.list)
 
         row = QHBoxLayout()
-        self.btn_apply = make_button("Aplicar", "Primary", self.apply_selected)
-        self.btn_save = make_button("Guardar como…", "Ghost", self.save_as, "Guarda el look actual como una Corriente nueva")
-        self.btn_update = make_button("Actualizar", "Ghost", self.update_selected, "Reemplaza la Corriente elegida con el look actual")
-        self.btn_more = make_button("", "Ghost", tooltip="Aplicar solo a…, renombrar, duplicar, eliminar, importar y exportar")
+        self.btn_apply = make_button("", "Primary", self.apply_selected)
+        lang.bind(self.btn_apply, "presetsPanel.apply")
+        self.btn_save = make_button("", "Ghost", self.save_as)
+        lang.bind(self.btn_save, "presetsPanel.saveAs")
+        lang.bind(self.btn_save, "presetsPanel.saveAsTip", "setToolTip")
+        self.btn_update = make_button("", "Ghost", self.update_selected)
+        lang.bind(self.btn_update, "presetsPanel.update")
+        lang.bind(self.btn_update, "presetsPanel.updateTip", "setToolTip")
+        self.btn_more = make_button("", "Ghost")
+        lang.bind(self.btn_more, "presetsPanel.moreTip", "setToolTip")
         self._more_icon()
         theme.signals.changed.connect(self._more_icon)
         menu = QMenu(self.btn_more)
         self.cb_sections = {}
-        header = menu.addAction("Aplicar solo a")
+        header = menu.addAction("")
+        lang.bind(header, "presetsPanel.applyOnly")
         header.setEnabled(False)
         for sec in SECTIONS:  # QWidgetAction: el menú sigue abierto mientras se marcan varias secciones
-            cb = QCheckBox(SECTION_LABELS[sec])
+            cb = QCheckBox()
+            lang.bind(cb, SECTION_KEYS[sec])
             cb.setChecked(True)
             cb.toggled.connect(self._sections_changed)
             holder = QWidget()
@@ -82,18 +99,23 @@ class PresetsController:
             menu.addAction(wa)
             self.cb_sections[sec] = cb
         menu.addSeparator()
-        self.act_rename = menu.addAction("Renombrar…", self.rename_selected)
-        self.act_dup = menu.addAction("Duplicar", self.duplicate_selected)
-        self.act_del = menu.addAction("Eliminar", self.delete_selected)
+        self.act_rename = menu.addAction("", self.rename_selected)
+        lang.bind(self.act_rename, "presetsPanel.rename")
+        self.act_dup = menu.addAction("", self.duplicate_selected)
+        lang.bind(self.act_dup, "presetsPanel.duplicate")
+        self.act_del = menu.addAction("", self.delete_selected)
+        lang.bind(self.act_del, "presetsPanel.delete")
         menu.addSeparator()
-        menu.addAction("Importar .json…", self.import_file)
-        self.act_export = menu.addAction("Exportar .json…", self.export_selected)
+        act_import = menu.addAction("", self.import_file)
+        lang.bind(act_import, "presetsPanel.import")
+        self.act_export = menu.addAction("", self.export_selected)
+        lang.bind(self.act_export, "presetsPanel.export")
         self.btn_more.setMenu(menu)
         for b in (self.btn_apply, self.btn_save, self.btn_update, self.btn_more):
             row.addWidget(b)
         form.addRow(row)
 
-        self.lb_state = QLabel("")
+        self.lb_state = QLabel()
         self.lb_state.setObjectName("Caption")
         self.lb_state.setWordWrap(True)
         form.addRow(self.lb_state)
@@ -172,8 +194,13 @@ class PresetsController:
     def _sections_changed(self):
         n = len(self.sections())
         partial = n < len(SECTIONS)
-        self.btn_apply.setText(f"Aplicar ({n}/{len(SECTIONS)})" if partial else "Aplicar")
-        self.btn_apply.setToolTip("Solo cambia las secciones marcadas en el menú de opciones (Aplicar solo a)" if partial else "")
+        if partial:
+            lang.bind(self.btn_apply, "presetsPanel.applyPartial", n=n, total=len(SECTIONS))
+            lang.bind(self.btn_apply, "presetsPanel.applyPartialTip", "setToolTip")
+        else:
+            lang.bind(self.btn_apply, "presetsPanel.apply")
+            lang.unbind(self.btn_apply, "setToolTip")
+            self.btn_apply.setToolTip("")
 
     # ---------------- acciones ----------------
     def apply_selected(self):
@@ -197,11 +224,11 @@ class PresetsController:
         except PresetError as e:
             self.ed.notify(str(e), "error")
         except OSError as e:
-            self.ed.notify(f"No pude guardar la Corriente: {e}", "error")
+            self.ed.notify(lang.t("presetsPanel.saveFailed", error=e), "error")
         return None
 
     def save_as(self):
-        name, ok = QInputDialog.getText(self.ed, "Guardar Corriente", "Nombre de la Corriente:")
+        name, ok = QInputDialog.getText(self.ed, lang.t("presetsPanel.saveTitle"), lang.t("presetsPanel.saveLabel"))
         if not ok:
             return
         info = self._report(self.store.save, name, self._capture())
@@ -209,7 +236,7 @@ class PresetsController:
             self.applied = info.name
             self.refresh_list()
             self._select(info.name)
-            self.ed.notify(f"Corriente «{info.name}» guardada.", "ok")
+            self.ed.notify(lang.t("presetsPanel.saved", name=info.name), "ok")
 
     def update_selected(self):
         info = self.selected()
@@ -218,13 +245,13 @@ class PresetsController:
         if self._report(self.store.update, info.name, self._capture()):
             self.applied = info.name
             self.refresh_list()
-            self.ed.notify(f"Corriente «{info.name}» actualizada.", "ok")
+            self.ed.notify(lang.t("presetsPanel.updated", name=info.name), "ok")
 
     def rename_selected(self):
         info = self.selected()
         if info is None or info.builtin:
             return
-        name, ok = QInputDialog.getText(self.ed, "Renombrar Corriente", "Nuevo nombre:", text=info.name)
+        name, ok = QInputDialog.getText(self.ed, lang.t("presetsPanel.renameTitle"), lang.t("presetsPanel.renameLabel"), text=info.name)
         if ok and self._report(self.store.rename, info.name, name):
             if self.applied == info.name:
                 self.applied = name.strip()
@@ -244,7 +271,7 @@ class PresetsController:
         info = self.selected()
         if info is None or info.builtin:
             return
-        if QMessageBox.question(self.ed, "Eliminar Corriente", f"¿Eliminar «{info.name}»? No se puede deshacer.") != QMessageBox.Yes:
+        if QMessageBox.question(self.ed, lang.t("presetsPanel.deleteTitle"), lang.t("presetsPanel.deleteConfirm", name=info.name)) != QMessageBox.Yes:
             return
         self._report(self.store.delete, info.name)
         if self.applied == info.name:
@@ -252,20 +279,20 @@ class PresetsController:
         self.refresh_list()
 
     def import_file(self):
-        path, _ = QFileDialog.getOpenFileName(self.ed, "Importar Corriente", "", "Corrientes (*.json);;Todos los archivos (*.*)")
+        path, _ = QFileDialog.getOpenFileName(self.ed, lang.t("presetsPanel.importTitle"), "", lang.t("presetsPanel.importFilter"))
         if not path:
             return
         info = self._report(self.store.import_file, Path(path), self._fonts())
         if info:
             self.refresh_list()
             self._select(info.name)
-            self.ed.notify(" ".join([*info.flags, f"Corriente «{info.name}» importada."]), "info" if info.flags else "ok")
+            self.ed.notify(" ".join([*info.flags, lang.t("presetsPanel.imported", name=info.name)]), "info" if info.flags else "ok")
 
     def export_selected(self):
         info = self.selected()
         if info is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self.ed, "Exportar Corriente", f"{info.name}.json", "Corrientes (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self.ed, lang.t("presetsPanel.exportTitle"), f"{info.name}.json", lang.t("presetsPanel.exportFilter"))
         if path:
             self._report(self.store.export_file, info.name, Path(path))
 
@@ -280,8 +307,15 @@ class PresetsController:
         ed = self.ed
         info = self._infos.get(self.applied)
         if ed.project is None or info is None:
-            self.lb_state.setText("" if not self.applied else f"Última Corriente: {self.applied}")
+            if self.applied:
+                lang.bind(self.lb_state, "presetsPanel.lastApplied", name=self.applied)
+            else:
+                lang.unbind(self.lb_state)
+                self.lb_state.setText("")
             return
         diff = changed_sections(info.preset, current_values(*ed.look()))
-        self.lb_state.setText(f"{info.name} · modificado ({', '.join(SECTION_LABELS[s].lower() for s in diff)})" if diff
-                              else f"{info.name} · aplicada")
+        if diff:
+            lang.bind_fn(self.lb_state, "setText", lambda: self.lb_state.setText(lang.t(
+                "presetsPanel.modified", name=info.name, sections=", ".join(lang.t(SECTION_KEYS[s]).lower() for s in diff))))
+        else:
+            lang.bind(self.lb_state, "presetsPanel.applied", name=info.name)

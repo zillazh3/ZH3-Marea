@@ -14,6 +14,8 @@ from typing import Callable
 
 from marea.engine.engine import Params
 from marea.engine.motion import MODES as MOTION_MODES
+from marea.i18n import t
+from marea.i18n import Labels
 from marea.model.background import FITS, LOOPS, BackgroundConfig
 from marea.render.scene import Style
 
@@ -22,7 +24,9 @@ VERSION = 1
 MAX_BYTES = 256 * 1024
 BUNDLED_FONTS = ("", "Inter Tight")  # "" = la fuente incluida
 SECTIONS = ("tipografia", "color", "fondo", "efectos", "marca_de_agua")
-SECTION_LABELS = {"tipografia": "Tipografía", "color": "Color", "fondo": "Fondo", "efectos": "Efectos", "marca_de_agua": "Marca de agua"}
+# section -> i18n key; the Mapping resolves it with t() on every read, so the UI keeps indexing it as before
+SECTION_LABELS = Labels({"tipografia": "presets.section.tipografia", "color": "presets.section.color", "fondo": "presets.section.fondo",
+                         "efectos": "presets.section.efectos", "marca_de_agua": "presets.section.marcaDeAgua"})
 
 
 class PresetError(ValueError):
@@ -160,9 +164,9 @@ def migrate(raw: dict) -> dict:
     try:
         ver = int(raw.get("version", 1))
     except (TypeError, ValueError):
-        raise PresetError("La versión de la Corriente no es válida.") from None
+        raise PresetError(t("errors.preset.badVersion")) from None
     if ver < 1 or ver > VERSION:
-        raise PresetError(f"Versión de Corriente no soportada: v{ver} (esta app lee hasta v{VERSION}).")
+        raise PresetError(t("errors.preset.unsupportedVersion", ver=ver, max=VERSION))
     cur = dict(raw)
     while ver < VERSION:
         cur = MIGRATIONS[ver](cur)
@@ -180,9 +184,9 @@ def validate(raw, installed_fonts=None) -> Validated:
     """Normaliza un preset leído de un archivo: ignora claves desconocidas, limita rangos, corrige tipos.
     `installed_fonts`: familias instaladas en este equipo (además de la incluida); None = solo la incluida."""
     if not isinstance(raw, dict):
-        raise PresetError("El archivo no es una Corriente válida (se esperaba un objeto JSON).")
+        raise PresetError(t("errors.preset.notObject"))
     if raw.get("schema") != SCHEMA:
-        raise PresetError(f"Formato no soportado: {raw.get('schema')!r} (se esperaba {SCHEMA!r}).")
+        raise PresetError(t("errors.preset.unsupportedFormat", schema=repr(raw.get("schema")), expected=repr(SCHEMA)))
     d = migrate(raw)
     defaults, flags = _defaults(), []
     name = d.get("name") if isinstance(d.get("name"), str) else ""
@@ -204,7 +208,7 @@ def validate(raw, installed_fonts=None) -> Validated:
             if kind in ("rgb", "rgb_or_none"):
                 v = _encode(kind, v)
             if kind == "font" and v not in allowed:
-                flags.append(f"La fuente «{v}» no está disponible: usé Inter Tight.")
+                flags.append(t("errors.preset.fontMissing", font=v))
                 v = ""
             out[sec][key] = v
     return Validated(out, flags)

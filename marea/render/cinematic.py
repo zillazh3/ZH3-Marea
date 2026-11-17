@@ -19,6 +19,7 @@ import numpy as np
 import skia
 
 from marea.engine.curves import clamp01
+from marea.i18n import t
 from marea.model.background import BackgroundConfig, source_ms
 from marea.model.cinematic import ActiveInterval, CinematicConfig, CinematicTreatment, VideoResource, evaluate_at
 from marea.sysutil import NO_WINDOW, find_ffmpeg
@@ -75,7 +76,7 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
     """Inspecciona duración, resolución y FPS usando solo `ffmpeg`, y verifica que al menos 1 frame sea decodificable."""
     p = Path(path)
     if not p.is_file():
-        raise VideoError("No encontré ese archivo de video.")
+        raise VideoError(t("errors.video.notFound"))
     try:
         ffmpeg_bin = find_ffmpeg()
     except FileNotFoundError as e:
@@ -89,9 +90,9 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
             timeout=30,
         )
     except subprocess.TimeoutExpired as e:
-        raise VideoError("El archivo de video tardó demasiado en abrirse.") from e
+        raise VideoError(t("errors.video.openTimeout")) from e
     except OSError as e:
-        raise VideoError(f"No pude ejecutar ffmpeg: {e}") from e
+        raise VideoError(t("errors.video.ffmpegRun", error=e)) from e
 
     stderr = info.stderr.decode(errors="replace")
     video_line = ""
@@ -100,14 +101,14 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
             video_line = line
             break
     if not video_line:
-        raise VideoError("Ese archivo no contiene una pista de video válida. Usa un MP4, MOV, MKV o WebM.")
+        raise VideoError(t("errors.video.noTrack"))
 
     res_m = _RES_RE.search(video_line)
     if not res_m:
-        raise VideoError("No pude leer la resolución del video.")
+        raise VideoError(t("errors.video.noResolution"))
     width, height = int(res_m.group(1)), int(res_m.group(2))
     if width <= 0 or height <= 0:
-        raise VideoError("La resolución del video no es válida.")
+        raise VideoError(t("errors.video.badResolution"))
     rot = _parse_rotation(stderr)
     if rot in (90, 270):  # ffmpeg autorrota al decodificar: reportamos las dimensiones ya enderezadas
         width, height = height, width
@@ -147,9 +148,9 @@ def probe_video(path: str | Path, resource_id: str = "vid_1") -> VideoResource:
             timeout=30,
         )
     except subprocess.TimeoutExpired as e:
-        raise VideoError("El video tardó demasiado en decodificar un fotograma de prueba.") from e
+        raise VideoError(t("errors.video.decodeTimeout")) from e
     if chk.returncode != 0 or len(chk.stdout) < 16 * 16 * 4:
-        raise VideoError("No pude decodificar fotogramas de ese video. Comprueba que el archivo no esté dañado.")
+        raise VideoError(t("errors.video.decodeFailed"))
 
     if duration_ms <= 0:
         duration_ms = max(1, round(1000.0 * fps_den / fps_num))

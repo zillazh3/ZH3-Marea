@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from marea.i18n import t
 from marea.presets.schema import MAX_BYTES, SECTIONS, PresetError, validate
 from marea.sysutil import safe_filename
 
@@ -41,10 +42,10 @@ def load_file(path: Path, installed_fonts=None):
     path = Path(path)
     try:
         if path.stat().st_size > MAX_BYTES:
-            raise PresetError("El archivo pesa más de 256 KB: no parece una Corriente.")
+            raise PresetError(t("errors.preset.tooBig"))
         raw = json.loads(path.read_bytes().decode("utf-8"))
     except (OSError, ValueError) as e:  # ValueError cubre JSON y UnicodeDecodeError
-        raise PresetError(f"No pude leer la Corriente: {e}") from e
+        raise PresetError(t("errors.preset.cannotRead", error=e)) from e
     return validate(raw, installed_fonts)
 
 
@@ -81,20 +82,20 @@ class PresetStore:
     def _check_name(self, name: str, ignore: str = "") -> str:
         name = name.strip()
         if not name:
-            raise PresetError("Ponle un nombre a la Corriente.")
+            raise PresetError(t("errors.preset.nameRequired"))
         if len(name) > 60:
-            raise PresetError("El nombre es demasiado largo (máximo 60 letras).")
+            raise PresetError(t("errors.preset.nameTooLong"))
         for i in self.list():
             if i.name.casefold() == name.casefold() and i.name.casefold() != ignore.casefold():
-                raise PresetError(f"Ya existe una Corriente llamada «{i.name}».")
+                raise PresetError(t("errors.preset.nameTaken", name=i.name))
         return name
 
     def _user_info(self, name: str) -> PresetInfo:
         info = self.get(name)
         if info is None:
-            raise PresetError(f"No encuentro la Corriente «{name}».")
+            raise PresetError(t("errors.preset.notFound", name=name))
         if info.builtin:
-            raise PresetError("Las Corrientes integradas son de solo lectura: duplícala para editarla.")
+            raise PresetError(t("errors.preset.builtinReadOnly"))
         return info
 
     def _write(self, path: Path, preset: dict):
@@ -139,7 +140,7 @@ class PresetStore:
     def duplicate(self, name: str, new_name: str = "") -> PresetInfo:
         info = self.get(name)
         if info is None:
-            raise PresetError(f"No encuentro la Corriente «{name}».")
+            raise PresetError(t("errors.preset.notFound", name=name))
         if new_name.strip():
             return self.save(new_name, info.preset)
         base, n, taken = f"{info.name} (copia)", 2, {i.name.casefold() for i in self.list()}
@@ -165,5 +166,5 @@ class PresetStore:
     def export_file(self, name: str, dest: Path):
         info = self.get(name)
         if info is None:
-            raise PresetError(f"No encuentro la Corriente «{name}».")
+            raise PresetError(t("errors.preset.notFound", name=name))
         self._write(Path(dest), info.preset)

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QWidget
 
 from marea.audio import local
 from marea.lab.session import Session
-from marea.ui import theme
+from marea.ui import lang, theme
 
 RULER_H, WAVE_H, LANE_H, GAP = 18, 64, 24, 4
 LANES = ("line", "word", "syllable", "vowel")
@@ -37,6 +37,7 @@ class TimelineWidget(QWidget):
         self._sel, self._playhead, self._review = "", None, set()
         self._drag = None
         theme.signals.changed.connect(self.update)
+        lang.signals.changed.connect(self.update)
 
     # ---- datos ----
     def set_session(self, session: Session):
@@ -114,7 +115,7 @@ class TimelineWidget(QWidget):
                         out.append(dict(lane=base + 3, id="", start=v.start, end=v.end, text=v.text, conf=v.confidence, approx=True, manual=False, pause=False))
         for region in self.session.alignment.source_lyrics.get("overlaps", []):
             out.append(dict(lane=len(groups) * 4, id="", start=region["start"], end=region["end"],
-                            text="Possible vocal overlap (no inferred text)", conf=region.get("role_confidence", 0.0),
+                            text=lang.t("lab.timeline.overlap"), conf=region.get("role_confidence", 0.0),
                             approx=True, manual=False, pause=False))
         return out
 
@@ -161,8 +162,9 @@ class TimelineWidget(QWidget):
             if blk["end"] >= a and blk["start"] <= b:
                 self._draw_block(p, blk)
         p.setPen(QPen(theme.qc(t.text_muted)))
+        unknown_agent = lang.t("lab.review.unknownAgent")
         for (agent, role, take), lane in self.lane_groups().items():
-            p.drawText(QPointF(4, self._lane_top(lane * 4) - 2), f"{role} / {agent or 'unknown agent'} / {take + 1}")
+            p.drawText(QPointF(4, self._lane_top(lane * 4) - 2), f"{role} / {agent or unknown_agent} / {take + 1}")
         if self._playhead is not None:
             p.setPen(QPen(theme.qc(t.text), 1.5))
             x = self._x(self._playhead)

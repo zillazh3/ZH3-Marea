@@ -11,6 +11,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def pin_spanish_ui():
+    """The suite asserts the Spanish UI text; tests that exercise other languages switch inside the test."""
+    from marea import i18n
+    i18n.set_language("es")
+    yield
+    i18n.set_language("es")
+
+
+@pytest.fixture(autouse=True)
 def fail_on_unhandled_qt_exceptions():
     """PySide imprime (no propaga) las excepciones de paintEvent, slots y señales: sin esto, un dibujo roto pasa en verde."""
     errors, previous = [], sys.excepthook

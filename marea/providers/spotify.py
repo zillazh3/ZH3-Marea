@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
+from marea.i18n import t
 from marea.providers.errors import PositionSample, ProviderError
 from marea.secrets import KeyringSecrets
 
@@ -113,7 +114,7 @@ def _bind() -> HTTPServer:
     try:
         return _Server(("127.0.0.1", REDIRECT_PORT), _Callback)
     except OSError as e:
-        raise SpotifyError(f"El puerto {REDIRECT_PORT} está ocupado por otro programa. Ciérralo e intenta de nuevo.") from e
+        raise SpotifyError(t("errors.spotify.portBusy", port=REDIRECT_PORT)) from e
 
 
 class _Callback(BaseHTTPRequestHandler):
@@ -130,8 +131,8 @@ class _Callback(BaseHTTPRequestHandler):
             return
         self.server.result = {k: v[0] for k, v in parse_qs(url.query).items()}
         ok = "code" in self.server.result
-        body = _PAGE.format(title="Listo" if ok else "No se pudo conectar",
-                            text="Ya puedes volver a ZH3 Marea." if ok else "Vuelve a ZH3 Marea e inténtalo de nuevo.")
+        body = _PAGE.format(title=t("errors.spotify.pageOk" if ok else "errors.spotify.pageFail"),
+                            text=t("errors.spotify.pageOkText" if ok else "errors.spotify.pageFailText"))
         data = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -179,7 +180,7 @@ class SpotifyClient:
     def authorize(self, open_browser=webbrowser.open, timeout: float = 180):
         """Abre el navegador, espera el redirect a 127.0.0.1 y canjea el código. Bloquea: usar en un hilo."""
         if not self.client_id:
-            raise SpotifyError("Falta el Client ID de Spotify. Pégalo en Ajustes y vuelve a conectar.")
+            raise SpotifyError(t("errors.spotify.missingClientId"))
         verifier, challenge = make_pkce()
         state = secrets.token_urlsafe(16)
         server = _bind()  # antes de abrir el navegador, para no perder la respuesta
@@ -191,11 +192,11 @@ class SpotifyClient:
         finally:
             server.server_close()
         if not result:
-            raise SpotifyError("No recibí la autorización de Spotify a tiempo. Vuelve a intentar y acepta los permisos.")
+            raise SpotifyError(t("errors.spotify.authTimeout"))
         if result.get("state") != state:
-            raise SpotifyError("La respuesta de Spotify no corresponde a esta solicitud. Vuelve a intentar.")
+            raise SpotifyError(t("errors.spotify.authMismatch"))
         if "error" in result or "code" not in result:
-            raise SpotifyError("Spotify no autorizó la conexión. Vuelve a intentar y acepta los permisos.")
+            raise SpotifyError(t("errors.spotify.authDenied"))
         self._grant({"grant_type": "authorization_code", "code": result["code"], "redirect_uri": REDIRECT_URI,
                      "code_verifier": verifier})
 
@@ -208,15 +209,15 @@ class SpotifyClient:
         try:
             r = self.http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
         except httpx.HTTPError as e:
-            raise SpotifyError("Spotify no respondió. Revisa tu conexión y vuelve a intentar.") from e
+            raise SpotifyError(t("errors.spotify.noResponse")) from e
         if r.status_code != 200:
             err = (self._json(r) if r.headers.get("content-type", "").startswith("application/json") else {}).get("error", "")
             if err == "invalid_client":
-                raise SpotifyError("Spotify no reconoce ese Client ID. Revísalo en Ajustes (Dashboard de Spotify > tu app > Settings).")
-            raise SpotifyError("Spotify rechazó la conexión. Vuelve a conectar la cuenta desde Ajustes.")
+                raise SpotifyError(t("errors.spotify.unknownClientId"))
+            raise SpotifyError(t("errors.spotify.connectionRejected"))
         data = self._json(r)
         if not isinstance(data, dict) or "access_token" not in data:
-            raise SpotifyError("Spotify rechazó la conexión. Vuelve a conectar la cuenta desde Ajustes.")
+            raise SpotifyError(t("errors.spotify.connectionRejected"))
         with self._lock:
             old = self._token or {}
             self._token = {"access_token": data["access_token"],
@@ -227,14 +228,14 @@ class SpotifyClient:
     # ---- peticiones ----
     def _refresh_locked(self) -> str:
         if not self._token or not self._token.get("refresh_token"):
-            raise SpotifyError("Spotify no está conectado. Conéctalo en Ajustes.")
+            raise SpotifyError(t("errors.spotify.notConnected"))
         self._grant({"grant_type": "refresh_token", "refresh_token": self._token["refresh_token"]})
         return self._token["access_token"]
 
     def _access_token(self) -> str:
         with self._lock:
             if not self._token or not self._token.get("refresh_token"):
-                raise SpotifyError("Spotify no está conectado. Conéctalo en Ajustes.")
+                raise SpotifyError(t("errors.spotify.notConnected"))
             if self.now() >= self._token["expires_at"] - EXPIRY_MARGIN:
                 return self._refresh_locked()
             return self._token["access_token"]
@@ -245,22 +246,22 @@ class SpotifyClient:
             try:
                 r = self.http.request(method, url, headers={"Authorization": f"Bearer {self._access_token()}"}, **kw)
             except httpx.HTTPError as e:
-                raise SpotifyError("Spotify no respondió. Revisa tu conexión y vuelve a intentar.") from e
+                raise SpotifyError(t("errors.spotify.noResponse")) from e
             if r.status_code == 401 and attempt == 1:  # token revocado o caducado antes de lo esperado: renovar una vez
                 with self._lock:
                     self._refresh_locked()
                 continue
             if r.status_code == 429:
-                wait = r.headers.get("Retry-After", "unos")
-                raise SpotifyError(f"Spotify pide esperar {wait} segundos antes de volver a consultar. Intenta de nuevo en un momento.")
+                wait = r.headers.get("Retry-After")
+                raise SpotifyError(t("errors.spotify.rateLimited", wait=wait) if wait else t("errors.spotify.rateLimitedShort"))
             if r.status_code in allow:
                 return r
             if r.status_code in (401, 403):
-                raise SpotifyError("Spotify rechazó el acceso. Vuelve a conectar la cuenta desde Ajustes.")
+                raise SpotifyError(t("errors.spotify.accessRejected"))
             if r.status_code >= 400 and r.status_code != 404:
-                raise SpotifyError("Spotify devolvió un error. Intenta de nuevo en unos minutos.")
+                raise SpotifyError(t("errors.spotify.serverError"))
             return r
-        raise SpotifyError("Spotify rechazó el acceso. Vuelve a conectar la cuenta desde Ajustes.")
+        raise SpotifyError(t("errors.spotify.accessRejected"))
 
     def search(self, query: str, limit: int = SEARCH_LIMIT) -> list[Track]:
         if not query.strip():
@@ -307,12 +308,12 @@ class SpotifyClient:
             if device := self._device_id():
                 return self._control(method, command, body, tolerate, device)
         if r.status_code == 404:
-            raise SpotifyError("Spotify no tiene un dispositivo activo. Abre Spotify en este equipo, dale play a cualquier canción y vuelve a intentar.")
+            raise SpotifyError(t("errors.spotify.noDevice"))
         if r.status_code == 403:
             if "PREMIUM_REQUIRED" in r.text:
-                raise SpotifyError("Controlar la reproducción requiere Spotify Premium.")
+                raise SpotifyError(t("errors.spotify.premiumRequired"))
             if not tolerate:
-                raise SpotifyError("Spotify no permitió ese comando en este momento. Intenta de nuevo.")
+                raise SpotifyError(t("errors.spotify.commandRejected"))
 
     def _device_id(self) -> str | None:
         """Dispositivo al que mandar los comandos cuando ninguno está activo: prefiere el activo y luego un equipo de escritorio."""
@@ -326,5 +327,5 @@ class SpotifyClient:
             r = self.http.get(url)
             r.raise_for_status()
         except httpx.HTTPError as e:
-            raise SpotifyError("No pude descargar la portada. Revisa tu conexión y vuelve a intentar.") from e
+            raise SpotifyError(t("errors.spotify.coverDownload")) from e
         return r.content

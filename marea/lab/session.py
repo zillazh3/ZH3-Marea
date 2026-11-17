@@ -10,6 +10,7 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
+from marea.i18n import t
 from marea.lab import alignment as A
 from marea.lab.align_job import (
     assign_unit_ids,
@@ -61,7 +62,7 @@ class Session:
     def accept(self, line_id: str) -> list[str]:
         found = self.find(line_id)
         if found is None or found[0] != "line":
-            return ["Select a performance to accept."]
+            return [t("errors.lab.session.selectAccept")]
         self._push()
         found[1].review_state, found[1].role_reviewed = "accepted", True
         return []
@@ -69,7 +70,7 @@ class Session:
     def reject(self, line_id: str) -> list[str]:
         found = self.find(line_id)
         if found is None or found[0] != "line":
-            return ["Select a performance to reject."]
+            return [t("errors.lab.session.selectReject")]
         self._push()
         line = found[1]
         self.alignment.source_lyrics.setdefault("rejected", []).append({**line.ref, "line": {**asdict(line), "text": line.text}})
@@ -87,9 +88,9 @@ class Session:
     def set_identity(self, line_id: str, role: str, agent: str) -> list[str]:
         found = self.find(line_id)
         if found is None or found[0] != "line" or role not in ROLES:
-            return ["Select a performance and a valid vocal role."]
+            return [t("errors.lab.session.selectRole")]
         if agent and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", agent):
-            return ["Agent must be an XML identifier, or empty for unknown."]
+            return [t("errors.lab.session.agentOrEmpty")]
         self._push()
         line = found[1]
         line.role, line.agent, line.role_reviewed = role, agent, True
@@ -106,10 +107,10 @@ class Session:
         found = self.find(uid)
         text = text.strip()
         if found is None or not text:
-            return ["Select a unit and enter nonempty text."]
+            return [t("errors.lab.session.selectUnitText")]
         kind, unit, line = found
         if kind != "line" and any(c.isspace() for c in text):
-            return ["Edit the complete line to change word or syllable segmentation."]
+            return [t("errors.lab.session.editWholeLine")]
         if text == unit.text:
             return []
         if self.original is not None:
@@ -137,9 +138,9 @@ class Session:
 
     def add_performance(self, text: str, start: int, end: int, role: str = "uncertain", agent: str = "") -> list[str]:
         if not text.strip() or not 0 <= start < end <= self.alignment.duration_ms or role not in ROLES:
-            return ["Enter text and a valid interval inside the audio."]
+            return [t("errors.lab.session.textAndInterval")]
         if agent and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", agent):
-            return ["Agent must be an XML identifier."]
+            return [t("errors.lab.session.agentInvalid")]
         uid, n = "manual0", 0
         while self.find(uid):
             n += 1
@@ -154,7 +155,7 @@ class Session:
     def split_performance(self, line_id: str, word_index: int) -> list[str]:
         found = self.find(line_id)
         if found is None or found[0] != "line" or not 0 < word_index < len(found[1].words):
-            return ["Select a word after the first word to split the performance."]
+            return [t("errors.lab.session.selectWordToSplit")]
         line = found[1]
         original_ref = dict(line.ref)
         if self.original is not None:
@@ -193,9 +194,9 @@ class Session:
         """Fija inicio/fin (ms) de una línea, palabra o sílaba. Devuelve los errores NUEVOS (lista vacía = aplicado)."""
         found = self.find(uid)
         if found is None:
-            return [f"No existe la unidad {uid!r}."]
+            return [t("errors.lab.session.unitNotFound", id=repr(uid))]
         if start >= end:
-            return [f"El inicio ({start} ms) debe ser menor que el fin ({end} ms)."]
+            return [t("errors.lab.session.startBeforeEnd", start=start, end=end)]
         cand = copy.deepcopy(self.alignment)
         kind, unit, line = Session(cand).find(uid)
         unit.start, unit.end = int(start), int(end)
@@ -226,10 +227,10 @@ class Session:
         """Parámetros (`lines`, `window`) del comando `align` para recalcular una línea con las emisiones cacheadas."""
         found = self.find(line_id)
         if found is None or found[0] != "line":
-            raise ValueError(f"No existe la línea {line_id!r}.")
+            raise ValueError(t("errors.lab.session.lineNotFound", id=repr(line_id)))
         line = found[1]
         if text is not None and self.original is not None and text != line.text:
-            raise ValueError("Apply the text correction before recalculating imported TTML.")
+            raise ValueError(t("errors.lab.session.applyTextFirst"))
         entry = ({"id": line.id, "text": text} if text is not None and text != line.text
                  else {"id": line.id, "words": [[s.text for s in w.syllables] or [w.text] for w in line.words]})
         entry.update({k: v for k, v in request_layers(Alignment(self.alignment.duration_ms, [line]))[0].items()
@@ -245,11 +246,11 @@ class Session:
         """Integra el resultado del sidecar para esa línea. Devuelve errores (lista vacía = aplicado)."""
         found = self.find(line_id)
         if found is None or found[0] != "line":
-            return ["Line not found."]
+            return [t("errors.lab.session.lineMissing")]
         old = found[1]
         res = next((l for l in data["lines"] if l["id"] == line_id), None)
         if res is None:
-            return ["El resultado no trae la línea pedida."]
+            return [t("errors.lab.session.resultMissingLine")]
         new = remap_line(old, res)
         if self.original is None:
             assign_unit_ids(new)

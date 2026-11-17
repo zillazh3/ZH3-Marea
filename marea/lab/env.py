@@ -16,6 +16,7 @@ from typing import Callable
 
 import httpx
 
+from marea.i18n import t
 from marea.lab.sidecar import sidecar_root
 from marea.paths import app_data, make_settings
 from marea.sysutil import NO_WINDOW, kill_tree
@@ -126,13 +127,13 @@ def fetch_uv(root: Path, progress: Progress, cancel: threading.Event | None = No
                 done += len(chunk)
                 progress("uv", f"{done} / {total or '?'} bytes")
         if h.hexdigest() != sha256:
-            raise InstallError("La descarga de uv no coincide con el hash esperado; no se instaló. Revisa tu conexión o antivirus.")
+            raise InstallError(t("errors.lab.uvHashMismatch"))
         with zipfile.ZipFile(zpath) as z:
             exe.write_bytes(z.read("uv.exe"))  # un solo miembro, por nombre exacto: nada de rutas del zip se toca
     except httpx.HTTPError as e:
-        raise InstallError(f"No pude descargar uv ({e.__class__.__name__}). Revisa tu conexión.") from e
+        raise InstallError(t("errors.lab.uvDownloadFailed", error=e.__class__.__name__)) from e
     except (zipfile.BadZipFile, KeyError) as e:
-        raise InstallError("El archivo de uv descargado no es válido.") from e
+        raise InstallError(t("errors.lab.uvInvalidArchive")) from e
     finally:
         zpath.unlink(missing_ok=True)
     return exe
@@ -146,7 +147,7 @@ def _run(root: Path, stage: str, args: list[str], progress: Progress, cancel: th
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW,
                                 text=True, encoding="utf-8", errors="replace")
     except OSError as e:
-        raise InstallError(f"{check_msg}: no pude ejecutar {args[0]} ({e}).") from e
+        raise InstallError(t("errors.lab.cannotRun", check=check_msg, cmd=args[0], error=e)) from e
 
     def watch():  # la cancelación no depende de que el proceso escriba: uno callado también se mata
         while proc.poll() is None:
@@ -174,7 +175,7 @@ def _run(root: Path, stage: str, args: list[str], progress: Progress, cancel: th
             watcher.join()
     _checked(cancel)  # matado por el vigilante: su salida terminó sin una línea que lo detectara
     if code != 0:
-        raise InstallError(f"{check_msg} (código {code}). Últimas líneas:\n" + "\n".join(tail))
+        raise InstallError(t("errors.lab.exitCode", check=check_msg, code=code) + "\n".join(tail))
 
 
 def install(root: Path, progress: Progress, cancel: threading.Event | None = None, req_dir: Path = REQ_DIR) -> Path:
@@ -183,18 +184,18 @@ def install(root: Path, progress: Progress, cancel: threading.Event | None = Non
     uv = str(fetch_uv(root, progress, cancel))
     py = env_python(root)
     if py.exists() and (env_relocated(root) or not env_runs(root)):  # carpeta movida o venv roto: se rehace (los paquetes salen de la caché de uv)
-        progress("python", "El entorno no arranca (¿se movió la carpeta?): se vuelve a crear.")
+        progress("python", t("errors.lab.envRecreate"))
         shutil.rmtree(root / "env")
     if not py.exists():
         # Python gestionado por uv (dentro de lab/), no el del sistema: el entorno no depende de nada que el usuario pueda desinstalar
         _run(root, "python", [uv, "venv", str(root / "env"), "--python", PYTHON, "--managed-python"], progress, cancel,
-             "No pude crear el entorno de Python")
+             t("errors.lab.createEnvFailed"))
     base = [uv, "pip", "install", "--python", str(py)]
     _run(root, "torch", base + ["-r", str(req_dir / "requirements-torch-cu128.txt"), "--index-url", TORCH_INDEX], progress, cancel,
-         "No pude instalar torch")
-    _run(root, "paquetes", base + ["-r", str(req_dir / "requirements.txt")], progress, cancel, "No pude instalar las dependencias")
+         t("errors.lab.torchFailed"))
+    _run(root, "paquetes", base + ["-r", str(req_dir / "requirements.txt")], progress, cancel, t("errors.lab.depsFailed"))
     _run(root, "verificación", [str(py), "-c", "import torch, ctranslate2, transformers, faster_whisper, numpy"], progress, cancel,
-         "El entorno se instaló pero no importa")
+         t("errors.lab.envImportFailed"))
     _checked(cancel)  # cancelado: nunca publicar el marcador de instalación completa
     (root / "ready.json").write_text(json.dumps({"requirements": requirements_hash(req_dir), "uv": UV_VERSION}), encoding="utf-8")
     return py
@@ -203,7 +204,7 @@ def install(root: Path, progress: Progress, cancel: threading.Event | None = Non
 def uninstall(root: Path):
     """Borra TODO el laboratorio (entorno, Python gestionado, caché de uv, modelos y caché de alineación). Solo carpetas llamadas `lab`."""
     if root.name != "lab":
-        raise InstallError("Ruta inesperada: no borro nada que no sea la carpeta «lab».")
+        raise InstallError(t("errors.lab.unexpectedPath"))
     shutil.rmtree(root, ignore_errors=False)
 
 
@@ -222,9 +223,9 @@ def install_separation(root: Path, progress: Progress, cancel: threading.Event |
     """Instala encima del entorno la librería de separación de voz (opcional)."""
     uv, py = root / "bin" / "uv.exe", env_python(root)
     if not uv.exists() or not py.exists():
-        raise InstallError("Primero instala el entorno de sincronía.")
+        raise InstallError(t("errors.lab.installEnvFirst"))
     _run(root, "separación", [str(uv), "pip", "install", "--python", str(py), "-r", str(req_dir / "requirements-separation.txt")], progress, cancel,
-         "No pude instalar la separación de voz")
+         t("errors.lab.separationFailed"))
 
 
 def hf_model_ready(root: Path, repo: str) -> bool:

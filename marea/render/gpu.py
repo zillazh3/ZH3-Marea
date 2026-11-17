@@ -8,6 +8,8 @@ import skia
 from PySide6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
 from PySide6.QtWidgets import QApplication
 
+from marea.i18n import t
+
 
 class CpuContext:
     """Mismo contrato que GpuContext pero en CPU (raster): ~50× más lento; para equipos sin OpenGL y para tests."""
@@ -49,10 +51,10 @@ class GpuContext:
         self._gl = QOpenGLContext()
         self._gl.setFormat(fmt)
         if not (self._gl.create() and self._gl.makeCurrent(self._surface)):
-            raise RuntimeError("No se pudo crear un contexto OpenGL 3.3. Actualiza el driver de la tarjeta de video.")
+            raise RuntimeError(t("errors.gpu.noContext"))
         self.ctx = skia.GrDirectContext.MakeGL()
         if self.ctx is None:
-            raise RuntimeError("skia no pudo usar el contexto OpenGL.")
+            raise RuntimeError(t("errors.gpu.skiaContext"))
 
     def make_surface(self, w: int, h: int) -> skia.Surface:
         return skia.Surface.MakeRenderTarget(self.ctx, skia.Budgeted.kNo, skia.ImageInfo.MakeN32Premul(w, h))

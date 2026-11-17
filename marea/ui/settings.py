@@ -24,7 +24,8 @@ from marea.paths import default_output_dir
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import REDIRECT_URI
 from marea.secrets import KEYS
-from marea.ui import theme
+from marea import i18n
+from marea.ui import lang, theme
 from marea.ui.widgets import blocked_signals, make_button
 
 
@@ -55,20 +56,35 @@ class SettingsBody(QWidget):
             self.columns.addLayout(col, 1)
 
         self.settings = settings
-        lay = self._card("Apariencia")
+        lay = self._card("settings.card.appearance")
         self.combo = QComboBox()
-        self.combo.addItem("Oscuro", "dark")
-        self.combo.addItem("Claro", "light")
+        lang.bind_items(self.combo, [("settings.theme.dark", "dark"), ("settings.theme.light", "light")])
         self.combo.setCurrentIndex(max(0, self.combo.findData(theme.saved_name(settings))))
         self.combo.currentIndexChanged.connect(lambda: on_theme(self.combo.currentData()))
-        self._row(lay, "Tema", self.combo)
+        self._row(lay, "settings.theme.label", self.combo)
 
-        lay = self._card("Spotify")
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem(lang.t("settings.language.system"), "system")
+        for code, name in i18n.available():  # native names, never translated
+            self.lang_combo.addItem(name, code)
+        self.lang_combo.setCurrentIndex(max(0, self.lang_combo.findData(settings.value("language", "system"))))
+        lang.bind_fn(self.lang_combo, "system-item", lambda: self.lang_combo.setItemText(0, lang.t("settings.language.system")))
+        self.lang_combo.currentIndexChanged.connect(self._language_chosen)
+        lang_label = QLabel()
+        lang_label.setObjectName("Body")
+        lang.bind(lang_label, "settings.language.title")
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(lang_label)
+        lang_row.addStretch()
+        lang_row.addWidget(self.lang_combo)
+        lay.addLayout(lang_row)
+
+        lay = self._card("settings.card.spotify")
         cid_row = QHBoxLayout()
         cid_label = QLabel("Client ID")
         cid_label.setObjectName("Body")
         self.client_id = QLineEdit(services.client_id)
-        self.client_id.setPlaceholderText("Client ID de tu app en developer.spotify.com")
+        lang.bind(self.client_id, "settings.spotify.clientIdPlaceholder", "setPlaceholderText")
         self.client_id.setMinimumWidth(340)
         self.client_id.editingFinished.connect(lambda: services.set_client_id(self.client_id.text()))
         cid_row.addWidget(cid_label)
@@ -79,33 +95,42 @@ class SettingsBody(QWidget):
         actions = QHBoxLayout()
         self.status = QLabel()
         self.status.setObjectName("Muted")
-        self.btn_connect = make_button("Conectar", "Primary", self._connect)
-        self.btn_disconnect = make_button("Desconectar", "Ghost", services.disconnect_spotify)
+        self.btn_connect = make_button("", "Primary", self._connect)
+        lang.bind(self.btn_connect, "settings.spotify.connect")
+        self.btn_disconnect = make_button("", "Ghost", services.disconnect_spotify)
+        lang.bind(self.btn_disconnect, "settings.spotify.disconnect")
         actions.addWidget(self.status, 1)
         actions.addWidget(self.btn_disconnect)
         actions.addWidget(self.btn_connect)
         lay.addLayout(actions)
 
         uri_row = QHBoxLayout()
-        uri_label = QLabel("Redirect URI (regístralo en el dashboard de tu app)")
+        uri_label = QLabel()
+        lang.bind(uri_label, "settings.spotify.redirect")
         uri_label.setObjectName("Caption")
         self.uri = QLineEdit(REDIRECT_URI)
         self.uri.setReadOnly(True)
-        copy_btn = make_button("Copiar", "Ghost", lambda: QApplication.clipboard().setText(REDIRECT_URI))
+        copy_btn = make_button("", "Ghost", lambda: QApplication.clipboard().setText(REDIRECT_URI))
+        lang.bind(copy_btn, "settings.spotify.copy")
         lay.addWidget(uri_label)
         uri_row.addWidget(self.uri, 1)
         uri_row.addWidget(copy_btn)
         lay.addLayout(uri_row)
 
-        self._keys_section(self._card("Claves de API"))
-        self._export_section(self._card("Exportación"), settings)
-        self._audio_section(self._card("Audio"), settings)
-        self._experimental_section(self._card("Funciones experimentales"), settings)
+        self._keys_section(self._card("settings.card.keys"))
+        self._export_section(self._card("settings.card.export"), settings)
+        self._audio_section(self._card("settings.card.audio"), settings)
+        self._experimental_section(self._card("settings.card.experimental"), settings)
         services.connection_changed.connect(lambda _: self._refresh())
         self._refresh()
         self._relayout()
 
-    def _card(self, title: str) -> QVBoxLayout:
+    def _language_chosen(self):
+        pref = self.lang_combo.currentData()
+        self.settings.setValue("language", pref)
+        lang.apply_preference(pref)
+
+    def _card(self, title_key: str) -> QVBoxLayout:
         """A titled section card; `_relayout` flows the cards into 1 or 2 columns by width."""
         card = QFrame()
         card.setObjectName("Card")
@@ -113,7 +138,8 @@ class SettingsBody(QWidget):
         lay.setContentsMargins(theme.SPACE[5], theme.SPACE[4], theme.SPACE[5], theme.SPACE[5])
         lay.setSpacing(theme.SPACE[3])
         lay.setAlignment(Qt.AlignTop)
-        head = QLabel(title)
+        head = QLabel()
+        lang.bind(head, title_key)
         head.setObjectName("H2")
         lay.addWidget(head)
         self._cards.append(card)
@@ -139,9 +165,12 @@ class SettingsBody(QWidget):
         self._relayout()
 
     @staticmethod
-    def _row(lay: QVBoxLayout, text: str, *widgets) -> QHBoxLayout:
+    def _row(lay: QVBoxLayout, key: str | None, *widgets, raw: str = "") -> QHBoxLayout:
+        """A label + widgets row. `key` is the label's i18n key; `raw` is a literal label (brand names) used when key is None."""
         row = QHBoxLayout()
-        label = QLabel(text)
+        label = QLabel(raw)
+        if key is not None:
+            lang.bind(label, key)
         label.setObjectName("Body")
         row.addWidget(label)
         row.addStretch()
@@ -157,86 +186,105 @@ class SettingsBody(QWidget):
             edit = QLineEdit()
             edit.setEchoMode(QLineEdit.Password)
             edit.setMinimumWidth(260)
-            edit.setPlaceholderText("Guardada" if self.services.secrets.get(name) else "Pega tu clave")
-            save = make_button("Guardar", "Primary", lambda _=False, n=name, e=edit, lb=label: self._save_key(n, e, lb))
-            clear = make_button("Borrar", "Ghost", lambda _=False, n=name, e=edit, lb=label: self._clear_key(n, e, lb))
-            self._row(lay, label, edit, save, clear)
+            lang.bind(edit, "settings.keys.saved" if self.services.secrets.get(name) else "settings.keys.paste", "setPlaceholderText")
+            save = make_button("", "Primary", lambda _=False, n=name, e=edit, lb=label: self._save_key(n, e, lb))
+            lang.bind(save, "settings.keys.save")
+            clear = make_button("", "Ghost", lambda _=False, n=name, e=edit, lb=label: self._clear_key(n, e, lb))
+            lang.bind(clear, "settings.keys.clear")
+            self._row(lay, None, edit, save, clear, raw=label)  # label = brand name from marea.secrets.KEYS
             self.key_edits[name] = edit
-        note = QLabel(
-            "Las claves se guardan en el Credential Manager de Windows (cifradas para tu usuario), nunca en la carpeta "
-            "de la app. Spicy Lyrics: llave de cliente (sl_pk_…) de developers.spicylyrics.org con «Allow requests with no "
-            "Origin header» activado; da letra por sílaba de Apple Music y de la comunidad. LRCLIB no necesita clave. "
-            "Tidal no está disponible: no tiene acceso oficial con cuenta."
-        )
+        note = QLabel()
+        lang.bind(note, "settings.keys.note")
         note.setObjectName("Caption")
         note.setWordWrap(True)
         lay.addWidget(note)
 
     def _save_key(self, name: str, edit: QLineEdit, label: str):
         if not edit.text().strip():
-            self.notify(f"Pega primero la clave de {label}.", "error")
+            self.notify(lang.t("settings.keys.pasteFirst", label=label), "error")
             return
         try:
             self.services.secrets.set(name, edit.text())
         except Exception:  # keyring puede fallar si Windows bloquea el Credential Manager
-            self.notify("Windows no me dejó guardar la clave. Revisa que el Credential Manager esté disponible.", "error")
+            self.notify(lang.t("settings.keys.storeFailed"), "error")
             return
         edit.clear()
-        edit.setPlaceholderText("Guardada")
-        self.notify(f"Clave de {label} guardada.", "ok")
+        lang.bind(edit, "settings.keys.saved", "setPlaceholderText")
+        self.notify(lang.t("settings.keys.savedToast", label=label), "ok")
         if name == "spicy_lyrics":  # que el usuario sepa ahora, no al exportar, si la llave sirve
             run_async(
                 self.services.spicy.check_key,
-                lambda _: self.notify("Spicy Lyrics aceptó la llave.", "ok"),
-                lambda e: self.notify(str(e) if isinstance(e, ProviderError) else "No pude comprobar la llave de Spicy Lyrics.", "error"),
+                lambda _: self.notify(lang.t("settings.keys.spicyAccepted"), "ok"),
+                lambda e: self.notify(str(e) if isinstance(e, ProviderError) else lang.t("settings.keys.spicyCheckFailed"), "error"),
             )
 
     def _clear_key(self, name: str, edit: QLineEdit, label: str):
         self.services.secrets.delete(name)
         edit.clear()
-        edit.setPlaceholderText("Pega tu clave")
-        self.notify(f"Clave de {label} borrada.")
+        lang.bind(edit, "settings.keys.paste", "setPlaceholderText")
+        self.notify(lang.t("settings.keys.clearedToast", label=label))
 
     def _export_section(self, lay: QVBoxLayout, settings: QSettings):
         self.out_dir = QLineEdit(str(self.output_dir()))
         self.out_dir.setReadOnly(True)
         self.out_dir.setMinimumWidth(260)
-        pick = make_button("Cambiar…", "Ghost", self._choose_folder)
-        self._row(lay, "Carpeta de salida", self.out_dir, pick)
+        pick = make_button("", "Ghost", self._choose_folder)
+        lang.bind(pick, "settings.export.change")
+        self._row(lay, "settings.export.outDir", self.out_dir, pick)
         self.encoder = QComboBox()
-        self.encoder.addItem("Automático (la mejor GPU; si no hay, la CPU)", "auto")
-        for key, label in BACKENDS.items():
-            self.encoder.addItem(label if key == "cpu" else f"{label} · detectando…", key)
+        self._enc_found: dict[str, tuple[str, ...]] | None = None  # None while detecting
+        for data in ("auto", *BACKENDS):
+            self.encoder.addItem("", data)
+        lang.bind_fn(self.encoder, "items", self._relabel_encoders)
         self.encoder.setCurrentIndex(max(0, self.encoder.findData(settings.value("export/encoder", "auto"))))
         self.encoder.currentIndexChanged.connect(lambda: settings.setValue("export/encoder", self.encoder.currentData()))
-        self._row(lay, "Codificador", self.encoder)
-        self.encoder_note = QLabel("Buscando GPU compatible…")
+        self._row(lay, "settings.export.encoder", self.encoder)
+        self.encoder_note = QLabel()
+        lang.bind_fn(self.encoder_note, "setText", self._write_encoder_note)
         self.encoder_note.setObjectName("Caption")
         self.encoder_note.setWordWrap(True)
         lay.addWidget(self.encoder_note)
         run_async(detect_encoders, self._encoders_detected, lambda e: None)
 
+    def _relabel_encoders(self):
+        """Item texts from the detection state, so they follow both the language and the detection result."""
+        self.encoder.setItemText(self.encoder.findData("auto"), lang.t("settings.export.encoderAuto"))
+        for key, label in BACKENDS.items():
+            codecs = (self._enc_found or {}).get(key, ())
+            if codecs:
+                text = f"{label} · {', '.join(CODECS[c] for c in codecs)}"
+            elif key == "cpu":
+                text = label
+            elif self._enc_found is None:
+                text = lang.t("settings.export.detecting", label=label)
+            else:
+                text = lang.t("settings.export.notDetected", label=label)
+            self.encoder.setItemText(self.encoder.findData(key), text)
+
+    def _write_encoder_note(self):
+        found = self._enc_found
+        if found is None:
+            self.encoder_note.setText(lang.t("settings.export.searching"))
+            return
+        gpus = [BACKENDS[k] for k in HW_ORDER if found.get(k)]
+        self.encoder_note.setText(lang.t("settings.export.noteGpu", gpus=", ".join(gpus)) if gpus else lang.t("settings.export.noteNoGpu"))
+
     def _encoders_detected(self, found: dict[str, tuple[str, ...]]):
         """Solo se ofrece lo que esta máquina codifica de verdad (ffmpeg lista encoders que el driver no permite)."""
-        for key, label in BACKENDS.items():
-            idx, codecs = self.encoder.findData(key), found.get(key, ())
-            self.encoder.model().item(idx).setEnabled(bool(codecs) or key == "cpu")
-            self.encoder.setItemText(idx, f"{label} · {', '.join(CODECS[c] for c in codecs)}" if codecs else
-                                     label if key == "cpu" else f"{label} · no detectado")
+        self._enc_found = found
+        for key in BACKENDS:
+            self.encoder.model().item(self.encoder.findData(key)).setEnabled(bool(found.get(key, ())) or key == "cpu")
+        self._relabel_encoders()
         if not self.encoder.model().item(self.encoder.currentIndex()).isEnabled():  # GPU que ya no está: no se sobrescribe lo guardado
             with blocked_signals(self.encoder):
                 self.encoder.setCurrentIndex(0)
-        gpus = [BACKENDS[k] for k in HW_ORDER if found.get(k)]
-        self.encoder_note.setText(
-            (f"GPU detectada: {', '.join(gpus)}." if gpus else "No se detectó una GPU compatible (NVIDIA, AMD o Intel): se usa la CPU.")
-            + " El códec (H.264 por defecto, HEVC o AV1) se elige en el menú ⋯ del Editor; si la GPU no lo soporta, se usa la CPU."
-        )
+        self._write_encoder_note()
 
     def output_dir(self) -> Path:
         return Path(self.settings.value("output_dir", str(default_output_dir())))
 
     def _choose_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Carpeta de salida", str(self.output_dir()))
+        d = QFileDialog.getExistingDirectory(self, lang.t("settings.export.outDir"), str(self.output_dir()))
         if d:
             self.settings.setValue("output_dir", d)
             self.out_dir.setText(d)
@@ -249,15 +297,13 @@ class SettingsBody(QWidget):
         self._fill_devices(saved_dev, [])
         self._refresh_devices_async()
         self.device.currentIndexChanged.connect(lambda: settings.setValue("audio/device", self.device.currentData() or ""))
-        self.btn_detect = make_button(
-            "Detectar",
-            "Ghost",
-            self._detect,
-            "Escucha todos los dispositivos con algo sonando en Spotify y elige el que tiene señal",
-        )
-        self._row(lay, "Dispositivo de captura", self.device, self.btn_detect)
+        self.btn_detect = make_button("", "Ghost", self._detect)
+        lang.bind(self.btn_detect, "settings.audio.detect")
+        lang.bind(self.btn_detect, "settings.audio.detectTip", "setToolTip")
+        self._row(lay, "settings.audio.device", self.device, self.btn_detect)
         row2 = QHBoxLayout()
-        label2 = QLabel("Desfase de audio (loopback)")
+        label2 = QLabel()
+        lang.bind(label2, "settings.audio.offset")
         label2.setObjectName("Body")
         self.offset = QSpinBox()
         self.offset.setRange(-500, 500)
@@ -265,31 +311,27 @@ class SettingsBody(QWidget):
         self.offset.setSuffix(" ms")
         self.offset.setValue(int(float(settings.value("audio/loopback_offset_ms", 0))))
         self.offset.valueChanged.connect(lambda v: settings.setValue("audio/loopback_offset_ms", v))
-        self.btn_probe = make_button("Probar captura", "Ghost", self._probe)
+        self.btn_probe = make_button("", "Ghost", self._probe)
+        lang.bind(self.btn_probe, "settings.audio.probe")
         row2.addWidget(label2)
         row2.addStretch()
         row2.addWidget(self.btn_probe)
         row2.addWidget(self.offset)
         lay.addLayout(row2)
-        hint = QLabel(
-            "Reproduce algo en Spotify y pulsa «Detectar»: Marea escucha todos los dispositivos y elige por el que sale su audio. "
-            "«Probar captura» comprueba el que tengas elegido. Si usas Voicemeeter, su salida por defecto suele dar silencio: "
-            "elige una de sus entradas «Voicemeeter Out B1/B2» o un altavoz físico."
-        )
+        hint = QLabel()
+        lang.bind(hint, "settings.audio.hint")
         hint.setObjectName("Caption")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
     def _experimental_section(self, lay: QVBoxLayout, settings: QSettings):
         """Funciones experimentales: apagadas por defecto. Con la función apagada no se importa nada de marea.lab."""
-        self.cb_align = QCheckBox("Sincronización automática de letras con el audio")
+        self.cb_align = QCheckBox()
+        lang.bind(self.cb_align, "settings.experimental.align")
         self.cb_align.setChecked(settings.value("experimental/align", False, type=bool))
         lay.addWidget(self.cb_align)
-        note = QLabel(
-            "Alinea una letra con el audio (palabra, sílaba y vocal aproximada) y te deja revisarla antes de exportar un TTML NUEVO: tu "
-            "archivo original nunca se modifica. Usa la GPU y, al instalarla, descarga varios GB. Aparece como «Sincronizar con audio» en el "
-            "menú del Editor."
-        )
+        note = QLabel()
+        lang.bind(note, "settings.experimental.alignNote")
         note.setObjectName("Caption")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -299,14 +341,13 @@ class SettingsBody(QWidget):
         self.cb_align.toggled.connect(self._align_toggled)
         if self.cb_align.isChecked():
             self._mount_lab_panel()
-        self.cb_wordfx = QCheckBox("Efectos semánticos por palabra")
+        self.cb_wordfx = QCheckBox()
+        lang.bind(self.cb_wordfx, "settings.experimental.wordfx")
         self.cb_wordfx.setChecked(settings.value("experimental/wordfx", False, type=bool))
         self.cb_wordfx.toggled.connect(lambda on: self.settings.setValue("experimental/wordfx", on))
         lay.addWidget(self.cb_wordfx)
-        fx_note = QLabel(
-            "Palabras sueltas de la letra reaccionan a su significado y emoción (tiempo, pérdida, amor…), solo dentro de la palabra. "
-            "Se ve en el preview y en el export. La biblioteca de categorías es editable: docs/wordfx.md."
-        )
+        fx_note = QLabel()
+        lang.bind(fx_note, "settings.experimental.wordfxNote")
         fx_note.setObjectName("Caption")
         fx_note.setWordWrap(True)
         lay.addWidget(fx_note)
@@ -347,14 +388,18 @@ class SettingsBody(QWidget):
                 devices = _loopback_fn("list_capture_devices")()
             except Exception:  # sin PyAudio/WASAPI la lista queda en «automático»
                 devices = []
+        entries = [("", lambda: lang.t("settings.audio.defaultDevice"))]  # (userData, text) - text re-evaluated on language change
+        for d in devices:
+            name = d["name"]
+            entries.append((name, (lambda n=name: n) if d["loopback"] else (lambda n=name: lang.t("settings.audio.inputDevice", name=n))))
+        if current and not any(data == current for data, _ in entries):
+            entries.append((current, lambda: lang.t("settings.audio.missing", name=current)))
         with blocked_signals(self.device):
             self.device.clear()
-            self.device.addItem("Salida por defecto de Windows (automático)", "")
-            for d in devices:
-                self.device.addItem(d["name"] + ("" if d["loopback"] else " · entrada"), d["name"])
-            if current and self.device.findData(current) < 0:
-                self.device.addItem(f"{current} · no disponible", current)
+            for data, text in entries:
+                self.device.addItem(text(), data)
             self.device.setCurrentIndex(max(0, self.device.findData(current)))
+        lang.bind_fn(self.device, "items", lambda: [self.device.setItemText(i, text()) for i, (_, text) in enumerate(entries)])
 
     def _refresh_devices_async(self):
         self._dev_req += 1
@@ -375,69 +420,63 @@ class SettingsBody(QWidget):
 
     def _detect(self):
         self.btn_detect.setEnabled(False)
-        self.notify("Escuchando todos los dispositivos 1.5 segundos… deja algo sonando en Spotify.")
+        self.notify(lang.t("settings.audio.listening"))
 
         def done(found: list[dict]):
             self.btn_detect.setEnabled(True)
             live = [d for d in found if d["peak"] > 0.001]
             if not live:
-                self.notify("No oí audio en ningún dispositivo. Reproduce algo en Spotify (con el volumen arriba) y vuelve a intentar.", "error")
+                self.notify(lang.t("settings.audio.noAudioHeard"), "error")
                 return
             best = live[0]
             if self.device.findData(best["name"]) < 0:  # apareció después de abrir Ajustes
                 self._fill_devices(best["name"], found)
             self.device.setCurrentIndex(self.device.findData(best["name"]))
             self.settings.setValue("audio/device", best["name"])  # explícito: si ya estaba seleccionado no hay señal que lo guarde
-            more = f" También hay señal en {len(live) - 1} más; revisa la lista si no es el correcto." if len(live) > 1 else ""
-            self.notify(f"Spotify suena por «{best['name']}» (nivel {min(100, best['peak'] * 100):.0f} %). Lo dejé seleccionado.{more}", "ok")
+            more = lang.t("settings.audio.moreSignal", n=len(live) - 1) if len(live) > 1 else ""
+            self.notify(lang.t("settings.audio.detected", name=best["name"], level=f"{min(100, best['peak'] * 100):.0f}", more=more), "ok")
 
         def failed(e):
             self.btn_detect.setEnabled(True)
-            self.notify(str(e) if isinstance(e, AudioError) else "No pude escuchar los dispositivos.", "error")
+            self.notify(str(e) if isinstance(e, AudioError) else lang.t("settings.audio.detectFailed"), "error")
 
         run_async(lambda: _loopback_fn("scan_levels")(), done, failed)
 
     def _probe(self):
         self.btn_probe.setEnabled(False)
-        self.notify("Escuchando 1.5 segundos…")
+        self.notify(lang.t("settings.audio.probeListening"))
         name = self.device.currentData() or ""
 
         def done(peak: float):
             self.btn_probe.setEnabled(True)
             if peak > 0.001:
-                self.notify(f"Se captó audio (nivel {min(100, peak * 100):.0f} %). Esa es la fuente correcta.", "ok")
+                self.notify(lang.t("settings.audio.probeOk", level=f"{min(100, peak * 100):.0f}"), "ok")
             else:
-                self.notify(
-                    "No se captó audio. Reproduce algo en Spotify y vuelve a probar; si usas Voicemeeter, elige «Voicemeeter Out B1» "
-                    "o un altavoz físico en vez de su salida virtual.",
-                    "error",
-                )
+                self.notify(lang.t("settings.audio.probeSilent"), "error")
 
         def failed(e):
             self.btn_probe.setEnabled(True)
-            self.notify(str(e) if isinstance(e, AudioError) else "No pude probar la captura.", "error")
+            self.notify(str(e) if isinstance(e, AudioError) else lang.t("settings.audio.probeFailed"), "error")
 
         run_async(lambda: _loopback_fn("probe_level")(name), done, failed)
 
     def _refresh(self):
         connected = self.services.connected
         self._waiting = self._waiting and not connected
-        self.status.setText(
-            "Esperando la autorización en tu navegador…" if self._waiting
-            else "Conectado" if connected else "Sin conectar"
-        )
+        lang.bind(self.status, "settings.spotify.waiting" if self._waiting
+                  else "settings.spotify.connected" if connected else "settings.spotify.disconnected")
         self.btn_connect.setEnabled(not connected and not self._waiting)
         self.btn_disconnect.setEnabled(connected)
 
     def _connect(self):
         self.services.set_client_id(self.client_id.text())
         if not self.services.client_id:
-            self.notify("Pega primero el Client ID de tu app de Spotify.", "error")
+            self.notify(lang.t("settings.spotify.needClientId"), "error")
             return
         self._waiting = True
         self._refresh()
-        self.notify("Se abrió tu navegador para autorizar a ZH3 Marea en Spotify.")
-        self.services.connect_spotify(ok=lambda _: self.notify("Spotify conectado.", "ok"), err=self._failed)
+        self.notify(lang.t("settings.spotify.browserOpened"))
+        self.services.connect_spotify(ok=lambda _: self.notify(lang.t("settings.spotify.connectedToast"), "ok"), err=self._failed)
 
     def _failed(self, error):
         self._waiting = False

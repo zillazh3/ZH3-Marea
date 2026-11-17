@@ -13,6 +13,8 @@ import statistics
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+from marea.i18n import t
+
 SCHEMA, VERSION = "marea.alignment", 2
 ROLES = ("lead", "backing", "harmony", "adlib", "duet", "uncertain")
 BG_ROLES = ("backing", "harmony", "adlib")
@@ -20,7 +22,7 @@ BG_ROLES = ("backing", "harmony", "adlib")
 
 class AlignmentError(ValueError):
     def __init__(self, errors: list[str]):
-        super().__init__("; ".join(errors[:5]) + (f" (+{len(errors) - 5} más)" if len(errors) > 5 else ""))
+        super().__init__("; ".join(errors[:5]) + (t("errors.lab.moreErrors", count=len(errors) - 5) if len(errors) > 5 else ""))
         self.errors = errors
 
 
@@ -154,7 +156,7 @@ def line_from_dict(l: dict) -> Line:
 
 def from_dict(d: dict) -> Alignment:
     if d.get("schema") != SCHEMA or d.get("version") not in (1, VERSION):
-        raise AlignmentError([f"Formato no soportado: {d.get('schema')!r} v{d.get('version')!r} (esta app lee {SCHEMA} v{VERSION})."])
+        raise AlignmentError([t("errors.lab.unsupportedFormat", schema=repr(d.get("schema")), version=repr(d.get("version")), expected=SCHEMA, expectedVersion=VERSION)])
     lines = [line_from_dict(l) for l in d.get("lines", [])]
     return Alignment(d["audio"]["duration_ms"], lines, d.get("language", ""), d["audio"].get("sha256", ""),
                      d.get("source_lyrics", {}), d.get("pipeline", {}),
@@ -191,60 +193,61 @@ def validate(al: Alignment) -> list[str]:
     def span(label: str, u) -> bool:
         ok = u.start < u.end
         if not ok:
-            errs.append(f"{label}: inicio {u.start} ≥ fin {u.end} ms")
+            errs.append(t("errors.lab.v.startAfterEnd", label=label, start=u.start, end=u.end))
         if u.start < 0 or u.end > dur:
-            errs.append(f"{label}: fuera de la duración del audio (0–{dur} ms)")
+            errs.append(t("errors.lab.v.outsideAudio", label=label, duration=dur))
         return ok
 
     def inside(label: str, u, parent):
         if u.start < parent.start or u.end > parent.end:
-            errs.append(f"{label}: sale de su contenedor ({parent.start}–{parent.end} ms)")
+            errs.append(t("errors.lab.v.outsideParent", label=label, start=parent.start, end=parent.end))
 
     last_start: dict[tuple, int] = {}
     for line in al.lines:
-        L = f"línea {line.id or line.text[:20]!r}"
+        L = t("errors.lab.v.line", id=repr(line.id or line.text[:20]))
         span(L, line)
         if line.source_stem not in ("", "mix", "vocals", "lead", "backing"):
-            errs.append(f"{L}: unknown source stem {line.source_stem!r}")
+            errs.append(t("errors.lab.v.unknownStem", label=L, stem=repr(line.source_stem)))
         if line.review_state not in ("accepted", "pending"):
-            errs.append(f"{L}: unknown review state {line.review_state!r}")
+            errs.append(t("errors.lab.v.unknownReviewState", label=L, state=repr(line.review_state)))
         if line.role not in ROLES:
-            errs.append(f"{L}: rol de capa desconocido {line.role!r}")
+            errs.append(t("errors.lab.v.unknownRole", label=L, role=repr(line.role)))
         if not 0.0 <= line.role_confidence <= 1.0:
-            errs.append(f"{L}: confianza de capa fuera de [0, 1] ({line.role_confidence})")
+            errs.append(t("errors.lab.v.roleConfidence", label=L, value=line.role_confidence))
         voice = (line.agent, line.role, line.layer)
         if line.start < last_start.get(voice, line.start):
-            errs.append(f"{L}: empieza antes que la línea anterior de su voz (orden no monótono)")
+            errs.append(t("errors.lab.v.nonMonotonic", label=L))
         last_start[voice] = line.start
         prev_end = None
         for w in line.words:
-            W = f"{L}, palabra {w.text!r}"
+            W = t("errors.lab.v.word", parent=L, text=repr(w.text))
             span(W, w)
             inside(W, w, line)
             if w.syllables and "".join(s.text for s in w.syllables) != w.text:
-                errs.append(f"{W}: sus sílabas no reconstruyen el texto")
+                errs.append(t("errors.lab.v.syllablesMismatch", label=W))
             for s in w.syllables:
-                S = f"{W}, sílaba {s.text!r}"
+                S = t("errors.lab.v.syllable", parent=W, text=repr(s.text))
                 if not s.text.strip():
-                    errs.append(f"{S}: texto vacío (una pausa no puede ser una unidad activa)")
+                    errs.append(t("errors.lab.v.emptySyllable", label=S))
                 span(S, s)
                 inside(S, s, w)
                 pv = None
                 for v in s.vowels:
-                    span(f"{S}, vocal {v.text!r}", v)
-                    inside(f"{S}, vocal {v.text!r}", v, s)
+                    vowel = t("errors.lab.v.vowel", parent=S, text=repr(v.text))
+                    span(vowel, v)
+                    inside(vowel, v, s)
                     if pv is not None and v.start < pv:
-                        errs.append(f"{S}: vocales fuera de orden")
+                        errs.append(t("errors.lab.v.vowelsOrder", label=S))
                     pv = v.end
             for u in (w.syllables or [w]):
                 if prev_end is not None and u.start < prev_end:
-                    errs.append(f"{L}, {u.text!r}: se solapa con la unidad anterior ({u.start} < {prev_end} ms)")
+                    errs.append(t("errors.lab.v.overlapsPrevious", label=L, text=repr(u.text), start=u.start, prevEnd=prev_end))
                 prev_end = u.end
         for p in line.pauses:
-            span(f"{L}, pausa", p)
+            span(t("errors.lab.v.pause", parent=L), p)
             hit = next((u for u in line.leaves if u.start < p.end and p.start < u.end), None)
             if hit:
-                errs.append(f"{L}: una pausa ({p.start}–{p.end} ms) se solapa con texto activo {hit.text!r}")
+                errs.append(t("errors.lab.v.pauseOverlap", label=L, start=p.start, end=p.end, text=repr(hit.text)))
     return errs
 
 
@@ -263,7 +266,7 @@ def merge(al: Alignment, old_ids: list[str], new_lines: list[Line]) -> Alignment
     have = {l.id for l in al.lines}
     missing = [i for i in old_ids if i not in have]
     if missing or not old_ids:
-        raise AlignmentError([f"líneas que no existen en la alineación: {missing}" if missing else "no se indicó qué líneas reemplazar"])
+        raise AlignmentError([t("errors.lab.mergeMissing", missing=missing) if missing else t("errors.lab.mergeNoLines")])
     old = [l for l in al.lines if l.id in old_ids]
     pinned_lines = {l.id: l for l in old if l.manual_override}
     pinned = _manual_units(old)

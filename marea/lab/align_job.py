@@ -3,6 +3,7 @@ import copy
 import re
 from dataclasses import asdict
 
+from marea.i18n import t
 from marea.lab.alignment import BG_ROLES, ROLES, Alignment, Line, add_line_pauses, assign_layers, estimate_offset, line_from_dict
 
 MIN_OFFSET_CONFIDENCE = 0.7  # ponytail: provisional; por debajo no se aplica ningún desfase global (se pide calibración manual)
@@ -141,7 +142,7 @@ def text_request_lines(texts: list[str], draft: list[dict] | None = None) -> lis
                 entry["hint"] = [int(d["start"]), int(d["end"])]
         out.append(entry)
     if any(d.get("review_state") == "pending" for k, d in enumerate(pool) if k not in used):
-        raise ValueError("Keep pending candidate lines in the draft; accept or reject them in review after alignment.")
+        raise ValueError(t("errors.lab.keepPendingLines"))
     return out
 
 

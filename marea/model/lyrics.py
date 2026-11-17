@@ -6,6 +6,8 @@ import yaml
 import defusedxml.ElementTree as ET  # los .ttml vienen de fuera: sin entidades externas ni billion-laughs
 from defusedxml import DefusedXmlException
 
+from marea.i18n import t
+
 INTERLUDE_MS = 2000
 INTRO_MS = 1200  # la intro muestra los puntos desde aquí (como Apple Music); los huecos entre versos, desde INTERLUDE_MS
 
@@ -244,9 +246,9 @@ def parse_ttml(source: str | bytes) -> Lyrics:
     try:
         root = ET.fromstring(source)
     except (ET.ParseError, DefusedXmlException) as e:
-        raise ValueError(f"El archivo no es un TTML válido: {e}") from e
+        raise ValueError(t("errors.lyrics.ttmlInvalid", error=e)) from e
     if root.tag != f"{TT}tt":
-        raise ValueError("El archivo no parece un TTML (falta la etiqueta <tt>).")
+        raise ValueError(t("errors.lyrics.ttmlNoTt"))
     agents: dict = {}
     lines = [line for p in root.iter(f"{TT}p") if (line := _parse_p(p, agents))]
     return Lyrics(sorted(lines, key=lambda l: l.start))
@@ -268,13 +270,13 @@ def _guess_end(start: int, text: str, next_start: int | None) -> int:
 def parse_lyricsfile(text: str) -> Lyrics:
     """Lyricsfile 1.0 (borrador de tranxuanthang/lyricsfile): líneas con `words` opcional por palabra."""
     if len(text) > 1_000_000:  # ponytail: solo tope de tamaño; el borrador desaconseja anclas/alias, no se rechazan
-        raise ValueError("El lyricsfile es demasiado grande.")
+        raise ValueError(t("errors.lyrics.lyricsfileTooBig"))
     try:
         doc = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise ValueError(f"El lyricsfile no es un YAML válido: {e}") from e
+        raise ValueError(t("errors.lyrics.lyricsfileYaml", error=e)) from e
     if not isinstance(doc, dict) or str(doc.get("version")) != "1.0":
-        raise ValueError("Versión de lyricsfile no soportada (solo 1.0).")
+        raise ValueError(t("errors.lyrics.lyricsfileVersion"))
     raw = sorted((l for l in doc.get("lines") or [] if isinstance(l, dict) and str(l.get("text", "")).strip()
                   and l.get("start_ms") is not None), key=lambda l: l["start_ms"])
     lines = []
@@ -288,10 +290,10 @@ def parse_lyricsfile(text: str) -> Lyrics:
         if words:
             syls: list[Syllable] = []
             for j, w in enumerate(words):
-                t, b = str(w["text"]), int(w["start_ms"])
+                txt, b = str(w["text"]), int(w["start_ms"])
                 e = int(w["end_ms"]) if w.get("end_ms") is not None else (
                     int(words[j + 1]["start_ms"]) if j + 1 < len(words) else end)
-                _append_word_syllable(syls, t, b, e)
+                _append_word_syllable(syls, txt, b, e)
             if syls:
                 syls[-1].word_end = False
         else:

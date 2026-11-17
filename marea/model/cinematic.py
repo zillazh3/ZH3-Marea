@@ -12,6 +12,7 @@ from typing import Callable
 from marea.audio import analysis as _audio_analysis_mod
 from marea.audio.analysis import _ANALYSIS_CACHE, AudioAnalysis, analyze_audio, cached_audio_analysis
 from marea.engine.curves import clamp, clamp01, smoothstep
+from marea.i18n import t
 
 SCHEMA = "marea.cinematic"
 VERSION = 1
@@ -312,13 +313,13 @@ def to_dict(config: CinematicConfig) -> dict:
 
 def migrate_dict(raw: dict) -> dict:
     if not isinstance(raw, dict):
-        raise CinematicError("La configuración cinemática no es un objeto JSON válido.")
+        raise CinematicError(t("errors.cinematic.notObject"))
     schema = raw.get("schema", SCHEMA)
     if schema != SCHEMA:
-        raise CinematicError(f"Esquema cinemático no soportado: {schema!r} (se esperaba {SCHEMA!r}).")
+        raise CinematicError(t("errors.cinematic.unsupportedSchema", schema=repr(schema), expected=repr(SCHEMA)))
     ver = int(raw.get("version", 1))
     if ver < 1 or ver > VERSION:
-        raise CinematicError(f"Versión cinemática no soportada: v{ver} (esta app lee hasta v{VERSION}).")
+        raise CinematicError(t("errors.cinematic.unsupportedVersion", ver=ver, max=VERSION))
     cur = dict(raw)
     while ver < VERSION:
         cur = MIGRATIONS[ver](cur)

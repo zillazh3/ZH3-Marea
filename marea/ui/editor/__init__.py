@@ -14,9 +14,9 @@ from marea.ui.editor.export_bar import MARKERS, MODES, OUTROS
 from marea.ui.editor.page import (
     DEFAULT_VERSES,
     PANEL_W,
-    PROJECT_FILTER,
     EditorPage,
     VerseDelegate,
+    project_filter,
     system_reduces_motion,
 )
 from marea.ui.editor.style_tab import MOTION_LABELS
@@ -33,7 +33,6 @@ __all__ = [
     "MOTION_LABELS",
     "OUTROS",
     "PANEL_W",
-    "PROJECT_FILTER",
     "VIDEO_FILTER",
     "EditorPage",
     "Params",
@@ -44,6 +43,7 @@ __all__ = [
     "ffmpeg",
     "fmt_ms",
     "local",
+    "project_filter",
     "record_song_range",
     "reveal_in_folder",
     "run_async",

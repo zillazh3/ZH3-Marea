@@ -10,6 +10,7 @@ from typing import Callable
 
 import httpx
 
+from marea.i18n import t
 from marea.paths import app_data
 from marea.providers.errors import ProviderError
 
@@ -57,12 +58,12 @@ class ThrottledHttpCache:
             now = self.clock()
             if now < self._blocked_until:
                 wait_s = math.ceil(self._blocked_until - now)
-                raise ProviderError(f"{service_name} pidió esperar. Intenta de nuevo en {wait_s} s.")
+                raise ProviderError(t("errors.lyrics.waitRequested", service=service_name, wait=wait_s))
             self.sleep(max(0.0, self._last + self.min_interval - now))
             try:
                 r = self.http.get(url, params=params, headers=headers)
             except httpx.HTTPError as e:
-                raise ProviderError(f"{service_name} no respondió. Revisa tu conexión y vuelve a intentar.") from e
+                raise ProviderError(t("errors.lyrics.noResponse", service=service_name)) from e
             finally:
                 self._last = self.clock()
             if on_response is not None:

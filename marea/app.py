@@ -2,6 +2,7 @@
 import ctypes
 import logging
 import multiprocessing
+import os
 import sys
 import traceback
 
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from marea.demo_cover import demo_cover
 from marea.paths import app_data, make_settings
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.window import MainWindow, qimage_from_skia
 from marea.version import VERSION
 
@@ -28,7 +29,7 @@ def install_error_handler(win: MainWindow):
     """Una excepción en un slot no cierra la app (PySide la tiraría en silencio): queda en data/marea.log y sale un aviso."""
     def hook(kind, value, tb):
         log.error("".join(traceback.format_exception(kind, value, tb)))
-        win.toast("Algo falló por dentro. Puedes seguir; el detalle quedó en data/marea.log.", "error")
+        win.toast(lang.t("app.unexpectedError"), "error")
     sys.excepthook = hook
 
 
@@ -45,6 +46,7 @@ def main() -> int:
     theme.load_fonts()
     settings = make_settings()
     theme.apply(app, theme.saved_name(settings))
+    lang.apply_preference(os.environ.get("MAREA_LANG") or settings.value("language", "system"))  # MAREA_LANG: dev/QA override
     win = MainWindow(settings, cover=qimage_from_skia(demo_cover()))  # portada demo hasta tener reproducción real
     install_error_handler(win)
     win.show()

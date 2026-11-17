@@ -15,6 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
+from marea.i18n import t
+
 BUNDLED_WEIGHTS = Path(__file__).resolve().parent.parent.parent / "assets" / "hooks" / "weights.json"
 # clave -> (mínimo, máximo, valor por omisión). Todo lo que viene del JSON se limita a estos rangos; lo desconocido se ignora.
 WEIGHT_SPEC: dict[str, tuple[float, float, float]] = {
@@ -233,15 +235,15 @@ def _explain(block, single, a, b, ttl, rep, energy, entry, peak_ms, audio) -> st
     bits = []
     hits = [len(block[k]) for k in range(a, b + 1) if block[k]]
     if hits:
-        bits.append(f"coro repetido {1 + int(np.median(hits))}×")
+        bits.append(t("hooks.msg.chorusRepeated", n=1 + int(np.median(hits))))
     else:
         sh = [len(single[k]) for k in range(a, b + 1) if single[k]]
         if sh:
-            bits.append(f"verso que se repite {1 + max(sh)}×")
+            bits.append(t("hooks.msg.lineRepeated", n=1 + max(sh)))
     if ttl > 0:
-        bits.append("menciona el título")
+        bits.append(t("hooks.msg.mentionsTitle"))
     if audio and energy >= 0.8:
-        bits.append(f"pico vocal en {_ts(peak_ms)}")
+        bits.append(t("hooks.msg.vocalPeak", time=_ts(peak_ms)))
     if audio and entry >= 0.6:
-        bits.append("entra con subida de energía")
-    return ", ".join(bits) if bits else "tramo completo con buena duración"
+        bits.append(t("hooks.msg.energyRise"))
+    return ", ".join(bits) if bits else t("hooks.msg.fullSpan")

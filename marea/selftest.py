@@ -48,6 +48,10 @@ def run() -> int:
         alpha = alpha_encoders()
         extra.append("alfa: " + ", ".join(f"{k}={'ok' if v else 'FALTA'}" for k, v in alpha.items()))
         ok = ok and all(alpha.values())
+        from marea import i18n  # the bundled catalogs must be in the build: each locale loads and resolves a real key
+        loaded = {c: i18n.catalog(c).get("settings.language.title") for c in i18n.SUPPORTED}
+        extra.append("idiomas: " + ", ".join(f"{c}={'ok' if v else 'FALTA'}" for c, v in loaded.items()))
+        ok = ok and all(loaded.values())
     except Exception as e:
         ok = False
         extra.append(f"FALLO {type(e).__name__}: {e}")

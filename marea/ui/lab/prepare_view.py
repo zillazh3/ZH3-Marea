@@ -3,10 +3,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget
 
 from marea.lab import env
-from marea.ui import theme
+from marea.ui import lang, theme
 from marea.ui.widgets import make_button
 
-LANGS = [("Español", "es"), ("Inglés", "en")]
+LANGS = [("Español", "es"), ("English", "en")]  # native names: never translated
 
 
 def build_prepare_page(win) -> QWidget:
@@ -19,11 +19,8 @@ def build_prepare_page(win) -> QWidget:
     cl = QVBoxLayout(card)
     cl.setContentsMargins(theme.SPACE[5], theme.SPACE[4], theme.SPACE[5], theme.SPACE[4])
     cl.setSpacing(theme.SPACE[3])
-    win.lb_mode = QLabel(
-        "Se alineará la letra de este proyecto (TTML con sílabas): conserva su texto, agentes y voces de fondo."
-        if win.mode == "ttml"
-        else "Este proyecto no tiene un TTML con sílabas. Escribe o pega la letra (una línea por verso) o pide un borrador a Whisper."
-    )
+    win.lb_mode = QLabel()
+    lang.bind(win.lb_mode, "lab.prepare.modeTtml" if win.mode == "ttml" else "lab.prepare.modeText")
     win.lb_mode.setObjectName("Body")
     win.lb_mode.setWordWrap(True)
     win.lb_mode.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
@@ -32,16 +29,19 @@ def build_prepare_page(win) -> QWidget:
     row = QHBoxLayout()
     win.lb_audio = QLabel()
     win.lb_audio.setObjectName("Muted")
-    win.btn_audio = make_button("Elegir audio…", "Ghost", win._choose_audio)
+    win.btn_audio = make_button("", "Ghost", win._choose_audio)
+    lang.bind(win.btn_audio, "lab.prepare.chooseAudio")
     row.addWidget(win.lb_audio, 1)
     row.addWidget(win.btn_audio)
     cl.addLayout(row)
 
     row = QHBoxLayout()
-    lb = QLabel("Idioma de la letra")
+    lb = QLabel()
+    lang.bind(lb, "lab.prepare.language")
     lb.setObjectName("Body")
     win.cb_lang = QComboBox()
-    win.cb_lang.addItem("Detectar (solo para el borrador)", "")
+    win.cb_lang.addItem("", "")
+    lang.bind_fn(win.cb_lang, "detectItem", lambda: win.cb_lang.setItemText(0, lang.t("lab.prepare.langDetect")))
     for name, code in LANGS:
         win.cb_lang.addItem(name, code)
     guess = win.skeleton.language[:2] if win.skeleton and win.skeleton.language else ""
@@ -51,20 +51,23 @@ def build_prepare_page(win) -> QWidget:
     row.addWidget(win.cb_lang)
     cl.addLayout(row)
 
-    win.cb_sep = QCheckBox("Separar la voz antes de alinear (más preciso en música con mucho acompañamiento; ~1.5 min por canción)")
+    win.cb_sep = QCheckBox()
+    lang.bind(win.cb_sep, "lab.prepare.separate")
     win.cb_sep.setChecked(env.separator_model_ready(win.root) and env.separation_installed(win.root))
     cl.addWidget(win.cb_sep)
 
-    win.cb_layers = QCheckBox("Separate lead/backing vocals (local models; review required)")
+    win.cb_layers = QCheckBox()
+    lang.bind(win.cb_layers, "lab.prepare.layers")
     win.cb_layers.setChecked(False)
-    win.cb_layers.setToolTip("Supply both weights and their configs in lab/separator-models. No weights are bundled or downloaded by this option.")
+    lang.bind(win.cb_layers, "lab.prepare.layersTip", "setToolTip")
     layer_row = QHBoxLayout()
     layer_row.addWidget(win.cb_layers, 1)
     win.btn_layer_models = make_button(
-        "Download model in Settings",
+        "",
         "Ghost",
         lambda: win.editor.window().open_lab_model_settings(env.KARAOKE_MODEL),
     )
+    lang.bind(win.btn_layer_models, "lab.prepare.layerModels")
     layer_row.addWidget(win.btn_layer_models)
     cl.addLayout(layer_row)
 
@@ -78,19 +81,23 @@ def build_prepare_page(win) -> QWidget:
     win._refresh_layers()
 
     win.ed_text = QPlainTextEdit()
-    win.ed_text.setPlaceholderText("Una línea por verso…")
+    lang.bind(win.ed_text, "lab.prepare.textPlaceholder", "setPlaceholderText")
     win.ed_text.setMinimumHeight(220)
     win.ed_text.setPlainText("\n".join(l.text for l in getattr(win.project.lyrics, "lines", [])) if win.mode == "text" else "")
     win.ed_text.setVisible(win.mode == "text")
     cl.addWidget(win.ed_text)
 
     row = QHBoxLayout()
-    win.btn_open = make_button("Abrir alineación guardada…", "Ghost", win._open_json)
-    win.btn_asr = make_button("Transcribir un borrador (Whisper)", "Ghost", win._transcribe)
+    win.btn_open = make_button("", "Ghost", win._open_json)
+    lang.bind(win.btn_open, "lab.prepare.openSaved")
+    win.btn_asr = make_button("", "Ghost", win._transcribe)
+    lang.bind(win.btn_asr, "lab.prepare.transcribe")
     win.btn_asr.setVisible(win.mode == "text")
-    win.btn_cancel = make_button("Cancelar", "Ghost", win._cancel)
+    win.btn_cancel = make_button("", "Ghost", win._cancel)
+    lang.bind(win.btn_cancel, "lab.common.cancel")
     win.btn_cancel.setVisible(False)
-    win.btn_align = make_button("Alinear con el audio", "Primary", win._align)
+    win.btn_align = make_button("", "Primary", win._align)
+    lang.bind(win.btn_align, "lab.prepare.align")
     row.addWidget(win.btn_open)
     row.addStretch()
     row.addWidget(win.btn_asr)

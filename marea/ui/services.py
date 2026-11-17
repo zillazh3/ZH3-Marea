@@ -12,6 +12,7 @@ from marea.providers.lyrics.chain import ChainProvider
 from marea.providers.lyrics.lrclib import LrclibProvider
 from marea.providers.lyrics.spicy import SpicyLyricsProvider
 from marea.providers.spotify import Playback, SpotifyClient, Track
+from marea.ui import lang
 
 POLL_MS = 5000  # una consulta de «ahora suena» cada 5 s: lejos de los límites de Spotify
 CONTROL_REFRESH_MS = 600  # tras play/pausa/siguiente: espera a que Spotify refleje el cambio antes de consultar
@@ -80,7 +81,7 @@ class Services(QObject):
         """Abre el navegador y espera la autorización (hasta 3 min) sin bloquear la UI."""
         if not self.spotify:
             if err:
-                err(ProviderError("Falta el Client ID de Spotify. Pégalo en Ajustes y vuelve a conectar."))
+                err(ProviderError(lang.t("services.missingClientId")))
             return
 
         def done(_):
@@ -115,7 +116,7 @@ class Services(QObject):
             self._polling = False
             if not self._failing:
                 self._failing = True
-                self.problem.emit(str(e) if isinstance(e, ProviderError) else "No pude consultar Spotify. Intenta de nuevo.")
+                self.problem.emit(str(e) if isinstance(e, ProviderError) else lang.t("services.pollFailed"))
 
         run_async(self.spotify.now_playing, ok, err)
 
@@ -134,7 +135,7 @@ class Services(QObject):
 
         def err(e):
             self._controlling = False
-            self.problem.emit(str(e) if isinstance(e, ProviderError) else "No pude controlar Spotify. Intenta de nuevo.")
+            self.problem.emit(str(e) if isinstance(e, ProviderError) else lang.t("services.controlFailed"))
 
         run_async(run, ok, err)
 
@@ -158,7 +159,7 @@ class Services(QObject):
     def build_project(self, t: Track) -> ClipProject:
         ly = self._lyrics_for(t)
         if not ly:
-            raise ProviderError("No encontré una letra sincronizada para esta canción. Prueba con otra versión o abre un .ttml propio.")
+            raise ProviderError(lang.t("services.noLyrics"))
         cover = None
         if t.cover_url:
             try:
