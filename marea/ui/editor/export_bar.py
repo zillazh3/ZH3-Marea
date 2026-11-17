@@ -73,6 +73,11 @@ class ExportBarController:
             a.triggered.connect(lambda _=False, k=key: self.target_picked(k))
             if key in ffmpeg.ALPHA_TARGETS:
                 a.setToolTip("Exporta sin fondo y con canal alfa: al elegirlo, el fondo cambia a «Transparente».")
+        ed.codec_menu = m.addMenu("Códec de video")
+        ed.codec_actions = self._radio_actions(ed.codec_menu, ffmpeg.CODECS, "export/codec", "h264")
+        ed.codec_actions["h264"].setToolTip("El más compatible: lo reproduce y acepta cualquier app. Predeterminado.")
+        ed.codec_actions["hevc"].setToolTip("Archivos más chicos con la misma calidad; algunos reproductores antiguos no lo abren.")
+        ed.codec_actions["av1"].setToolTip("El más eficiente, pero no todas las apps y reproductores lo aceptan.")
         ed.act_alpha_wm = m.addAction("Marca de agua en exports con transparencia")
         ed.act_alpha_wm.setCheckable(True)
         ed.act_alpha_wm.setChecked(ed.settings.value("export/alpha_watermark", True, type=bool))
@@ -103,10 +108,15 @@ class ExportBarController:
         ed.act_fxprofile.setVisible(fx)
         ed.act_fxgallery.setVisible(fx)
         ed.act_fx_sep.setVisible(fx)
-        for key, actions in (("export/preset", ed.preset_actions), ("export/target", ed.target_actions)):
+        for key, actions in (("export/preset", ed.preset_actions), ("export/target", ed.target_actions),
+                             ("export/codec", ed.codec_actions)):
             current = ed.settings.value(key)
             if current in actions:
                 actions[current].setChecked(True)
+        found = ffmpeg.detected_encoders()  # None mientras se detecta: no se bloquea el menú
+        for codec, a in ed.codec_actions.items():
+            a.setEnabled(found is None or any(codec in cs for cs in found.values()))
+        ed.codec_menu.setEnabled(ed.settings.value("export/target", "mp4") not in ffmpeg.ALPHA_TARGETS)  # WebM/ProRes/PNG traen su códec
         self.update_summary()
 
     def target_picked(self, target: str):
@@ -145,4 +155,6 @@ class ExportBarController:
         preset = PRESETS.get(ed.settings.value("export/preset", "tiktok"), PRESETS["tiktok"])[0]
         target = ffmpeg.TARGETS.get(ed.settings.value("export/target", "mp4"), ffmpeg.TARGETS["mp4"])[1]
         ed.btn_format.setText(preset)
-        ed.summary.setText(target)  # mode and format are already visible as chips / picker
+        # mode and format are already visible as chips / picker; the codec only exists for the MP4
+        codec = ffmpeg.CODECS.get(ed.settings.value("export/codec", "h264"), ffmpeg.CODECS["h264"])
+        ed.summary.setText(f"{target} · {codec}" if ed.settings.value("export/target", "mp4") == "mp4" else target)

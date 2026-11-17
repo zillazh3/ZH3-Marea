@@ -38,7 +38,8 @@ class ExportJob:
     end_ms: float
     size: tuple[int, int] = (1080, 1920)
     fps: int = 60
-    encoder: str = "cpu"  # "cpu" (libx264) | "nvenc"
+    encoder: str = "cpu"  # backend concreto: "cpu" | "nvenc" | "amf" | "qsv" (ver ffmpeg.resolve_encoder)
+    codec: str = "h264"  # "h264" | "hevc" | "av1": solo aplica al MP4
     marker: str = "none"  # "none" | "flash" (primer frame blanco) | "beep" (pitido de 120 ms)
     params: Params = field(default_factory=Params)
     style: Style = field(default_factory=Style)
@@ -113,7 +114,7 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
     try:
         png = job.target == "png"
         with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.marker == "beep" and not job.audio_path and not png,
-                          audio=None if png else job.audio_path, target=job.target) as out:
+                          audio=None if png else job.audio_path, target=job.target, codec=job.codec) as out:
             t0 = time.perf_counter()
             recent_times.append(t0)
 

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from marea.async_util import run_async
 from marea.audio.loopback import AudioError
-from marea.export.ffmpeg import nvenc_available
+from marea.export.ffmpeg import BACKENDS, CODECS, HW_ORDER, detect_encoders
 from marea.paths import default_output_dir
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import REDIRECT_URI
@@ -204,22 +204,33 @@ class SettingsBody(QWidget):
         pick = make_button("Cambiar…", "Ghost", self._choose_folder)
         self._row(lay, "Carpeta de salida", self.out_dir, pick)
         self.encoder = QComboBox()
-        self.encoder.addItem("CPU (libx264, mejor compresión)", "cpu")
-        self.encoder.addItem("NVIDIA NVENC (más rápido)", "nvenc")
-        self.encoder.setCurrentIndex(max(0, self.encoder.findData(settings.value("export/encoder", "cpu"))))
+        self.encoder.addItem("Automático (la mejor GPU; si no hay, la CPU)", "auto")
+        for key, label in BACKENDS.items():
+            self.encoder.addItem(label if key == "cpu" else f"{label} · detectando…", key)
+        self.encoder.setCurrentIndex(max(0, self.encoder.findData(settings.value("export/encoder", "auto"))))
         self.encoder.currentIndexChanged.connect(lambda: settings.setValue("export/encoder", self.encoder.currentData()))
         self._row(lay, "Codificador", self.encoder)
-        run_async(nvenc_available, self._nvenc_checked, lambda e: None)  # sin NVENC no se ofrece
+        self.encoder_note = QLabel("Buscando GPU compatible…")
+        self.encoder_note.setObjectName("Caption")
+        self.encoder_note.setWordWrap(True)
+        lay.addWidget(self.encoder_note)
+        run_async(detect_encoders, self._encoders_detected, lambda e: None)
 
-    def _nvenc_checked(self, ok: bool):
-        item = self.encoder.model().item(self.encoder.findData("nvenc"))
-        item.setEnabled(ok)
-        if not ok and self.encoder.currentData() == "nvenc":
-            self.encoder.setCurrentIndex(0)
-        elif ok and self.settings.value("export/encoder") is None:
-            idx = self.encoder.findData("nvenc")
-            if idx >= 0:
-                self.encoder.setCurrentIndex(idx)
+    def _encoders_detected(self, found: dict[str, tuple[str, ...]]):
+        """Solo se ofrece lo que esta máquina codifica de verdad (ffmpeg lista encoders que el driver no permite)."""
+        for key, label in BACKENDS.items():
+            idx, codecs = self.encoder.findData(key), found.get(key, ())
+            self.encoder.model().item(idx).setEnabled(bool(codecs) or key == "cpu")
+            self.encoder.setItemText(idx, f"{label} · {', '.join(CODECS[c] for c in codecs)}" if codecs else
+                                     label if key == "cpu" else f"{label} · no detectado")
+        if not self.encoder.model().item(self.encoder.currentIndex()).isEnabled():  # GPU que ya no está: no se sobrescribe lo guardado
+            with blocked_signals(self.encoder):
+                self.encoder.setCurrentIndex(0)
+        gpus = [BACKENDS[k] for k in HW_ORDER if found.get(k)]
+        self.encoder_note.setText(
+            (f"GPU detectada: {', '.join(gpus)}." if gpus else "No se detectó una GPU compatible (NVIDIA, AMD o Intel): se usa la CPU.")
+            + " El códec (H.264 por defecto, HEVC o AV1) se elige en el menú ⋯ del Editor; si la GPU no lo soporta, se usa la CPU."
+        )
 
     def output_dir(self) -> Path:
         return Path(self.settings.value("output_dir", str(default_output_dir())))

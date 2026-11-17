@@ -10,7 +10,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Qt](https://img.shields.io/badge/PySide6-nativo-41CD52?logo=qt&logoColor=white)
 ![Skia](https://img.shields.io/badge/render-Skia%20%2B%20GPU-5B6CFF)
-![ffmpeg](https://img.shields.io/badge/export-ffmpeg%20H.264-007808?logo=ffmpeg&logoColor=white)
+![ffmpeg](https://img.shields.io/badge/export-ffmpeg%20H.264%20%2F%20HEVC%20%2F%20AV1-007808?logo=ffmpeg&logoColor=white)
 ![Portable](https://img.shields.io/badge/.exe-100%25%20portable-FF6B9D)
 ![Licencia](https://img.shields.io/badge/licencia-AGPL--3.0-blue)
 ![Release](https://img.shields.io/github/v/release/zillazh3/ZH3-Marea?label=release&color=FF6B9D)
@@ -34,7 +34,7 @@ exactamente el mismo motor, así que lo que ves es lo que sale.
 - 🎣 **Anzuelo**: sugiere los mejores versos para un clip de 15, 30 o 60 s y encola variantes A/B.
 - 🎬 **Tres modos**: solo letra, clip con canción y canción completa.
 - 🎞️ **Export determinista**: pasos fijos de 1/60 s; el mismo trabajo da los mismos píxeles, siempre.
-- ⚡ **GPU** (OpenGL vía Skia) con respaldo en CPU, y NVENC opcional para codificar.
+- ⚡ **GPU** (OpenGL vía Skia) con respaldo en CPU, y codificación por GPU opcional (NVIDIA NVENC, AMD AMF o Intel Quick Sync, detectadas solas).
 - 💧 **Marca de agua** editable que respeta la zona segura de TikTok y se aparta de la línea cantada.
 - 🎧 **Audio alineado**: loopback de tu propia reproducción de Spotify o archivo propio con forma de onda para ajustar el desfase.
 - 🌅 **Outro ajustable**: el menú Outro extiende el rango del clip unos segundos más y desvanece el audio.
@@ -99,10 +99,16 @@ py -3.12 -m venv .venv
 
 | Archivo | Códec | Transparencia | Audio |
 |---|---|:--:|---|
-| **MP4** | H.264 (`libx264 -preset slow -crf 16` o NVENC) · `yuv420p` · BT.709 · `+faststart` | no | AAC 320k |
+| **MP4** | H.264 (predeterminado), HEVC o AV1 · `yuv420p` · BT.709 · `+faststart` | no | AAC 320k |
 | **WebM** | VP9 (`libvpx-vp9`, `yuva420p`) | sí | Opus 192k |
 | **ProRes 4444 `.mov`** | `prores_ks -profile:v 4444`, `yuva444p10le` | sí | PCM 16 bit |
 | **Secuencia PNG** | carpeta de PNG RGBA numerados + `marea.json` (fps, resolución, rango) | sí | sin audio |
+
+**Códec y GPU (solo MP4):** el códec se elige en el menú del Editor → **Códec de video** (**H.264** por defecto, el más compatible;
+**HEVC** y **AV1** pesan menos pero no todas las apps los aceptan). Quién lo codifica se elige en **Ajustes → Exportación → Codificador**:
+*Automático* usa la primera GPU que lo soporte (NVIDIA NVENC, AMD AMF, Intel Quick Sync, incluidas las Arc) y si no hay, la CPU
+(`libx264`, `libx265`, `libsvtav1`). Al abrir la app se prueba cada combinación con un video real de unos frames, así que solo se ofrece lo que
+tu equipo codifica de verdad; si eliges una GPU que no soporta el códec, se usa la CPU y se te avisa.
 
 **Tamaños:** 1080×1920 (TikTok), 1080×1080 y 1920×1080 · 60 fps. El **marcador de inicio** (flash de 1 frame o pitido) te ayuda a
 sincronizar el sonido oficial.
@@ -125,7 +131,7 @@ falta o cambió cuando abres el proyecto, la app vuelve a **Portada** y te avisa
 
 **Exportar con transparencia:** elige **WebM**, **ProRes 4444** o **Secuencia PNG** en el menú del Editor → **Archivo**; el fondo cambia solo
 a *Transparente* (y vuelve a MP4 si eliges otro fondo). El alfa sale **recto** (no premultiplicado), sin halos oscuros en el brillo, el
-bloom ni la marca de agua (que puedes incluir o no con **Marca de agua en exports con transparencia**). Los formatos con alfa no usan NVENC.
+bloom ni la marca de agua (que puedes incluir o no con **Marca de agua en exports con transparencia**). Los formatos con alfa traen su propio códec y no usan la GPU.
 
 > 📸 *Captura pendiente:* `docs/screenshots/fondo-video.png` (pestaña Fondo con video propio) y `docs/screenshots/alfa.png` (export sobre un editor de video).
 

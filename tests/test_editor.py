@@ -212,7 +212,7 @@ def test_lyrics_export_enqueues_a_job_with_range_and_no_audio(win, captured, tmp
     (item,) = captured
     assert item.audio is None and item.job.size == (1080, 1080) and (item.job.start_ms, item.job.end_ms) == clip_range(e.project.lyrics, 0, 5)
     assert item.job.out_path.parent == tmp_path and got == [item] and not e.preview.playing
-    assert e.mode_chips["lyrics"].isChecked() and e.summary.text() == ffmpeg.TARGETS["mp4"][1]
+    assert e.mode_chips["lyrics"].isChecked() and e.summary.text() == "MP4 · H.264"
 
 
 def test_song_mode_needs_an_audio_source_and_explains_how(win, captured):

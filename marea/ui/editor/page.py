@@ -117,6 +117,7 @@ class EditorPage(QWidget):
         self.settings, self.notify, self.queue, self.services = settings, notify, queue, services
         self.project: ClipProject | None = None
         self._linked = None
+        self._encoder_warned: set[tuple[str, str, str, str]] = set()
         self.style, self.params = Style(), Params()
         self.first = self.last = self._anchor = 0
         self._scrubbing = False
@@ -744,6 +745,19 @@ class EditorPage(QWidget):
     def _full_end_ms(self) -> float:
         return self._song_duration_ms()
 
+    def _resolve_encoder(self) -> tuple[str, str]:
+        """(backend, códec) del export según Ajustes y el menú; avisa una vez si la GPU elegida no puede con el códec."""
+        want_backend = self.settings.value("export/encoder", "auto")
+        want_codec = self.settings.value("export/codec", "h264")
+        backend, codec = ffmpeg.resolve_encoder(want_backend, want_codec)
+        if (want_backend not in ("auto", backend)) or (want_codec != codec):
+            key = (want_backend, want_codec, backend, codec)
+            if key not in self._encoder_warned:
+                self._encoder_warned.add(key)
+                self.notify(f"{ffmpeg.BACKENDS.get(want_backend, 'Este equipo')} no puede codificar {ffmpeg.CODECS.get(want_codec, want_codec)} "
+                            f"en este equipo: se usó {ffmpeg.BACKENDS[backend]} con {ffmpeg.CODECS[codec]}.", "info")
+        return backend, codec
+
     def build_job(self, start_ms: float | None = None, end_ms: float | None = None, full: bool = False,
                   first: int | None = None, last: int | None = None, look_preset=None) -> ExportJob:
         """`first`/`last`: versos del nombre del archivo (por omisión, la selección actual). `look_preset`: PresetInfo de una Corriente
@@ -753,6 +767,7 @@ class EditorPage(QWidget):
             start_ms, end_ms = self._clip_range()
         target = self.settings.value("export/target", "mp4")
         target = target if target in TARGETS else "mp4"
+        encoder, codec = self._resolve_encoder() if target == "mp4" else ("cpu", "h264")  # los destinos con alfa traen su códec
         style, params, background, fx = self.look()
         background = copy.deepcopy(background)
         plan = self._fx_plan
@@ -777,7 +792,8 @@ class EditorPage(QWidget):
             end_ms,
             size=(preset[1], preset[2]),
             fps=60,
-            encoder=self.settings.value("export/encoder") or ffmpeg.default_encoder(),
+            encoder=encoder,
+            codec=codec,
             marker=self.settings.value("export/marker", "none"),
             params=params,
             style=style,
