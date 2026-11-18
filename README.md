@@ -77,7 +77,7 @@ Full list in [`CHANGELOG.md`](CHANGELOG.md).
 
 ### 📦 Option A: portable (recommended)
 
-1. Download `ZH3-Marea-v0.2.0-portable.zip` from [Releases](https://github.com/zillazh3/ZH3-Marea/releases/latest) and unzip it anywhere. You can verify the download with `SHA256SUMS.txt`.
+1. Download `ZH3-Marea-v0.2.1-portable.zip` from [Releases](https://github.com/zillazh3/ZH3-Marea/releases/latest) and unzip it anywhere. You can verify the download with `SHA256SUMS.txt`.
 2. Open **`ZH3 Marea.exe`**. Done.
 
 ffmpeg is included, and the folder contains `README.md`, `LEEME.md` and `CHANGELOG.md`. Settings, cache and log live in `data/` next to
@@ -100,7 +100,7 @@ py -3.12 -m venv .venv
 ### 🏗️ Build your own portable
 
 ```powershell
-.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ and dist\ZH3-Marea-v0.2.0-portable.zip
+.\.venv\Scripts\python tools\build_exe.py --zip   # dist\ZH3 Marea\ and dist\ZH3-Marea-v0.2.1-portable.zip
 ```
 
 > ⚖️ The bundled ffmpeg is a GPL build (Gyan): respect its license if you redistribute the folder.

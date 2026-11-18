@@ -5,6 +5,13 @@ All notable changes to ZH3 Marea are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 Version 0.1.3 was an internal milestone that was never released; its work ships as part of 0.2.0.
 
+## [0.2.1] - 2026-11-17
+
+### Changed
+
+- The window title bar shows the song playing on Spotify ("Title — Artist") when no project is open; an open project still takes priority,
+  and the app name is shown when nothing is playing. The title is always rendered as plain text.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added
@@ -77,5 +84,6 @@ Version 0.1.3 was an internal milestone that was never released; its work ships 
 
 See the [GitHub release notes](https://github.com/zillazh3/ZH3-Marea/releases/tag/v0.1.2).
 
+[0.2.1]: https://github.com/zillazh3/ZH3-Marea/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zillazh3/ZH3-Marea/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zillazh3/ZH3-Marea/releases/tag/v0.1.2
