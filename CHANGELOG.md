@@ -5,6 +5,21 @@ All notable changes to ZH3 Marea are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 Version 0.1.3 was an internal milestone that was never released; its work ships as part of 0.2.0.
 
+## [0.2.2] - 2026-11-17
+
+### Added
+
+- **Real-time audio preview:** streaming WASAPI player (`marea/audio/player.py`) synchronized with the Editor preview clock, Stop/rewind, volume and mute controls, `ClickSeekSlider`, millisecond readout (`M:SS.mmm`), live audio-offset shifting, and interactive `WaveformWidget` click/drag scrubbing.
+- **Deezer catalog fallback & music link analyzer:** search and track lookup via Deezer without requiring Spotify login (`marea/providers/deezer.py`), URL/URI resolver (`marea/providers/links.py`) for Spotify, Apple Music, Deezer, YouTube, Tidal and SoundCloud links, fuzzy relevance ranking with version penalties (`marea/providers/matching.py`), and `CandidateDialog` disambiguation.
+- **Native lyrics source tags:** canonical `Spicy Lyrics`, `LRCLIB`, `Manual` and `Unknown` pills (`marea/ui/source_tag.py`) across Search, Home, Library and Editor, with a retry/pick-match menu and manual-edit overwrite protection.
+- **Project schema v2:** provider-agnostic `Track` identity (`marea/providers/track.py`), automatic v1-to-v2 migration (`_migrate_v1_to_v2`), album metadata editing, and persisted `lyrics_source` in `library.json`.
+
+### Changed
+
+- `SearchPage` is available without a Spotify connection using Deezer search, and accepts pasted music links directly in the search box.
+- `ChainProvider` validates finite, ordered synchronization timing (`validate_lyrics`) before accepting primary lyrics and falling back to LRCLIB, while `LrclibProvider` scores candidate matches by normalized title, artist and duration.
+- Navigating away from the Editor pauses active preview playback automatically.
+
 ## [0.2.1] - 2026-11-17
 
 ### Changed
@@ -84,6 +99,7 @@ Version 0.1.3 was an internal milestone that was never released; its work ships 
 
 See the [GitHub release notes](https://github.com/zillazh3/ZH3-Marea/releases/tag/v0.1.2).
 
+[0.2.2]: https://github.com/zillazh3/ZH3-Marea/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/zillazh3/ZH3-Marea/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zillazh3/ZH3-Marea/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/zillazh3/ZH3-Marea/releases/tag/v0.1.2
