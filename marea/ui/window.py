@@ -104,6 +104,7 @@ class TitleBar(QWidget):
         self.logo = QLabel()
         self.logo.setPixmap(theme.logo_pixmap(18, self.devicePixelRatioF()))
         self.title = ElidedLabel(APP_NAME)
+        self.title.setTextFormat(Qt.PlainText)  # the song title comes from Spotify: never render it as HTML
         self.title.setObjectName("TitleText")
         self.btn_min, self.btn_max, self.btn_close = CaptionButton("minus"), CaptionButton("square"), CaptionButton("x", True)
         self.btn_min.clicked.connect(win.showMinimized)
@@ -145,6 +146,8 @@ class MainWindow(QWidget):
         if self._mica_wanted:
             self.setAttribute(Qt.WA_TranslucentBackground)  # Mica se ve a través de la ventana
         self._veil: QImage | None = None
+        self._project_title: str | None = None
+        self._playing_title: str | None = None
         self._narrow = False
         self._pref_collapsed = self.settings.value("sidebar_collapsed", False, type=bool)
 
@@ -235,7 +238,12 @@ class MainWindow(QWidget):
             self.set_cover(qimage_from_skia(self.editor.project.cover))
 
     def set_song(self, title: str | None):
-        self.titlebar.title.set_full_text(title or APP_NAME)
+        self._project_title = title
+        self._refresh_title()
+
+    def _refresh_title(self):
+        """Title bar: the open project wins, then the song playing on Spotify, then the app name."""
+        self.titlebar.title.set_full_text(self._project_title or self._playing_title or APP_NAME)
 
     def toast(self, text: str, kind: str = "info", action=None):
         return self.toasts.show_toast(text, kind, action)
@@ -278,6 +286,8 @@ class MainWindow(QWidget):
     def _on_playback(self, pb):
         t = pb.track if pb else None
         self.sidebar.player.set_track(t.title if t else None, t.artist if t else None, bool(pb and pb.is_playing))
+        self._playing_title = f"{t.title} — {t.artist}" if t and t.artist else (t.title if t else None)
+        self._refresh_title()
 
     def load_demo(self):
         self.load_project(demo_project())

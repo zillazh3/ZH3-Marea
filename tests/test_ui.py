@@ -166,3 +166,19 @@ def test_spotify_status_sits_above_the_settings_button(qapp):
     assert sb.spotify.geometry().bottom() <= sb.buttons[-1].geometry().top()
     assert sb.buttons[-1].geometry().bottom() <= sb.player.geometry().top()
     sb.close()
+
+
+def test_title_bar_shows_the_playing_song_unless_a_project_is_open(qapp, make_window):
+    from types import SimpleNamespace as NS
+    win = make_window()
+    title = lambda: win.titlebar.title._full  # noqa: E731
+    assert title() == "ZH3 Marea"
+    win._on_playback(NS(track=NS(title="ENTROPÍA", artist="HUMBE"), is_playing=True))
+    assert title() == "ENTROPÍA — HUMBE"
+    win.set_song("Mi proyecto")  # an open project takes priority over the playing song
+    win._on_playback(NS(track=NS(title="Otra", artist="X"), is_playing=True))
+    assert title() == "Mi proyecto"
+    win.set_song(None)
+    assert title() == "Otra — X"
+    win._on_playback(None)  # nothing playing and no project: back to the app name
+    assert title() == "ZH3 Marea"
