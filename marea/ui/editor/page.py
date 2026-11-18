@@ -12,9 +12,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QStackedWidget,
@@ -34,11 +37,15 @@ from marea.export.ffmpeg import ALPHA_TARGETS, TARGETS
 from marea.export.job import PRESETS, TAIL_MS, ExportJob, clip_name, clip_range
 from marea.export.queue import AudioSpec, ExportQueue, QueueItem
 from marea.model.background import BackgroundConfig
+from marea.model.lyrics import SOURCE_LRCLIB, SOURCE_MANUAL, SOURCE_SPICY, SOURCE_UNKNOWN
 from marea.paths import default_output_dir
 from marea.presets import schema as preset_schema
 from marea.project import ClipProject, ProjectError, load_cover, load_project_file, project_from_ttml, save_project
+from marea.providers.errors import ProviderError
+from marea.providers.track import Track
 from marea.render.scene import Style
 from marea.ui import lang, theme
+from marea.ui.dialogs import CandidateDialog, CandidateItem
 from marea.ui.editor._pkg import pkg_attr
 from marea.ui.editor.audio_tab import AudioController
 from marea.ui.editor.cinematic_tab import CinematicController
@@ -49,10 +56,13 @@ from marea.ui.editor.presets_panel import PresetsController
 from marea.ui.editor.style_tab import build_style_tab
 from marea.ui.editor.wordfx_controller import WordFXController
 from marea.ui.preview import PreviewWidget
-from marea.ui.widgets import CoalescedAction, EmptyState, blocked_signals, fmt_ms
+from marea.ui.services import decode_cover
+from marea.ui.source_tag import SourceTagButton, source_label
+from marea.ui.widgets import ClickSeekSlider, CoalescedAction, EmptyState, blocked_signals, fmt_ms
 
 PANEL_W = 448  # las 6 pestañas (con Anzuelo) caben sin botones de desplazamiento
 DEFAULT_VERSES = 6
+SCRUB_MAX = 10000
 
 
 def project_filter() -> str:
@@ -237,23 +247,51 @@ class EditorPage(QWidget):
         self.preview.playing_changed.connect(self._on_playing)
         left.addWidget(self.preview, 1)
         ctrl = QHBoxLayout()
+        ctrl.setSpacing(theme.SPACE[1])
         self.btn_play = QPushButton()
         self.btn_play.setObjectName("IconBtn")
-        self.btn_play.setFixedSize(40, 40)
+        self.btn_play.setFixedSize(36, 36)
         self.btn_play.setCursor(Qt.PointingHandCursor)
         lang.bind(self.btn_play, "editor.playPause", "setToolTip")
         self.btn_play.clicked.connect(lambda: self.preview.set_playing(not self.preview.playing))
-        self.scrub = QSlider(Qt.Horizontal)
-        self.scrub.setRange(0, 1000)
+        self.btn_stop = QPushButton()
+        self.btn_stop.setObjectName("IconBtn")
+        self.btn_stop.setFixedSize(32, 32)
+        self.btn_stop.setCursor(Qt.PointingHandCursor)
+        lang.bind(self.btn_stop, "editor.stop", "setToolTip")
+        self.btn_stop.clicked.connect(self.preview.stop)
+        self.scrub = ClickSeekSlider(Qt.Horizontal)
+        self.scrub.setRange(0, SCRUB_MAX)
         self._scrub_action = CoalescedAction(16, self._flush_scrub, self)
         self.scrub.sliderPressed.connect(lambda: setattr(self, "_scrubbing", True))
         self.scrub.sliderReleased.connect(self._on_scrub_released)
         self.scrub.valueChanged.connect(self._on_scrub)
-        self.time = QLabel("0:00.0 / 0:00.0")
+        self.time = QLabel("0:00.000 / 0:00.000")
         self.time.setObjectName("Caption")
+        self.time.setStyleSheet("font-variant-numeric: tabular-nums;")
+        self.btn_mute = QPushButton()
+        self.btn_mute.setObjectName("IconBtn")
+        self.btn_mute.setFixedSize(30, 30)
+        self.btn_mute.setCursor(Qt.PointingHandCursor)
+        self._preview_muted = self.settings.value("preview/muted", False, type=bool)
+        self.btn_mute.clicked.connect(self._toggle_mute)
+        self.sl_volume = ClickSeekSlider(Qt.Horizontal)
+        self.sl_volume.setRange(0, 100)
+        vol = max(0, min(100, int(self.settings.value("preview/volume", 100))))
+        self.sl_volume.setValue(vol)
+        self.sl_volume.setFixedWidth(68)
+        lang.bind(self.sl_volume, "editor.volume", "setToolTip")
+        self.sl_volume.valueChanged.connect(self._on_volume_changed)
+        self.preview.set_volume(vol / 100.0)
+        self.preview.set_muted(self._preview_muted)
+        self._refresh_mute_tip()
         ctrl.addWidget(self.btn_play)
+        ctrl.addWidget(self.btn_stop)
         ctrl.addWidget(self.scrub, 1)
         ctrl.addWidget(self.time)
+        ctrl.addSpacing(theme.SPACE[1])
+        ctrl.addWidget(self.btn_mute)
+        ctrl.addWidget(self.sl_volume)
         left.addLayout(ctrl)
         lay.addLayout(left, 1)
 
@@ -278,6 +316,13 @@ class EditorPage(QWidget):
         self.range_label = QLabel()
         self.range_label.setObjectName("Muted")
         self.range_label.setContentsMargins(theme.SPACE[2], 0, 0, 0)
+        self.source_tag = SourceTagButton(SOURCE_UNKNOWN)
+        self.source_tag.clicked.connect(self._open_source_menu)
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 0, theme.SPACE[2], 0)
+        meta_row.setSpacing(theme.SPACE[2])
+        meta_row.addWidget(self.range_label, 1)
+        meta_row.addWidget(self.source_tag)
         self.credit = QLabel()
         self.credit.setObjectName("Caption")
         self.credit.setTextFormat(Qt.PlainText)
@@ -285,7 +330,7 @@ class EditorPage(QWidget):
         self.credit.setContentsMargins(theme.SPACE[2], 0, 0, 0)
         vl.addWidget(hint)
         vl.addWidget(self.list, 1)
-        vl.addWidget(self.range_label)
+        vl.addLayout(meta_row)
         vl.addWidget(self.credit)
         right.addWidget(verses, 3)
 
@@ -316,14 +361,37 @@ class EditorPage(QWidget):
 
     def _open_sync(self):
         from marea.ui.lab import open_review  # lazy import when experimental/align is active
+        self.preview.set_playing(False)
         open_review(self)
 
     def _refresh_icons(self):
         t = theme.current
         self.btn_play.setIcon(theme.icon("pause" if self.preview.playing else "play", t.text, 18))
+        self.btn_stop.setIcon(theme.icon("square", t.text_muted, 15))
+        self.btn_mute.setIcon(theme.icon("volume-x" if self._preview_muted else "volume-2", t.text_muted, 16))
         self.btn_menu.setIcon(theme.icon("ellipsis", t.text_muted, 16))
         self.btn_format.setIcon(theme.icon("chevron-down", t.text_muted, 16))
         self.btn_format.setLayoutDirection(Qt.RightToLeft)  # chevron after the label
+
+    def _refresh_mute_tip(self):
+        lang.bind(self.btn_mute, "editor.unmute" if self._preview_muted else "editor.mute", "setToolTip")
+
+    def _toggle_mute(self):
+        self._preview_muted = not self._preview_muted
+        self.settings.setValue("preview/muted", self._preview_muted)
+        self.preview.set_muted(self._preview_muted)
+        self._refresh_mute_tip()
+        self._refresh_icons()
+
+    def _on_volume_changed(self, value: int):
+        self.settings.setValue("preview/volume", value)
+        self.preview.set_volume(value / 100.0)
+        if value > 0 and self._preview_muted:
+            self._preview_muted = False
+            self.settings.setValue("preview/muted", False)
+            self.preview.set_muted(False)
+            self._refresh_mute_tip()
+            self._refresh_icons()
 
     # ---------------- proyecto ----------------
     def set_project(self, project: ClipProject, editor_state: dict | None = None):
@@ -341,9 +409,14 @@ class EditorPage(QWidget):
         if project.background_warning:
             self.notify(project.background_warning, "info")
             project.background_warning = ""
-        for ed, text in ((self.ed_title, project.title), (self.ed_artist, project.artist)):
+        for ed, text in (
+            (self.ed_title, project.title),
+            (self.ed_artist, project.artist),
+            (self.ed_album, project.album or (project.track.album if project.track else "")),
+        ):
             with blocked_signals(ed):
                 ed.setText(text)
+        self._refresh_source_tag()
         self._linked = None
         self.list.clear()
         for line in project.lyrics.lines:
@@ -491,6 +564,7 @@ class EditorPage(QWidget):
         def done(samples):
             if self.project is project:
                 project.audio_samples = samples
+                self.preview.set_audio_samples(samples, project.audio_offset_ms)
                 self._sync_auto_opening_trim()
                 self._refresh_audio_tab()
                 self._refresh_cinematic_tab()
@@ -580,25 +654,31 @@ class EditorPage(QWidget):
 
     # ---------------- preview ----------------
     def _on_position(self, ms: float, total: float):
-        text = f"{fmt_ms(ms, tenths=True)} / {fmt_ms(total, tenths=True)}"
+        text = f"{fmt_ms(ms, millis=True)} / {fmt_ms(total, millis=True)}"
         if text != self._last_time_text:
             self._last_time_text = text
             self.time.setText(text)
         if not self._scrubbing:
-            val = round(min(1.0, ms / total) * 1000)
+            val = round(min(1.0, ms / total) * SCRUB_MAX)
             if val != self.scrub.value():
                 with blocked_signals(self.scrub):
                     self.scrub.setValue(val)
+        if self.project:
+            self.wave.set_playhead(self._clip_range()[0] + ms)
+
+    def _on_wave_seek(self, song_ms: float):
+        if self.project:
+            self.preview.seek(song_ms - self._clip_range()[0])
 
     def _on_scrub(self, v: int):
         if self._scrubbing or self.scrub.isSliderDown():
             if not self._scrub_action.is_active():
                 self._scrub_action.schedule()
         else:
-            self.preview.seek(v / 1000 * self.preview.duration)
+            self.preview.seek(v / SCRUB_MAX * self.preview.duration)
 
     def _flush_scrub(self):
-        self.preview.seek(self.scrub.value() / 1000 * self.preview.duration)
+        self.preview.seek(self.scrub.value() / SCRUB_MAX * self.preview.duration)
 
     def _on_scrub_released(self):
         self._scrubbing = False
@@ -653,11 +733,219 @@ class EditorPage(QWidget):
     def _meta_changed(self):
         if not self.project:
             return
-        self.project.title, self.project.artist = self.ed_title.text(), self.ed_artist.text()
+        self.project.title = self.ed_title.text()
+        self.project.artist = self.ed_artist.text()
+        self.project.album = self.ed_album.text()
         self.style.title, self.style.artist = self.project.title, self.project.artist
         self.subtitle.setText(self._title_text())
         self.project_changed.emit(self._title_text())
         self.preview.refresh()
+
+    def _source_tooltip(self) -> str:
+        if not self.project:
+            return ""
+        ly = self.project.lyrics
+        tag = ly.resolved_source_tag
+        parts = [lang.t("sourceTag.tipHeader", source=source_label(tag))]
+        if ly.credit:
+            parts.append(ly.credit)
+        parts.append(lang.t("widgets.badgeSyllable" if ly.kind == "syllable" else "widgets.badgeLine"))
+        if ly.manual_override:
+            parts.append(lang.t("sourceTag.protectedTip"))
+        return " · ".join(parts)
+
+    def _refresh_source_tag(self):
+        if not self.project:
+            return
+        self.source_tag.set_tag(self.project.lyrics.resolved_source_tag)
+        lang.bind_fn(self.source_tag, "tooltip", lambda: self.source_tag.setToolTip(self._source_tooltip()))
+
+    def _confirm_manual_overwrite(self) -> bool:
+        if not (self.project and self.project.lyrics.manual_override):
+            return True
+        ans = QMessageBox.question(
+            self,
+            lang.t("sourceTag.confirmTitle"),
+            lang.t("sourceTag.confirmBody"),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return ans == QMessageBox.Yes
+
+    def _open_source_menu(self):
+        if not self.project:
+            return
+        p = self.project
+        ly = p.lyrics
+        m = QMenu(self)
+        info = m.addAction(f"{source_label(ly.resolved_source_tag)} · {lang.t('widgets.badgeSyllable' if ly.kind == 'syllable' else 'widgets.badgeLine')}")
+        info.setEnabled(False)
+        if ly.credit:
+            cred = m.addAction(ly.credit)
+            cred.setEnabled(False)
+        m.addSeparator()
+        if self.services:
+            act_retry = m.addAction(lang.t("sourceTag.retryAuto"), lambda: self._retry_lyrics("auto"))
+            act_lrc = m.addAction(lang.t("sourceTag.retryLrclib"), lambda: self._retry_lyrics(SOURCE_LRCLIB))
+            act_spicy = m.addAction(lang.t("sourceTag.retrySpicy"), lambda: self._retry_lyrics(SOURCE_SPICY))
+            has_sp = bool(p.track and p.track.id_for("spotify"))
+            act_spicy.setEnabled(has_sp)
+            m.addAction(lang.t("sourceTag.pickCandidate"), self._pick_lyrics_candidate)
+            m.addSeparator()
+        m.addAction(lang.t("exportBar.replaceLyrics"), self._replace_ttml)
+        m.exec(self.source_tag.mapToGlobal(self.source_tag.rect().bottomLeft()))
+
+    def _current_query_track(self) -> Track:
+        p = self.project
+        if p.track is not None:
+            return Track(
+                id=p.track.id,
+                title=p.title or p.track.title,
+                artists=[p.artist] if p.artist else list(p.track.artists),
+                album=p.album or p.track.album,
+                duration_ms=p.track.duration_ms,
+                cover_url=p.track.cover_url,
+                uri=p.track.uri,
+                provider=p.track.provider,
+                provider_ids=dict(p.track.provider_ids),
+            )
+        dur = round(len(p.audio_samples) / local.RATE * 1000) if p.audio_samples is not None else 0
+        return Track("", p.title, [p.artist] if p.artist else [], p.album, dur, None, provider="manual")
+
+    def _apply_new_lyrics(self, lyrics):
+        p = self.project
+        if not p:
+            return
+        # Preserve audio file, decoded samples, and manual audio_offset_ms.
+        self.set_project(replace(p, lyrics=lyrics, source=None))
+
+    def _retry_lyrics(self, provider: str = "auto"):
+        if not (self.project and self.services) or not self._confirm_manual_overwrite():
+            return
+        proj = self.project
+        trk = self._current_query_track()
+        self.notify(lang.t("sourceTag.retrying"))
+
+        def done(ly):
+            if self.project is not proj:
+                return
+            if not ly:
+                self.notify(lang.t("services.noLyrics"), "error")
+                return
+            self._apply_new_lyrics(ly)
+            self.notify(lang.t("sourceTag.updated", source=source_label(ly.resolved_source_tag)), "ok")
+
+        run_async(
+            lambda: self.services.fetch_lyrics_for_track(trk, provider=provider),
+            done,
+            lambda e: self.notify(str(e) if isinstance(e, ProviderError) else lang.t("search.failed"), "error"),
+        )
+
+    def _pick_lyrics_candidate(self):
+        if not (self.project and self.services) or not self._confirm_manual_overwrite():
+            return
+        proj = self.project
+        trk = self._current_query_track()
+        self.notify(lang.t("sourceTag.retrying"))
+
+        def done(cands):
+            if self.project is not proj:
+                return
+            if not cands:
+                self.notify(lang.t("services.noLyrics"), "error")
+                return
+            items = [
+                CandidateItem(
+                    title=str(raw.get("trackName") or proj.title),
+                    subtitle=f"{raw.get('artistName') or proj.artist} · {raw.get('albumName') or ''}".strip(" ·"),
+                    badge=lang.t("widgets.badgeSyllable" if ly.kind == "syllable" else "widgets.badgeLine"),
+                    badge_tag=SOURCE_LRCLIB,
+                    duration_ms=round((raw.get("duration") or 0) * 1000) or None,
+                    payload=ly,
+                )
+                for raw, ly in cands
+            ]
+            chosen = CandidateDialog.pick(lang.t("dialogs.pickLyricsTitle"), lang.t("dialogs.pickLyricsBody"), items, self)
+            if chosen is not None and self.project is proj:
+                self._apply_new_lyrics(chosen)
+
+        run_async(
+            lambda: self.services.search_lyrics_candidates(trk.title, trk.artist, trk.album, trk.duration_ms or None),
+            done,
+            lambda e: self.notify(str(e) if isinstance(e, ProviderError) else lang.t("search.failed"), "error"),
+        )
+
+    def _match_metadata_dialog(self):
+        if not (self.project and self.services):
+            return
+        proj = self.project
+        default_q = " ".join(p for p in (proj.artist, proj.title) if p).strip()
+        query, ok = QInputDialog.getText(
+            self,
+            lang.t("dialogs.matchMetaTitle"),
+            lang.t("dialogs.matchMetaPrompt"),
+            text=default_q,
+        )
+        if not ok or not query.strip():
+            return
+        self.notify(lang.t("sourceTag.retrying"))
+
+        def done(res):
+            ranked, _ambig = res
+            if self.project is not proj:
+                return
+            if not ranked:
+                self.notify(lang.t("search.noneTitle"), "error")
+                return
+            items = [
+                CandidateItem(
+                    title=r.track.title,
+                    subtitle=" · ".join(p for p in (r.track.artist, r.track.album, f"{round(r.match.score * 100)}%") if p),
+                    badge="Deezer" if r.track.provider == "deezer" else "Spotify",
+                    badge_tag=SOURCE_LRCLIB if r.track.provider == "deezer" else SOURCE_SPICY,
+                    duration_ms=r.track.duration_ms or None,
+                    payload=r.track,
+                )
+                for r in ranked
+            ]
+            chosen: Track | None = ranked[0].track if (len(ranked) == 1 and not _ambig) else CandidateDialog.pick(
+                lang.t("dialogs.matchMetaTitle"), lang.t("dialogs.pickMetaBody"), items, self
+            )
+            if chosen is None:
+                return
+
+            def apply_cover(cover_bytes: bytes | None):
+                if self.project is not proj:
+                    return
+                new_cover = decode_cover(cover_bytes) if cover_bytes else None
+                proj.track = chosen
+                proj.title = chosen.title
+                proj.artist = chosen.artist
+                proj.album = chosen.album
+                if new_cover is not None:
+                    proj.cover = new_cover
+                for ed, text in ((self.ed_title, proj.title), (self.ed_artist, proj.artist), (self.ed_album, proj.album)):
+                    with blocked_signals(ed):
+                        ed.setText(text)
+                self.style.title, self.style.artist = proj.title, proj.artist
+                self.subtitle.setText(self._title_text())
+                self.project_changed.emit(self._title_text())
+                self._wordfx_sync(rebuild=False)
+                self.preview.rebuild()
+                self._audio.refresh()
+                self.notify(lang.t("dialogs.metaApplied", title=chosen.title), "ok")
+
+            if chosen.cover_url:
+                run_async(lambda: self.services.cover_bytes(chosen.cover_url), apply_cover, lambda _e: apply_cover(None))
+            else:
+                apply_cover(None)
+
+        dur = round(len(proj.audio_samples) / local.RATE * 1000) if proj.audio_samples is not None else None
+        run_async(
+            lambda: self.services.resolve_metadata(query.strip(), title=proj.title, artist=proj.artist, duration_ms=dur),
+            done,
+            lambda e: self.notify(str(e) if isinstance(e, ProviderError) else lang.t("search.failed"), "error"),
+        )
 
     def _choose_cover(self):
         path, _ = QFileDialog.getOpenFileName(self, lang.t("editor.chooseCover"), "", lang.t("editor.imageFilter"))

@@ -127,6 +127,16 @@
   "common": {
     "openFolder": "Open folder"
   },
+  "dialogs": {
+    "cancel": "Cancel",
+    "matchMetaPrompt": "Song title, artist, or Spotify / Apple Music / Deezer link:",
+    "matchMetaTitle": "Match song info",
+    "metaApplied": "Updated metadata for “{title}”.",
+    "pickLyricsBody": "Pick the synced lyrics version that best matches your audio:",
+    "pickLyricsTitle": "Pick lyrics match",
+    "pickMetaBody": "Several close matches were found. Choose the right track:",
+    "select": "Select"
+  },
   "editor": {
     "chooseCover": "Choose cover art",
     "defaultProjectName": "project",
@@ -138,11 +148,14 @@
     "imageFilter": "Images (*.png *.jpg *.jpeg *.webp)",
     "lyricsOpenFailed": "Couldn't open those lyrics: {error} Use an Apple Music .ttml with syllable timing.",
     "meta": {
+      "album": "Album",
       "artist": "Artist",
       "chooseImage": "Choose image…",
       "cover": "Cover art",
+      "matchInfo": "Match song info…",
       "title": "Title"
     },
+    "mute": "Mute preview",
     "openProject": "Open project",
     "outDirFailed": "Couldn't create the output folder ({reason}). Pick another one in the export menu.",
     "playPause": "Play / pause",
@@ -152,6 +165,7 @@
     "saveFailed": "Couldn't save the project: {error}",
     "saveProject": "Save project",
     "saved": "Project saved: {name}",
+    "stop": "Stop and rewind",
     "tabs": {
       "audio": "Audio",
       "background": "Background",
@@ -164,7 +178,9 @@
     "title": "Editor",
     "transparentIgnored": "A transparent background only applies to WebM, ProRes or PNG: this MP4 was exported with the cover art.",
     "ttmlFilter": "TTML lyrics (*.ttml *.xml)",
+    "unmute": "Unmute preview",
     "versesHint": "Click the first line, then Shift+click the last one",
+    "volume": "Preview volume",
     "watermark": {
       "glyph": "Waves next to the text",
       "hint": "It stays clear of the area TikTok's interface covers, fades in over 0.6 s and lowers its opacity when it crosses the line being sung.",
@@ -813,6 +829,8 @@
     "updated": "Corriente “{name}” updated."
   },
   "search": {
+    "deezerActiveNote": "Showing Deezer results",
+    "deezerFallbackNote": "Using Deezer catalog (connect Spotify for Spotify search & Spicy Lyrics)",
     "failed": "Couldn't search. Try again.",
     "goSettings": "Go to Settings",
     "hintBody": "You'll see which lyrics are available: syllable-synced, line-synced or none.",
@@ -821,14 +839,31 @@
     "noneTitle": "No results found",
     "offBody": "You need to connect your account to search for songs. You only do this once.",
     "offTitle": "Connect Spotify to search",
-    "placeholder": "Search for a song by title or artist",
-    "title": "Search"
+    "placeholder": "Search by song, artist, or paste a Spotify / Apple Music / Deezer link",
+    "title": "Search",
+    "useDeezer": "Search Deezer"
   },
   "services": {
     "controlFailed": "Couldn't control Spotify. Try again.",
     "missingClientId": "The Spotify Client ID is missing. Paste it in Settings and connect again.",
     "noLyrics": "Couldn't find synced lyrics for this song. Try another version or open your own .ttml.",
     "pollFailed": "Couldn't reach Spotify. Try again."
+  },
+  "sourceTag": {
+    "confirmBody": "These lyrics were loaded or edited manually. Replace them with a new lookup?",
+    "confirmTitle": "Replace manual lyrics?",
+    "lrclib": "LRCLIB",
+    "manual": "Manual",
+    "pickCandidate": "Pick lyrics match…",
+    "protectedTip": "Manual edit protected",
+    "retryAuto": "Retry lookup (Spicy Lyrics → LRCLIB)",
+    "retryLrclib": "Retry with LRCLIB",
+    "retrySpicy": "Retry with Spicy Lyrics",
+    "retrying": "Looking up lyrics…",
+    "spicy": "Spicy Lyrics",
+    "tipHeader": "Source: {source}",
+    "unknown": "Unknown",
+    "updated": "Lyrics updated ({source})."
   },
   "settings": {
     "audio": {

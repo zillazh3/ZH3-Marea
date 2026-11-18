@@ -22,13 +22,55 @@ LYRICS_BADGES = {"syllable": "widgets.badgeSyllable", "line": "widgets.badgeLine
                  "error": "widgets.badgeError"}
 
 
-def fmt_ms(ms: float, tenths: bool = False) -> str:
-    """Format milliseconds as M:SS or M:SS.t."""
+def fmt_ms(ms: float, tenths: bool = False, millis: bool = False) -> str:
+    """Format milliseconds as M:SS, M:SS.t, or M:SS.mmm."""
     s = max(0.0, ms) / 1000
+    if millis:
+        whole_ms = round(max(0.0, ms))
+        secs, rem = divmod(whole_ms, 1000)
+        mins, sec = divmod(secs, 60)
+        return f"{mins}:{sec:02d}.{rem:03d}"
     if tenths:
         return f"{int(s // 60)}:{s % 60:04.1f}"
     total = int(s)
     return f"{total // 60}:{total % 60:02d}"
+
+
+class ClickSeekSlider(QSlider):
+    """Horizontal slider where clicking anywhere along the groove jumps directly to that value."""
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal and self.width() > 0:
+            ratio = max(0.0, min(1.0, e.position().x() / self.width()))
+            lo, hi = self.minimum(), self.maximum()
+            val = round(lo + ratio * (hi - lo))
+            self.setSliderDown(True)
+            self.sliderPressed.emit()
+            self.setValue(val)
+            self.sliderMoved.emit(val)
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self.isSliderDown() and self.orientation() == Qt.Horizontal and self.width() > 0:
+            ratio = max(0.0, min(1.0, e.position().x() / self.width()))
+            lo, hi = self.minimum(), self.maximum()
+            val = round(lo + ratio * (hi - lo))
+            if val != self.value():
+                self.setValue(val)
+                self.sliderMoved.emit(val)
+            e.accept()
+            return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.isSliderDown():
+            self.setSliderDown(False)
+            self.sliderReleased.emit()
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
 
 
 @contextmanager

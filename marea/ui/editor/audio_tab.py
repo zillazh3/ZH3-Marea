@@ -53,6 +53,7 @@ class AudioController:
         lay.addWidget(ed.btn_audio_file)
 
         ed.wave = WaveformWidget()
+        ed.wave.seek_requested.connect(ed._on_wave_seek)
         lay.addWidget(ed.wave)
 
         row = QHBoxLayout()
@@ -79,7 +80,10 @@ class AudioController:
         ed = self.editor
         if not (ed.project and ed.services and ed.services.connected):
             return None
-        return ed.project.track or ed._linked
+        trk = ed.project.track
+        if trk and trk.provider == "spotify" and trk.id_for("spotify"):
+            return trk
+        return ed._linked
 
     def spotify_ready(self) -> bool:
         return self.spotify_track() is not None
@@ -158,6 +162,7 @@ class AudioController:
         ed.lb_offset.setText(f"{v:+d} ms")
         if ed.cmb_source.currentData() == "local":
             ed.project.audio_offset_ms = float(v)
+            ed.preview.set_audio_offset(float(v))
             ed._sync_auto_opening_trim()
             self.refresh_wave()
             ed._refresh_cinematic_tab()
@@ -261,6 +266,7 @@ class AudioController:
         def done(samples):
             project.audio_file, project.audio_samples, project.audio_offset_ms = Path(path), samples, 0.0
             if ed.project is project:
+                ed.preview.set_audio_samples(samples, 0.0)
                 ed._sync_auto_opening_trim()
                 self.refresh()
                 ed._refresh_cinematic_tab()

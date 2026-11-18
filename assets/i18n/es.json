@@ -127,6 +127,16 @@
   "common": {
     "openFolder": "Abrir carpeta"
   },
+  "dialogs": {
+    "cancel": "Cancelar",
+    "matchMetaPrompt": "Título, artista o enlace de Spotify / Apple Music / Deezer:",
+    "matchMetaTitle": "Buscar datos de la canción",
+    "metaApplied": "Datos actualizados para «{title}».",
+    "pickLyricsBody": "Elige la versión de letra sincronizada que mejor encaja con tu audio:",
+    "pickLyricsTitle": "Elegir letra",
+    "pickMetaBody": "Se encontraron varias coincidencias cercanas. Elige la pista correcta:",
+    "select": "Elegir"
+  },
   "editor": {
     "chooseCover": "Elegir portada",
     "defaultProjectName": "proyecto",
@@ -138,11 +148,14 @@
     "imageFilter": "Imágenes (*.png *.jpg *.jpeg *.webp)",
     "lyricsOpenFailed": "No pude abrir esa letra: {error} Usa un .ttml de Apple Music con tiempos por sílaba.",
     "meta": {
+      "album": "Álbum",
       "artist": "Artista",
       "chooseImage": "Elegir imagen…",
       "cover": "Portada",
+      "matchInfo": "Buscar datos de canción…",
       "title": "Título"
     },
+    "mute": "Silenciar preview",
     "openProject": "Abrir proyecto",
     "outDirFailed": "No pude crear la carpeta de salida ({reason}). Elige otra en el menú de exportación.",
     "playPause": "Reproducir / pausar",
@@ -152,6 +165,7 @@
     "saveFailed": "No pude guardar el proyecto: {error}",
     "saveProject": "Guardar proyecto",
     "saved": "Proyecto guardado: {name}",
+    "stop": "Detener y volver al inicio",
     "tabs": {
       "audio": "Audio",
       "background": "Fondo",
@@ -164,7 +178,9 @@
     "title": "Editor",
     "transparentIgnored": "El fondo transparente solo aplica a WebM, ProRes o PNG: este MP4 salió con la portada.",
     "ttmlFilter": "Letras TTML (*.ttml *.xml)",
+    "unmute": "Activar audio del preview",
     "versesHint": "Clic en el primer verso y Shift+clic en el último",
+    "volume": "Volumen del preview",
     "watermark": {
       "glyph": "Ondas junto al texto",
       "hint": "Queda fuera de la zona que tapa la interfaz de TikTok, entra con un fundido de 0.6 s y baja su opacidad si cruza la línea que se está cantando.",
@@ -813,6 +829,8 @@
     "updated": "Corriente «{name}» actualizada."
   },
   "search": {
+    "deezerActiveNote": "Mostrando resultados de Deezer",
+    "deezerFallbackNote": "Usando catálogo de Deezer (conecta Spotify para buscar en Spotify y usar Spicy Lyrics)",
     "failed": "No pude buscar. Intenta de nuevo.",
     "goSettings": "Ir a Ajustes",
     "hintBody": "Verás qué letra hay disponible: por sílaba, por línea o sin letra.",
@@ -821,14 +839,31 @@
     "noneTitle": "No encontré resultados",
     "offBody": "Necesitas conectar tu cuenta para buscar canciones. Se hace una sola vez.",
     "offTitle": "Conecta Spotify para buscar",
-    "placeholder": "Busca una canción por título o artista",
-    "title": "Buscar"
+    "placeholder": "Busca por título, artista o pega un enlace de Spotify / Apple Music / Deezer",
+    "title": "Buscar",
+    "useDeezer": "Buscar en Deezer"
   },
   "services": {
     "controlFailed": "No pude controlar Spotify. Intenta de nuevo.",
     "missingClientId": "Falta el Client ID de Spotify. Pégalo en Ajustes y vuelve a conectar.",
     "noLyrics": "No encontré una letra sincronizada para esta canción. Prueba con otra versión o abre un .ttml propio.",
     "pollFailed": "No pude consultar Spotify. Intenta de nuevo."
+  },
+  "sourceTag": {
+    "confirmBody": "Esta letra se cargó o editó manualmente. ¿Quieres reemplazarla con una nueva búsqueda?",
+    "confirmTitle": "¿Reemplazar letra manual?",
+    "lrclib": "LRCLIB",
+    "manual": "Manual",
+    "pickCandidate": "Elegir coincidencia de letra…",
+    "protectedTip": "Edición manual protegida",
+    "retryAuto": "Reintentar búsqueda (Spicy Lyrics → LRCLIB)",
+    "retryLrclib": "Reintentar con LRCLIB",
+    "retrySpicy": "Reintentar con Spicy Lyrics",
+    "retrying": "Buscando letra…",
+    "spicy": "Spicy Lyrics",
+    "tipHeader": "Fuente: {source}",
+    "unknown": "Desconocida",
+    "updated": "Letra actualizada ({source})."
   },
   "settings": {
     "audio": {

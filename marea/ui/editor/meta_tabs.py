@@ -13,15 +13,25 @@ def build_background_tab(editor) -> QWidget:
     form = QFormLayout(w)
     form.setContentsMargins(0, theme.SPACE[3], 0, 0)
     form.setVerticalSpacing(theme.SPACE[2])
-    editor.ed_title, editor.ed_artist = QLineEdit(), QLineEdit()
+    editor.ed_title, editor.ed_artist, editor.ed_album = QLineEdit(), QLineEdit(), QLineEdit()
     editor.ed_title.textChanged.connect(editor._meta_changed)
     editor.ed_artist.textChanged.connect(editor._meta_changed)
+    editor.ed_album.textChanged.connect(editor._meta_changed)
     btn = make_button("", "Ghost", editor._choose_cover)
     lang.bind(btn, "editor.meta.chooseImage")
-    for key, field in (("editor.meta.title", editor.ed_title), ("editor.meta.artist", editor.ed_artist), ("editor.meta.cover", btn)):
+    btn_match = make_button("", "Ghost", editor._match_metadata_dialog)
+    lang.bind(btn_match, "editor.meta.matchInfo")
+    editor.btn_match_meta = btn_match
+    for key, field in (
+        ("editor.meta.title", editor.ed_title),
+        ("editor.meta.artist", editor.ed_artist),
+        ("editor.meta.album", editor.ed_album),
+        ("editor.meta.cover", btn),
+    ):
         label = QLabel()
         lang.bind(label, key)
         form.addRow(label, field)
+    form.addRow(btn_match)
     editor._bgctl = BackgroundController(editor)
     editor._bgctl.build(form)
     scroll = QScrollArea()  # con los controles de video la pestaña ya no cabe en el panel

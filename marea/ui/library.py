@@ -1,18 +1,59 @@
 """Biblioteca: proyectos guardados (.marea.json) y clips exportados, con filtro Todo / Proyectos / Clips."""
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QHBoxLayout, QLabel, QListView, QListWidget,
-                               QListWidgetItem, QMenu, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QButtonGroup,
+    QHBoxLayout,
+    QLabel,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QStackedWidget,
+    QStyledItemDelegate,
+    QVBoxLayout,
+    QWidget,
+)
 
 from marea import library
 from marea.export import history
+from marea.model.lyrics import SOURCE_UNKNOWN, VALID_SOURCE_TAGS
 from marea.paths import reveal_in_folder
 from marea.ui import lang, theme
+from marea.ui.source_tag import paint_source_pill, source_label
 from marea.ui.widgets import EmptyState, placeholder_pixmap, rounded_pixmap
 
 TILE = 132
 FILTERS = [("all", "library.filterAll"), ("project", "library.filterProjects"), ("clip", "library.filterClips")]
 KINDS = {"syllable": "library.kindSyllable", "line": "library.kindLine"}  # tipo de letra -> clave i18n
+SOURCE_ROLE = Qt.UserRole + 1
+
+
+class LibraryDelegate(QStyledItemDelegate):
+    """Paints the native project/clip card and overlays a compact lyrics source pill on project cards."""
+
+    def paint(self, p: QPainter, opt, index):
+        super().paint(p, opt, index)
+        data = index.data(Qt.UserRole)
+        if not isinstance(data, tuple) or data[0] != "project":
+            return
+        tag = index.data(SOURCE_ROLE)
+        if tag not in VALID_SOURCE_TAGS:
+            tag = SOURCE_UNKNOWN
+        label = source_label(tag)
+        p.save()
+        f = opt.font
+        f.setFamily(theme.FAMILY)
+        f.setPixelSize(theme.FONT_SIZES["xs"])
+        f.setWeight(f.Weight.DemiBold)
+        p.setFont(f)
+        pill_w = min(float(TILE - 8), float(p.fontMetrics().horizontalAdvance(label) + 22))
+        x = opt.rect.center().x() - TILE / 2 + 6
+        y = opt.rect.top() + TILE - 22
+        paint_source_pill(p, QRectF(x, y, pill_w, 20), tag, label, f)
+        p.restore()
 
 
 def tile_icon(thumb: str) -> QIcon:
@@ -34,6 +75,9 @@ def make_item(kind: str, e: dict, sub: str) -> QListWidgetItem:
     """Card for a library entry; UserRole = (kind, path) with kind 'project' or 'clip'."""
     it = QListWidgetItem(tile_icon(e.get("thumb", "")), f"{e.get('title') or lang.t('library.untitled')}\n{sub}".rstrip())
     it.setData(Qt.UserRole, (kind, e["path"]))
+    if kind == "project":
+        tag = str(e.get("lyrics_source") or SOURCE_UNKNOWN)
+        it.setData(SOURCE_ROLE, tag if tag in VALID_SOURCE_TAGS else SOURCE_UNKNOWN)
     it.setToolTip(e["path"])
     it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
     return it
@@ -71,6 +115,7 @@ class LibraryPage(QWidget):
 
         self.list = QListWidget()
         self.list.setObjectName("Library")
+        self.list.setItemDelegate(LibraryDelegate(self.list))
         self.list.setViewMode(QListView.IconMode)
         self.list.setResizeMode(QListView.Adjust)
         self.list.setMovement(QListView.Static)

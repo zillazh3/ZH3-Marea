@@ -5,6 +5,7 @@ from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontDatabase, QImage, QKeySequence, QPainter, QPainterPath, QPixmap, QShortcut
 from PySide6.QtWidgets import QWidget
 
+from marea.audio.player import PreviewAudioPlayer
 from marea.engine.engine import Params
 from marea.render.gpu import make_context
 from marea.render.scene import Scene, Style
@@ -36,10 +37,13 @@ class PreviewWidget(QWidget):
     playing_changed = Signal(bool)
     _video_frame_ready = Signal()
 
-    def __init__(self, parent=None, prefer_gpu: bool = True, async_video: bool = True):
+    def __init__(self, parent=None, prefer_gpu: bool = True, async_video: bool = True,
+                 audio_player: PreviewAudioPlayer | None = None):
         super().__init__(parent)
         self.setMinimumSize(180, 320)
         self._prefer_gpu, self._async_video = prefer_gpu, async_video
+        self._audio = audio_player or PreviewAudioPlayer()
+        self._audio_offset_ms = 0.0
         self.ctx, self.scene, self._surface = None, None, None
         self._project, self._style, self._params = None, Style(), Params()
         self._range = (0.0, 1.0)
@@ -58,7 +62,32 @@ class PreviewWidget(QWidget):
     def set_project(self, project, style: Style, params: Params, range_ms: tuple[float, float]):
         self._project, self._style, self._params = project, style, params
         self._range = range_ms
+        self._audio_offset_ms = float(getattr(project, "audio_offset_ms", 0.0)) if project else 0.0
+        self._audio.set_range(range_ms)
+        self._audio.set_samples(getattr(project, "audio_samples", None) if project else None, self._audio_offset_ms)
+        if self.playing:
+            self.set_playing(False)
         self.rebuild()
+
+    def set_audio_samples(self, samples, offset_ms: float = 0.0):
+        self._audio_offset_ms = float(offset_ms)
+        self._audio.set_samples(samples, self._audio_offset_ms)
+        if self.playing and self.scene:
+            if samples is not None:
+                self._audio.play(self.scene.engine.t * 1000, self._range, self._audio_offset_ms)
+            else:
+                self._audio.pause()
+
+    def set_audio_offset(self, offset_ms: float):
+        """Shift audio offset live without restarting playback."""
+        self._audio_offset_ms = float(offset_ms)
+        self._audio.set_offset(self._audio_offset_ms)
+
+    def set_volume(self, volume: float):
+        self._audio.set_volume(volume)
+
+    def set_muted(self, muted: bool):
+        self._audio.set_muted(muted)
 
     def update_wordfx(self, plan, debug: bool = False):
         """Actualiza Semantic Word FX en vivo sobre la escena actual sin reconstruir springs ni layout."""
@@ -110,6 +139,7 @@ class PreviewWidget(QWidget):
 
     def set_range(self, range_ms: tuple[float, float]):
         self._range = range_ms
+        self._audio.set_range(range_ms)
         self.seek(0)
 
     def refresh(self):
@@ -162,8 +192,10 @@ class PreviewWidget(QWidget):
         if not self.scene:
             return
         offset_ms = min(max(0.0, offset_ms), self.duration)
+        song_ms = self._range[0] + offset_ms
         self._lag0 = None
-        self.scene.engine.warmup(self._range[0] + offset_ms)
+        self._audio.seek(song_ms)
+        self.scene.engine.warmup(song_ms)
         self._render()
         self.position.emit(offset_ms, self.duration)
         self._wake()
@@ -174,8 +206,21 @@ class PreviewWidget(QWidget):
         self.playing = on
         self._lag0 = None
         self._clock.restart()
+        if on:
+            song_ms = min(max(self._range[0], self.scene.engine.t * 1000), self._range[1])
+            self._audio.play(song_ms, self._range, self._audio_offset_ms)
+        else:
+            self._audio.pause()
         self._wake()
         self.playing_changed.emit(on)
+
+    def stop(self):
+        """Stop playback and rewind both audio and lyrics to the start of the active range."""
+        if self.playing:
+            self.playing = False
+            self.playing_changed.emit(False)
+        self._audio.stop()
+        self.seek(0)
 
     def _wake(self):
         self._settle = SETTLE_MS
@@ -185,8 +230,34 @@ class PreviewWidget(QWidget):
             self._timer.start()
 
     def _tick(self):
-        self._acc += self._clock.restart() / 1000
         e = self.scene.engine
+        audio_ms = self._audio.current_song_ms() if self.playing else None
+        if audio_ms is not None:
+            if audio_ms >= self._range[1] - 1.0:
+                self.seek(0)
+                return
+            sim_ms = e.t * 1000.0
+            steps = 0
+            if audio_ms < sim_ms - 120.0 or audio_ms - sim_ms > 150.0:
+                # Re-anchor smoothly if audio looped inside callback or UI stalled.
+                e.warmup(audio_ms)
+                steps = 1
+            else:
+                while (e.t + DT) * 1000.0 <= audio_ms and steps < MAX_STEPS:
+                    e.advance(DT, running=True)
+                    steps += 1
+            self._clock.restart()
+            self._acc = 0.0
+            if not steps:
+                return
+            if self._lag0 is None:
+                self._lag0 = (perf_counter(), e.t - steps * DT)
+            self._settle = SETTLE_MS
+            self._render()
+            self.position.emit(e.t * 1000 - self._range[0], self.duration)
+            return
+
+        self._acc += self._clock.restart() / 1000
         steps = 0
         while self._acc >= DT and steps < MAX_STEPS:
             e.advance(DT, running=self.playing)
@@ -222,12 +293,19 @@ class PreviewWidget(QWidget):
         self._image = QImage(self._frame.data, w, h, w * 4, QImage.Format_RGBA8888)
         self.update()
 
+    def hideEvent(self, e):
+        if self.playing:
+            self.set_playing(False)
+        super().hideEvent(e)
+
     def closeEvent(self, e):
         self.shutdown()
         super().closeEvent(e)
 
     def shutdown(self):
         self._timer.stop()
+        self.playing = False
+        self._audio.close()
         if self.scene is not None:
             self.scene.close()
             self.scene = None

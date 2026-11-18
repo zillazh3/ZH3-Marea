@@ -194,7 +194,7 @@ class MainWindow(QWidget):
         root.addLayout(body, 1)
         self.toasts = ToastHost(self)
 
-        self.sidebar.navigated.connect(self.pages.set_page)
+        self.sidebar.navigated.connect(self._on_navigated)
         self.services.connection_changed.connect(self.sidebar.spotify.set_connected)
         self.services.now_playing.connect(self._on_playback)
         self.services.problem.connect(lambda msg: self.toast(msg, "error"))
@@ -219,11 +219,16 @@ class MainWindow(QWidget):
         self.sidebar.set_collapsed(self._pref_collapsed or self._narrow, animate=False)
 
     # ---- API ----
+    def _on_navigated(self, idx: int):
+        if self.pages.widget(idx) is not self.page_editor and self.editor.preview.playing:
+            self.editor.preview.set_playing(False)
+        self.pages.set_page(idx)
+
     def _goto_page(self, page: QWidget):
         idx = self.pages.indexOf(page)
         if idx >= 0:
             self.sidebar.select(idx)
-            self.pages.set_page(idx)
+            self._on_navigated(idx)
 
     def open_lab_model_settings(self, model_id: str):
         self._goto_page(self.page_settings)

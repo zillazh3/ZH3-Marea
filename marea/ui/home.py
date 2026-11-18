@@ -6,9 +6,11 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QLabel, Q
 
 from marea import library
 from marea.async_util import run_async
+from marea.model.lyrics import SOURCE_UNKNOWN
 from marea.providers.spotify import Playback
 from marea.ui import lang, theme
-from marea.ui.library import TILE, make_item, project_caption
+from marea.ui.library import TILE, LibraryDelegate, make_item, project_caption
+from marea.ui.source_tag import SourceTagButton
 from marea.ui.widgets import make_button, placeholder_pixmap, rounded_pixmap, scrollable
 
 COVER = 200
@@ -33,6 +35,9 @@ class NowPlayingCard(QWidget):
         self.title.setObjectName("H2")
         self.artist.setObjectName("Body")
         self.badge.setObjectName("Muted")
+        self.source_tag = SourceTagButton(SOURCE_UNKNOWN)
+        self.source_tag.setEnabled(False)
+        self.source_tag.hide()
         for lb in (self.title, self.artist):
             lb.setWordWrap(True)
             lb.setMaximumWidth(420)
@@ -44,8 +49,15 @@ class NowPlayingCard(QWidget):
         for text, cb in extra_actions:
             row.addWidget(make_button(text, "Ghost", cb))
         row.addStretch()
-        for w in (self.state, self.title, self.artist, self.badge):
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
+        badge_row.setSpacing(theme.SPACE[2])
+        badge_row.addWidget(self.badge)
+        badge_row.addWidget(self.source_tag)
+        badge_row.addStretch()
+        for w in (self.state, self.title, self.artist):
             info.addWidget(w)
+        info.addLayout(badge_row)
         info.addSpacing(theme.SPACE[3])
         info.addLayout(row)
         info.addStretch()
@@ -72,10 +84,12 @@ class NowPlayingCard(QWidget):
         self.title.setText(t.title)
         self.artist.setText(f"{t.artist} · {t.album}" if t.album else t.artist)
         lang.bind(self.badge, "home.lyricsLooking")
+        self.source_tag.hide()
         self._placeholder()
         if t.cover_url:
             run_async(lambda: self.services.cover_bytes(t.cover_url), lambda data: self._set_cover(token, data), lambda e: None)
-        run_async(lambda: self.services.lyrics_kind(t), lambda k: self._set_kind(token, k), lambda e: self._set_kind(token, "error"))
+        run_async(lambda: self.services.lyrics_probe(t), lambda p: self._set_probe(token, p),
+                  lambda e: self._set_kind(token, "error"))
 
     def _set_cover(self, token: int, data: bytes):
         px = QPixmap()
@@ -83,10 +97,21 @@ class NowPlayingCard(QWidget):
             self._has_cover = True
             self.cover.setPixmap(rounded_pixmap(px, COVER, theme.RADIUS["card"]))
 
+    def _set_probe(self, token: int, probe):
+        if token == self._token:
+            self._set_kind(token, probe.kind)
+            if probe.kind in ("syllable", "line"):
+                self.source_tag.set_tag(probe.source_tag, probe.credit)
+                self.source_tag.show()
+            else:
+                self.source_tag.hide()
+
     def _set_kind(self, token: int, kind: str):
         if token == self._token:
             lang.bind(self.badge, LYRICS_STATUS[kind])
             self.btn.setEnabled(kind in ("syllable", "line"))
+            if kind not in ("syllable", "line"):
+                self.source_tag.hide()
 
 
 class RecentProjects(QListWidget):
@@ -96,6 +121,7 @@ class RecentProjects(QListWidget):
     def __init__(self, on_open_project):
         super().__init__()
         self.setObjectName("Library")
+        self.setItemDelegate(LibraryDelegate(self))
         self.setViewMode(QListView.IconMode)
         self.setFlow(QListView.LeftToRight)
         self.setWrapping(False)

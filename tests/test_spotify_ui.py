@@ -83,10 +83,30 @@ class FakeLyrics:
         return ly
 
 
+class FakeDeezer:
+    def __init__(self, results=None, fail=None):
+        self.results = results or {}
+        self.fail = fail
+        self.searched = []
+
+    def search(self, q):
+        self.searched.append(q)
+        if self.fail:
+            raise ProviderError(self.fail)
+        return self.results.get(q, [])
+
+    def search_ranked(self, query="", **kw):
+        from marea.providers.matching import rank_tracks
+        return rank_tracks(self.search(query or kw.get("title", "")), query_text=query, **kw)
+
+    def track(self, tid):
+        return None
+
+
 @pytest.fixture
 def env(make_window, qapp, tmp_path):
-    sp, ly = FakeSpotify(), FakeLyrics()
-    services = Services(QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat), spotify=sp, lyrics=ly, poll_ms=60_000)
+    sp, ly, dz = FakeSpotify(), FakeLyrics(), FakeDeezer()
+    services = Services(QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat), spotify=sp, lyrics=ly, deezer=dz, poll_ms=60_000)
     services.settings.setValue("spotify/client_id", "cid")
     win = make_window(services=services)
     win.show()
@@ -191,16 +211,18 @@ def test_search_error_is_reported_without_losing_the_page(env):
 
 
 def test_not_connected_guides_to_settings(make_window, qapp, tmp_path):
-    services = Services(QSettings(str(tmp_path / "n.ini"), QSettings.IniFormat), spotify=FakeSpotify(connected=False))
+    dz = FakeDeezer(results={"hola": [Track("d1", "Deezer Song", ["Artist"], "Album", 190000, None, provider="deezer")]})
+    services = Services(QSettings(str(tmp_path / "n.ini"), QSettings.IniFormat), spotify=FakeSpotify(connected=False), deezer=dz, lyrics=FakeLyrics())
     win = make_window(services=services)
     win.show()
     page = search_page(win)
     home = win.pages.widget(0)
-    assert page.stack.currentWidget() is page.off
+    assert page.stack.currentWidget() is page.hint  # search stays available via Deezer without Spotify
     assert home.now.isVisibleTo(home) and home.connect_hint.isVisibleTo(home) and not home.card.isVisibleTo(home)
-    btn = next(b for b in page.off.findChildren(QPushButton) if b.text() == "Ir a Ajustes")
-    btn.click()
+    page.btn_settings.click()
     assert win.pages.currentIndex() == 5 and win.sidebar.current() == 5
+    type_query(win, "hola")
+    assert until(lambda: page.list.count() == 1 and page.list.item(0).data(TRACK_ROLE).provider == "deezer")
 
 
 def test_home_follows_what_is_playing(env):

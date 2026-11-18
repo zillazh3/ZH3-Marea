@@ -720,6 +720,8 @@ class LabReviewWindow(QWidget):
         except A.AlignmentError as e:
             self._progress(lang.t("lab.progress.previewInvalid", error=e))
             return
+        lyrics.provider_tag = "manual"
+        lyrics.manual_override = True
         self.editor.set_project(dataclasses.replace(self._orig_project, lyrics=lyrics, audio_offset_ms=0.0))
         self.notify(lang.t("lab.notify.previewLoaded"), "info")
 
