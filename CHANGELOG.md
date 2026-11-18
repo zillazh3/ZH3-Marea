@@ -36,6 +36,7 @@ Version 0.1.3 was an internal milestone that was never released; its work ships 
 
 - Lyric credits shown in the source-tag tooltip, the editor subtitle and notifications are rendered as plain text. A crafted project or
   provider credit could otherwise embed an image from a network path and make Windows send the user's NTLM credentials to that host.
+- The portable build no longer ships the Lab sidecar's local bytecode cache, whose files embedded the builder's absolute paths.
 
 ## [0.2.1] - 2026-11-17
 

@@ -48,3 +48,12 @@ def test_build_excludes_foreign_dll_directories_without_changing_the_parent_path
     assert os.environ["PATH"] == foreign_path
     assert (out / "ffmpeg" / "ffmpeg.exe").read_bytes() == b"test binary"
     assert {d: (out / d).read_text(encoding="utf-8") for d in ("README.md", "LEEME.md", "CHANGELOG.md")} == {d: "test document" for d in ("README.md", "LEEME.md", "CHANGELOG.md")}
+
+
+def test_portable_build_bundles_sidecar_sources_without_local_bytecode():
+    """sidecar/__pycache__ .pyc files embed the builder's absolute paths (Windows user name, project folder)."""
+    from pathlib import Path
+
+    spec = (Path(__file__).parent.parent / "marea.spec").read_text(encoding="utf-8")
+    assert '("sidecar", "sidecar")' not in spec  # the whole folder would bring its __pycache__ along
+    assert 'f.suffix in (".py", ".txt")' in spec

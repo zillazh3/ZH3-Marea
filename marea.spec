@@ -1,6 +1,8 @@
 # PyInstaller, carpeta portable: dist/ZH3 Marea/ZH3 Marea.exe. Se construye con `python tools/build_exe.py`.
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.win32.versioninfo import FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo
+from pathlib import Path
+
 from marea.version import VERSION
 
 release_version = tuple(int(part) for part in VERSION.split(".")) + (0,)
@@ -16,6 +18,10 @@ version_info = VSVersionInfo(
     ])]), VarFileInfo([VarStruct("Translation", [1033, 1200])])],
 )
 
+# sidecar/: only its scripts and requirements (a few KB; torch and the models never enter the exe). Never its __pycache__:
+# local .pyc files embed the builder's absolute paths (Windows user name, project folder).
+SIDECAR = [(str(f), "sidecar") for f in Path("sidecar").iterdir() if f.is_file() and f.suffix in (".py", ".txt")]
+
 skia = collect_all("skia")
 audio = collect_all("pyaudiowpatch")
 
@@ -29,7 +35,7 @@ a = Analysis(
     binaries=skia[1] + audio[1],
     datas=[("assets/fonts", "assets/fonts"), ("assets/icons", "assets/icons"), ("assets/wordfx", "assets/wordfx"), ("assets/presets", "assets/presets"), ("assets/hooks", "assets/hooks"), ("assets/i18n", "assets/i18n"),
            ("assets/logo/marea.svg", "assets/logo"), ("assets/logo/marea-16.svg", "assets/logo"),
-           ("sidecar", "sidecar")] + skia[0] + audio[0],  # sidecar/: solo scripts y requisitos (unos KB); torch y los modelos NO entran al .exe
+           ] + SIDECAR + skia[0] + audio[0],
     hiddenimports=["keyring.backends.Windows", "win32ctypes.pywin32"] + skia[2] + audio[2],
     excludes=EXCLUDE,
 )
