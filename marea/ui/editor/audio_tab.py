@@ -54,6 +54,7 @@ class AudioController:
 
         ed.wave = WaveformWidget()
         ed.wave.seek_requested.connect(ed._on_wave_seek)
+        ed.wave.drag_finished.connect(ed._wave_action.flush)
         lay.addWidget(ed.wave)
 
         row = QHBoxLayout()
@@ -109,6 +110,8 @@ class AudioController:
         ed._sync_auto_opening_trim()
         self.refresh()
         ed._refresh_cinematic_tab()
+        if ed.project:
+            ed._loops.invalidate_proposal()
 
     def on_playback(self, _pb):
         ed = self.editor
@@ -163,6 +166,7 @@ class AudioController:
         if ed.cmb_source.currentData() == "local":
             ed.project.audio_offset_ms = float(v)
             ed.preview.set_audio_offset(float(v))
+            ed._loops.invalidate_proposal()
             ed._sync_auto_opening_trim()
             self.refresh_wave()
             ed._refresh_cinematic_tab()

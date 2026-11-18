@@ -51,6 +51,7 @@ from marea.ui.editor.audio_tab import AudioController
 from marea.ui.editor.cinematic_tab import CinematicController
 from marea.ui.editor.export_bar import ExportBarController
 from marea.ui.editor.hooks_panel import HooksController
+from marea.ui.editor.loop_controls import LoopControls
 from marea.ui.editor.meta_tabs import build_background_tab, build_watermark_tab
 from marea.ui.editor.presets_panel import PresetsController
 from marea.ui.editor.style_tab import build_style_tab
@@ -143,6 +144,7 @@ class EditorPage(QWidget):
         self._cinematic = CinematicController(self)
         self._audio = AudioController(self)
         self._export_bar = ExportBarController(self)
+        self._loops = LoopControls(self)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(theme.SPACE[6], theme.SPACE[5], theme.SPACE[6], theme.SPACE[5])
@@ -169,6 +171,8 @@ class EditorPage(QWidget):
         self.stack.addWidget(self._build_body(prefer_gpu))
         root.addWidget(self.stack, 1)
         root.addLayout(self._export_bar.build_bar())
+        root.addWidget(self._loops.build())
+        lang.bind_fn(self, "loop", self.refresh_loop)
         self._wordfx = WordFXController(self)
         theme.signals.changed.connect(self._refresh_icons)
         self._refresh_icons()
@@ -263,10 +267,12 @@ class EditorPage(QWidget):
         self.scrub = ClickSeekSlider(Qt.Horizontal)
         self.scrub.setRange(0, SCRUB_MAX)
         self._scrub_action = CoalescedAction(16, self._flush_scrub, self)
+        self._wave_seek_ms: float | None = None
+        self._wave_action = CoalescedAction(16, self._flush_wave_seek, self)
         self.scrub.sliderPressed.connect(lambda: setattr(self, "_scrubbing", True))
         self.scrub.sliderReleased.connect(self._on_scrub_released)
         self.scrub.valueChanged.connect(self._on_scrub)
-        self.time = QLabel("0:00.000 / 0:00.000")
+        self.time = QLabel("0:00 / 0:00")
         self.time.setObjectName("Caption")
         self.time.setStyleSheet("font-variant-numeric: tabular-nums;")
         self.btn_mute = QPushButton()
@@ -293,6 +299,7 @@ class EditorPage(QWidget):
         ctrl.addWidget(self.btn_mute)
         ctrl.addWidget(self.sl_volume)
         left.addLayout(ctrl)
+        left.addWidget(self._loops.build_preview_switch(), alignment=Qt.AlignLeft)
         lay.addLayout(left, 1)
 
         right = QVBoxLayout()
@@ -430,6 +437,7 @@ class EditorPage(QWidget):
         self.first, self.last, self._anchor = 0, min(n - 1, DEFAULT_VERSES - 1), 0
         if editor_state:
             self._restore_editor_controls(editor_state, n)
+        self._loops.restore(editor_state or {})
         self._presets.applied = str((editor_state or {}).get("preset") or "")
         self._hooks.reset()
         self._presets.refresh_list()
@@ -448,6 +456,7 @@ class EditorPage(QWidget):
         self._refresh_cinematic_tab()
         if project.audio_file and project.audio_samples is None and project.audio_file.is_file():
             self._load_saved_audio(project, project.audio_file)
+        self.refresh_loop()
         self.project_changed.emit(self._title_text())
 
     def editor_state(self) -> dict:
@@ -459,6 +468,8 @@ class EditorPage(QWidget):
             "audio_source": self.cmb_source.currentData(),
             "fx": {"fx_intensity": self.sl_fx.value() / 100, "adapt_bg": self.cb_fxbg.isChecked()},
             "preset": self._presets.applied,
+            "loop": self._loops.requested,
+            **({"loop_end_ms": self._loops.adjusted_end} if self._loops.adjusted_end is not None else {}),
         }
 
     def _restore_editor_controls(self, state: dict, n_lines: int):
@@ -550,9 +561,11 @@ class EditorPage(QWidget):
         n = len(self.project.lyrics.lines) if self.project else 0
         if not n:
             return
+        old = self.first, self.last
         self.first = max(0, min(n - 1, first))
         self.last = max(self.first, min(n - 1, last))
         self._anchor = self.first
+        self._loops.selection_changed(old)
         self.list.scrollToItem(self.list.item(self.first), QListWidget.PositionAtTop)
         self._range_changed()
 
@@ -625,11 +638,13 @@ class EditorPage(QWidget):
 
     # ---------------- selección de versos ----------------
     def _on_verse_clicked(self, item):
+        old = self.first, self.last
         row = self.list.row(item)
         if QApplication.keyboardModifiers() & Qt.ShiftModifier:
             self.first, self.last = sorted((self._anchor, row))
         else:
             self._anchor = self.first = self.last = row
+        self._loops.selection_changed(old)
         self._range_changed()
 
     def _on_verse_double_clicked(self, item):
@@ -643,18 +658,28 @@ class EditorPage(QWidget):
         self.list.viewport().update()
         lines = self.project.lyrics.lines[self.first:self.last + 1]
         span = max(l.end for l in lines) - lines[0].start
-        lang.bind(self.range_label, "editor.range", first=self.first + 1, last=self.last + 1, span=fmt_ms(span, tenths=True))
-        if seek:
-            self.preview.set_range(self._clip_range())
+        lang.bind(self.range_label, "editor.range", first=self.first + 1, last=self.last + 1, span=fmt_ms(span))
+        self.refresh_loop(seek=seek)
         self._export_bar.update_summary()
         self._audio.refresh_wave()
 
     def _clip_range(self) -> tuple[float, float]:
+        if spec := self._loops.current():
+            return spec.start_ms, spec.end_ms
         return clip_range(self.project.lyrics, self.first, self.last, float(self.settings.value("export/outro_ms", TAIL_MS)))
+
+    def refresh_loop(self, *, seek: bool = False):
+        spec = self._loops.current()
+        self._loops.refresh(spec)
+        if self.project is not None and self.preview.scene is not None:
+            target = self.settings.value("export/target", "mp4")
+            sound = spec is not None and self.mode == "song" and self.cmb_source.currentData() == "local"
+            watermark = self.settings.value("export/alpha_watermark", True, type=bool)
+            self.preview.configure_range(self._clip_range(), spec, sound, target, watermark, seek=seek)
 
     # ---------------- preview ----------------
     def _on_position(self, ms: float, total: float):
-        text = f"{fmt_ms(ms, millis=True)} / {fmt_ms(total, millis=True)}"
+        text = f"{fmt_ms(ms)} / {fmt_ms(total)}"
         if text != self._last_time_text:
             self._last_time_text = text
             self.time.setText(text)
@@ -667,8 +692,20 @@ class EditorPage(QWidget):
             self.wave.set_playhead(self._clip_range()[0] + ms)
 
     def _on_wave_seek(self, song_ms: float):
-        if self.project:
+        if not self.project:
+            return
+        if self.wave.dragging:  # throttled like the scrub bar: one cheap seek per 16 ms, the full one on release
+            self._wave_seek_ms = song_ms
+            if not self._wave_action.is_active():
+                self._wave_action.schedule()
+        else:
             self.preview.seek(song_ms - self._clip_range()[0])
+
+    def _flush_wave_seek(self):
+        if self.project and self._wave_seek_ms is not None:
+            self.preview.seek(self._wave_seek_ms - self._clip_range()[0], fast=self.wave.dragging)
+        if not self.wave.dragging:
+            self._wave_seek_ms = None
 
     def _on_scrub(self, v: int):
         if self._scrubbing or self.scrub.isSliderDown():
@@ -678,7 +715,7 @@ class EditorPage(QWidget):
             self.preview.seek(v / SCRUB_MAX * self.preview.duration)
 
     def _flush_scrub(self):
-        self.preview.seek(self.scrub.value() / SCRUB_MAX * self.preview.duration)
+        self.preview.seek(self.scrub.value() / SCRUB_MAX * self.preview.duration, fast=self.scrub.isSliderDown())
 
     def _on_scrub_released(self):
         self._scrubbing = False
@@ -999,6 +1036,8 @@ class EditorPage(QWidget):
 
     def _refresh_audio_tab(self, *_):
         self._audio.refresh()
+        if self.project:
+            self.refresh_loop()
 
     def _refresh_wave(self):
         self._audio.refresh_wave()
@@ -1014,6 +1053,8 @@ class EditorPage(QWidget):
 
     def _update_summary(self):
         self._export_bar.update_summary()
+        if self.project:
+            self.refresh_loop()
 
     # ---------------- export ----------------
     def _output_dir(self) -> Path:
@@ -1079,6 +1120,7 @@ class EditorPage(QWidget):
             background.source = "cover"
             self.notify(lang.t("editor.transparentIgnored"), "info")
         first, last = (self.first if first is None else first), (self.last if last is None else last)
+        loop = self._loops.spec(start_ms, end_ms, first, last, full=full)
         name = clip_name(self.project.artist, self.project.title, *((None, None) if full else (first, last)), target=target,
                          tag=look_preset.name if look_preset is not None else "")
         return ExportJob(
@@ -1098,6 +1140,7 @@ class EditorPage(QWidget):
             target=target,
             cinematic=copy.copy(self.project.cinematic) if self.project.cinematic is None else copy.deepcopy(self.project.cinematic),
             wordfx=plan,
+            loop=loop,
         )
 
     def enqueue_range(self, first: int, last: int, start_ms: float, end_ms: float, look_preset=None) -> QueueItem | None:
@@ -1107,13 +1150,14 @@ class EditorPage(QWidget):
             return None
         try:
             ffmpeg.find_ffmpeg()
+            job = self.build_job(start_ms, end_ms, False, first, last, look_preset)
             audio = None
             if self.mode != "lyrics":
-                audio = self._audio_spec(start_ms, end_ms)
+                audio = self._audio_spec(job.start_ms, job.end_ms)
                 if audio is None:
                     return None
-                audio.fade_out_ms = float(self.settings.value("export/outro_ms", TAIL_MS))
-            job = self.build_job(start_ms, end_ms, False, first, last, look_preset)
+                if job.loop is None:
+                    audio.fade_out_ms = float(self.settings.value("export/outro_ms", TAIL_MS))
             job.out_path.parent.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError as e:
             self.notify(str(e), "error")
@@ -1138,14 +1182,14 @@ class EditorPage(QWidget):
             mode = self.mode
             full = mode == "full"
             start, end = (0.0, self._full_end_ms()) if full else self._clip_range()
+            job = self.build_job(start, end, full)
             audio = None
             if mode != "lyrics":
-                audio = self._audio_spec(start, end)
+                audio = self._audio_spec(job.start_ms, job.end_ms)
                 if audio is None:
                     return
-                if not full:
+                if not full and job.loop is None:
                     audio.fade_out_ms = float(self.settings.value("export/outro_ms", TAIL_MS))
-            job = self.build_job(start, end, full)
             job.out_path.parent.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError as e:
             self.notify(str(e), "error")

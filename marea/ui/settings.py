@@ -2,10 +2,9 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -20,13 +19,14 @@ from PySide6.QtWidgets import (
 from marea.async_util import run_async
 from marea.audio.loopback import AudioError
 from marea.export.ffmpeg import BACKENDS, CODECS, HW_ORDER, detect_encoders
+from marea.model.loop import AUDIO_FADE_MS, AUDIO_FADE_RANGE, VIDEO_FADE_MS, VIDEO_FADE_RANGE
 from marea.paths import default_output_dir
 from marea.providers.errors import ProviderError
 from marea.providers.spotify import REDIRECT_URI
 from marea.secrets import KEYS
 from marea import i18n
 from marea.ui import lang, theme
-from marea.ui.widgets import blocked_signals, make_button
+from marea.ui.widgets import ToggleSwitch, blocked_signals, make_button
 
 
 CARD_MIN = 640  # narrowest a settings card may get before the grid drops to one column
@@ -42,6 +42,8 @@ def _loopback_fn(name: str):
 
 
 class SettingsBody(QWidget):
+    loop_settings_changed = Signal()
+
     def __init__(self, settings: QSettings, on_theme, services, notify):
         super().__init__()
         self.services, self.notify, self._waiting = services, notify, False
@@ -326,7 +328,7 @@ class SettingsBody(QWidget):
 
     def _experimental_section(self, lay: QVBoxLayout, settings: QSettings):
         """Funciones experimentales: apagadas por defecto. Con la función apagada no se importa nada de marea.lab."""
-        self.cb_align = QCheckBox()
+        self.cb_align = ToggleSwitch()
         lang.bind(self.cb_align, "settings.experimental.align")
         self.cb_align.setChecked(settings.value("experimental/align", False, type=bool))
         lay.addWidget(self.cb_align)
@@ -341,7 +343,7 @@ class SettingsBody(QWidget):
         self.cb_align.toggled.connect(self._align_toggled)
         if self.cb_align.isChecked():
             self._mount_lab_panel()
-        self.cb_wordfx = QCheckBox()
+        self.cb_wordfx = ToggleSwitch()
         lang.bind(self.cb_wordfx, "settings.experimental.wordfx")
         self.cb_wordfx.setChecked(settings.value("experimental/wordfx", False, type=bool))
         self.cb_wordfx.toggled.connect(lambda on: self.settings.setValue("experimental/wordfx", on))
@@ -351,6 +353,39 @@ class SettingsBody(QWidget):
         fx_note.setObjectName("Caption")
         fx_note.setWordWrap(True)
         lay.addWidget(fx_note)
+        self.cb_loop = ToggleSwitch()
+        lang.bind(self.cb_loop, "loop.title")
+        self.cb_loop.setChecked(settings.value("experimental/loop", False, type=bool))
+        lay.addWidget(self.cb_loop)
+        loop_note = QLabel()
+        lang.bind(loop_note, "settings.experimental.loopNote")
+        loop_note.setObjectName("Caption")
+        loop_note.setWordWrap(True)
+        lay.addWidget(loop_note)
+        fades = QWidget()
+        fade_layout = QVBoxLayout(fades)
+        fade_layout.setContentsMargins(0, 0, 0, 0)
+        for key, label, default, bounds in (
+            ("export/loop_audio_fade_ms", "loop.audioFade", AUDIO_FADE_MS, AUDIO_FADE_RANGE),
+            ("export/loop_video_fade_ms", "loop.videoFade", VIDEO_FADE_MS, VIDEO_FADE_RANGE),
+        ):
+            spin = QSpinBox()
+            spin.setRange(*bounds)
+            spin.setValue(settings.value(key, default, type=int))
+            spin.setSuffix(" ms")
+            lang.bind(spin, label, "setAccessibleName")
+            spin.valueChanged.connect(lambda v, k=key: self._save_loop_setting(k, v))
+            self._row(fade_layout, label, spin)
+        lay.addWidget(fades)
+        fades.setVisible(self.cb_loop.isChecked())
+        self.cb_loop.toggled.connect(fades.setVisible)
+        self.cb_loop.toggled.connect(lambda on: self._save_loop_setting("experimental/loop", on))
+
+    def _save_loop_setting(self, key: str, value):
+        self.settings.setValue(key, value)
+        if key == "experimental/loop":
+            self._remeasure_experimental_card()
+        self.loop_settings_changed.emit()
 
     def _align_toggled(self, on: bool):
         self.settings.setValue("experimental/align", on)
@@ -360,12 +395,24 @@ class SettingsBody(QWidget):
             self._lab_panel.setParent(None)
             self._lab_panel.deleteLater()
             self._lab_panel = None
+        self._remeasure_experimental_card()
 
     def _mount_lab_panel(self):
         if self._lab_panel is None:
             from marea.ui.lab import LabSettingsPanel  # import perezoso: con la función apagada nada del laboratorio se carga
             self._lab_panel = LabSettingsPanel(self.settings, self.notify)
             self._lab_holder.addWidget(self._lab_panel)
+            self._lab_panel.show()
+
+    def _remeasure_experimental_card(self):
+        card = self._lab_holder.parentWidget()
+        for column in self._col_layouts:
+            index = column.indexOf(card)
+            if index >= 0:
+                # Replace the layout item so Qt measures the new height at the same width.
+                column.takeAt(index)
+                column.insertWidget(index, card)
+                break
 
     def focus_lab_model(self, model_id: str) -> QWidget:
         """Refresh lab status and return the target widget for a given model id."""

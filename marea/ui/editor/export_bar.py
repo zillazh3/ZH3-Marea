@@ -90,7 +90,7 @@ class ExportBarController:
         lang.bind(ed.act_alpha_wm, "exportBar.alphaWatermark")
         ed.act_alpha_wm.setCheckable(True)
         ed.act_alpha_wm.setChecked(ed.settings.value("export/alpha_watermark", True, type=bool))
-        ed.act_alpha_wm.toggled.connect(lambda v: ed.settings.setValue("export/alpha_watermark", v))
+        ed.act_alpha_wm.toggled.connect(lambda v: (ed.settings.setValue("export/alpha_watermark", v), ed.refresh_loop()))
         m.addSeparator()
         lang.bind(m.addAction("", ed.save_project_dialog), "exportBar.saveProject")
         lang.bind(m.addAction("", ed.open_project_dialog), "exportBar.openProject")
@@ -137,7 +137,7 @@ class ExportBarController:
         if target in ffmpeg.ALPHA_TARGETS and ed.project and ed.project.background.source != "transparent":
             ed._bgctl.set_source("transparent")
             ed.notify(lang.t("exportBar.transparentSwitched"), "info")
-        self.update_summary()
+        ed._update_summary()
 
     def _radio_submenu(self, menu: QMenu, title_key: str, options: dict, key: str, default: str) -> dict:
         sub = menu.addMenu("")

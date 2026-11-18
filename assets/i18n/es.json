@@ -137,6 +137,27 @@
     "pickMetaBody": "Se encontraron varias coincidencias cercanas. Elige la pista correcta:",
     "select": "Elegir"
   },
+  "loop": {
+    "title": "Loop perfecto",
+    "explanation": "Haz que el final del clip vuelva a entrar en el inicio.",
+    "fullUnavailable": "Loop perfecto está disponible para rangos de versos.",
+    "pngUnavailable": "La secuencia PNG no admite audio. Elige Solo letra o un formato de video.",
+    "tiktok": "Recorta el sonido oficial de TikTok a la duración exacta del clip para mantener la sincronía en cada repetición.",
+    "copy": "Copiar ms",
+    "copied": "Duración copiada en milisegundos.",
+    "inspect": "Ver unión",
+    "inspectTip": "Reproduce los últimos dos segundos seguidos de los primeros dos segundos del clip.",
+    "inspectSpotify": "Revisa la unión del video. El audio de Spotify se captura y se mezcla al exportar.",
+    "adjust": "Ajustar al compás",
+    "accept": "Usar nuevo fin",
+    "dismiss": "Descartar",
+    "analyzing": "Buscando el pulso del audio local…",
+    "proposed": "Duración estimada en 4/4: {time}.",
+    "noProposal": "No hay un límite de compás cercano que conserve la última sílaba.",
+    "analysisError": "No se pudo analizar el audio local: {error}",
+    "audioFade": "Fundido de audio del loop",
+    "videoFade": "Fundido de fondo del loop"
+  },
   "editor": {
     "chooseCover": "Elegir portada",
     "defaultProjectName": "proyecto",
@@ -898,7 +919,8 @@
       "align": "Sincronización automática de letras con el audio",
       "alignNote": "Alinea una letra con el audio (palabra, sílaba y vocal aproximada) y te deja revisarla antes de exportar un TTML NUEVO: tu archivo original nunca se modifica. Usa la GPU y, al instalarla, descarga varios GB. Aparece como «Sincronizar con audio» en el menú del Editor.",
       "wordfx": "Efectos semánticos por palabra",
-      "wordfxNote": "Palabras sueltas de la letra reaccionan a su significado y emoción (tiempo, pérdida, amor…), solo dentro de la palabra. Se ve en el preview y en el export. La biblioteca de categorías es editable: docs/wordfx.md."
+      "wordfxNote": "Palabras sueltas de la letra reaccionan a su significado y emoción (tiempo, pérdida, amor…), solo dentro de la palabra. Se ve en el preview y en el export. La biblioteca de categorías es editable: docs/wordfx.md.",
+      "loopNote": "Agrega al Editor un interruptor de loop para las exportaciones de versos seleccionados."
     },
     "export": {
       "change": "Cambiar…",

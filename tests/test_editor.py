@@ -215,6 +215,36 @@ def test_lyrics_export_enqueues_a_job_with_range_and_no_audio(win, captured, tmp
     assert e.mode_chips["lyrics"].isChecked() and e.summary.text() == "MP4 · H.264"
 
 
+def test_experimental_loop_export_and_preview_share_range(win, captured, tmp_path):
+    e = win.editor
+    e.settings.setValue("output_dir", str(tmp_path))
+    assert not e._loops.row.isVisible()
+    win.settings_body.cb_loop.click()
+    assert e._loops.row.isVisible()
+    e._loops.switch.setFocus()
+    QTest.keyClick(e._loops.switch, Qt.Key_Space)
+    assert e.editor_state()["loop"] is True
+    e.export()
+    (item,) = captured
+    assert item.job.loop == e.preview.scene.loop
+    assert item.job.end_ms == e.preview._range[1]
+    assert item.audio is None
+    assert e._loops.copy.isVisible()
+    e._loops.copy.click()
+    assert QApplication.clipboard().text() == str(round(item.job.loop.duration_ms))
+    assert e._loops.duration.text() == "0:22"
+    e._loops.inspect.click()
+    lo, hi = e.preview._loop_window()
+    assert e.preview.playing and lo < item.job.loop.ticks < hi
+    assert e.preview._loop_cursor == lo
+    e.preview.set_playing(False)
+    e.mode_chips["full"].click()
+    assert not e._loops.switch.isEnabled()
+    assert e.preview.scene.loop is None
+    e.mode_chips["lyrics"].click()
+    assert e.preview.scene.loop is not None
+
+
 def test_song_mode_needs_an_audio_source_and_explains_how(win, captured):
     e = win.editor
     set_mode(e, "song")

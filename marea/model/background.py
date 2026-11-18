@@ -13,6 +13,7 @@ from typing import Callable
 from marea.engine.curves import clamp
 from marea.i18n import t
 from marea.model.cinematic import VideoResource
+from marea.model.loop import LoopSpec
 from marea.sysutil import is_local_path
 
 SCHEMA = "marea.background"
@@ -101,6 +102,37 @@ def source_ms(cfg: BackgroundConfig, t_ms: float, clip_start_ms: float = 0.0) ->
     else:
         m = u % span
     return a + m
+
+
+def loop_source_samples(cfg: BackgroundConfig, phase_ms: float, spec: LoopSpec) -> tuple[tuple[float, float], ...]:
+    """Source timestamps and normalized weights for an integer number of seamless cycles.
+
+    A repeat overlaps its tail with its head; a short trim uses a cosine ping-pong
+    instead. The offset remains a source-time offset within the trimmed window.
+    """
+    a, b = cfg.window_ms()
+    frame = cfg.video.frame_duration_ms if cfg.video else 0.0
+    span = max(0.0, b - a - frame)
+    if span <= 1e-6:
+        return ((a, 1.0),)
+    duration = spec.duration_ms
+    phase = phase_ms % duration
+    requested_fade = max(0.0, float(spec.video_fade_ms))
+    if cfg.loop != "repeat" or span < max(4.0 * frame, 2.0 * requested_fade) or requested_fade <= 0:
+        cycles = max(1, int(math.floor(duration / (2.0 * span) + 0.5)))
+        angle = math.tau * (cycles * phase / duration + cfg.offset_ms / (2.0 * span))
+        return ((a + span * (1.0 - math.cos(angle)) / 2.0, 1.0),)
+    fade = min(requested_fade, span / 4.0, duration / 4.0)
+    cycle = span - fade
+    cycles = max(1, int(math.floor(duration / cycle + 0.5)))
+    local = (cycles * cycle * phase / duration + cfg.offset_ms) % cycle
+    primary = a + fade + local
+    if local <= cycle - fade:
+        return ((primary, 1.0),)
+    head = local - (cycle - fade)
+    u = head / fade
+    weight = u * u * (3.0 - 2.0 * u)
+    return ((primary, 1.0 - weight), (a + head, weight))
 
 
 def check_video(cfg: BackgroundConfig) -> tuple[BackgroundConfig, str | None]:

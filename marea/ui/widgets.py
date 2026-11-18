@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from PySide6.QtCore import QEasingCurve, QObject, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -11,6 +12,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSlider,
     QStackedWidget,
+    QStyle,
+    QStyleOptionButton,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +37,34 @@ def fmt_ms(ms: float, tenths: bool = False, millis: bool = False) -> str:
         return f"{int(s // 60)}:{s % 60:04.1f}"
     total = int(s)
     return f"{total // 60}:{total % 60:02d}"
+
+
+class ToggleSwitch(QCheckBox):
+    """A switch indicator with the native checkable control's input and accessibility."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("QCheckBox::indicator, QCheckBox::indicator:checked {"
+                           "width: 34px; height: 20px; background: transparent; border: none; }")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        rect = QRectF(self.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, self)).adjusted(1, 1, -1, -1)
+        palette = theme.current
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setOpacity(1.0 if self.isEnabled() else 0.55)
+        painter.setBrush(theme.qc(palette.accent if self.isChecked() else palette.surface_hover))
+        painter.setPen(theme.qc(palette.accent_icon if self.hasFocus() or self.isChecked() else palette.text_faint))
+        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qc(palette.on_accent if self.isChecked() else palette.text))
+        knob = rect.height() - 6
+        x = rect.right() - knob - 3 if self.isChecked() else rect.left() + 3
+        painter.drawEllipse(QRectF(x, rect.top() + 3, knob, knob))
 
 
 class ClickSeekSlider(QSlider):

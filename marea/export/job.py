@@ -16,6 +16,7 @@ from marea.i18n import t
 from marea.model.background import BackgroundConfig
 from marea.model.cinematic import CinematicConfig
 from marea.model.lyrics import Lyrics
+from marea.model.loop import HZ, LoopSpec
 from marea.render.gpu import make_context
 from marea.render.scene import Scene, Style
 from marea.sysutil import safe_filename, unique_path
@@ -50,9 +51,20 @@ class ExportJob:
     wordfx: object | None = None  # marea.wordfx.plan.FxPlan (experimental) ya compuesto: el mismo plan que vio la preview
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
     target: str = "mp4"  # "mp4" | "webm" | "prores" | "png" (los tres últimos con alfa: requieren fondo transparente)
+    loop: LoopSpec | None = None
+
+    def __post_init__(self):
+        if self.loop is not None:
+            if self.fps not in (30, HZ) or self.loop.ticks <= 0 or self.loop.ticks % (HZ // self.fps):
+                raise ValueError("Seamless clip timing must align with the output frames")
+            if not 0 <= self.loop.first <= self.loop.last < len(self.lyrics.lines):
+                raise ValueError("Seamless clip verses are outside the lyrics")
+            self.start_ms, self.end_ms = self.loop.start_ms, self.loop.end_ms
 
     @property
     def frames(self) -> int:
+        if self.loop is not None:
+            return self.loop.ticks * self.fps // HZ
         return max(1, round((self.end_ms - self.start_ms) / 1000 * self.fps))
 
 
@@ -74,21 +86,29 @@ def clip_name(artist: str, title: str, first: int | None = None, last: int | Non
     return f"{base} ({span}){tag} [ZH3 Marea]{TARGETS.get(target, TARGETS['mp4'])[0]}"
 
 
-def render_frames(job: ExportJob, ctx=None) -> Iterator[np.ndarray]:
+def render_frames(job: ExportJob, ctx=None, *, include_loop_endpoint: bool = False) -> Iterator[np.ndarray]:
     """Frames RGBA (alto, ancho, 4) del clip. Paso fijo de 1/fps: mismo trabajo => mismos píxeles."""
     own = ctx is None
     ctx = ctx or make_context(job.prefer_gpu)
     scene = None
     try:
         cover = skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(job.cover_png))
+        options = {"loop": job.loop} if job.loop is not None else {}
         scene = Scene(job.lyrics, cover, job.size, job.params, Style(**vars(job.style)), gpu=ctx.gpu,
-                      cinematic=job.cinematic, wordfx=job.wordfx, background=job.background)
+                      cinematic=job.cinematic, wordfx=job.wordfx, background=job.background, **options)
         scene.clip_start_ms = job.start_ms
         surface = ctx.make_surface(*job.size)
         canvas = surface.getCanvas()
+        if job.loop is not None:
+            for i in range(job.frames + include_loop_endpoint):
+                scene.seek_loop(i * (HZ // job.fps))
+                scene.render(canvas)
+                yield ctx.read_rgba(surface)
+            return
+        # Include the corresponding continued frame when measuring the legacy control.
         dt = 1 / job.fps
         scene.engine.warmup(job.start_ms, dt, PREROLL_MS)
-        for i in range(job.frames):
+        for i in range(job.frames + include_loop_endpoint):
             if i:
                 scene.engine.advance(dt)
             scene.render(canvas)
@@ -114,7 +134,7 @@ def run_export(job: ExportJob, progress: Callable[[int, int, float], None] | Non
     recent_times: deque[float] = deque(maxlen=48)
     try:
         png = job.target == "png"
-        with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.marker == "beep" and not job.audio_path and not png,
+        with FfmpegWriter(job.out_path, *job.size, job.fps, job.encoder, beep=job.loop is None and job.marker == "beep" and not job.audio_path and not png,
                           audio=None if png else job.audio_path, target=job.target, codec=job.codec) as out:
             t0 = time.perf_counter()
             recent_times.append(t0)

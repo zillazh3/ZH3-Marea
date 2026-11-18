@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal
 
 from marea.async_util import run_async
 from marea.audio import local
+from marea.audio.loop import loop_local
 from marea.audio.session import RecordingCancelled, record_song_range
 from marea.export import history
 from marea.export.job import ExportJob
@@ -138,13 +139,22 @@ class ExportQueue(QObject):
     def _make_audio(self, item: QueueItem) -> Path:
         """En un hilo: audio exacto del tramo -> WAV temporal."""
         a = item.audio
+        loop = item.job.loop
+        if item.cancel_event.is_set():
+            raise RecordingCancelled()
         if a.kind == "spotify":
+            loop_options = {"loop_fade_ms": loop.audio_fade_ms} if loop else {}
             samples, rate = record_song_range(self.services.spotify, a.track, a.start_ms, a.end_ms, device=a.device,
                                               offset_ms=a.offset_ms, cancel=item.cancel_event.is_set,
-                                              progress=lambda f, text: self._audio_progress.emit(item, f, text))
+                                              progress=lambda f, text: self._audio_progress.emit(item, f, text), **loop_options)
+        elif loop:
+            samples, rate = loop_local(a.samples, item.job.start_ms, loop.duration_ms,
+                                       a.offset_ms, loop.audio_fade_ms), local.RATE
         else:
             samples, rate = local.segment(a.samples, a.start_ms, a.end_ms, a.offset_ms), local.RATE
-        n = min(round(a.fade_out_ms / 1000 * rate), len(samples))
+        if item.cancel_event.is_set():
+            raise RecordingCancelled()
+        n = min(round(a.fade_out_ms / 1000 * rate), len(samples)) if not loop else 0
         if n > 0:
             samples[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)[:, None]
         item._audio_duration_ms = len(samples) / max(1, rate) * 1000.0
@@ -162,7 +172,7 @@ class ExportQueue(QObject):
         item.wav = wav
         item.job.audio_path = wav
         dur_ms = getattr(item, "_audio_duration_ms", 0.0)
-        if dur_ms > 0.0:
+        if dur_ms > 0.0 and item.job.loop is None:
             item.job.end_ms = item.job.start_ms + dur_ms
         if item.cancel_event.is_set():
             return self._finish(item, CANCELLED, t("export.stage.cancelled"))
@@ -208,7 +218,7 @@ class ExportQueue(QObject):
             log.exception("Failed thumbnail generation for %s", item.out_path)
         try:
             history.add({"path": str(item.out_path), "title": item.title, "artist": item.artist,
-                         "thumb": str(thumb) if thumb else ""})
+                         "thumb": str(thumb) if thumb else "", "loop": item.job.loop is not None})
         except Exception:
             log.exception("Failed history entry for %s", item.out_path)
         return thumb

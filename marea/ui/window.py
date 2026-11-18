@@ -171,6 +171,7 @@ class MainWindow(QWidget):
                                                            (lang.t("common.openFolder"), lambda: reveal_in_folder(str(it.out_path)))))
         self.queue.item_failed.connect(lambda it: self.toast(lang.t("window.exportFailed", title=it.title, error=it.error), "error"))
         self.settings_body = SettingsBody(self.settings, self.set_theme, self.services, self.toast)
+        self.settings_body.loop_settings_changed.connect(self.editor.refresh_loop)
         self.settings_scroll = scrollable(self.settings_body)
         self.page_home = HomePage(
             self.services, self.open_track, self.open_ttml, self.open_project_dialog, self.load_demo,

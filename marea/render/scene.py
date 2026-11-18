@@ -6,6 +6,7 @@ el estado, aquí solo se dibuja. Todo se mide en px del lienzo; blur y glow vien
 """
 import math
 import weakref
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -20,6 +21,9 @@ from marea.render.background import Background
 from marea.render.cinematic import CinematicBackground, VideoBackground
 from marea.render.text import (BG_PAD_TOP, CREDIT_GAP_TOP, LINE_H, PAD_L, PAD_R, PAD_V, Fonts, ItemLayout, layout_credit)
 
+if TYPE_CHECKING:
+    from marea.model.loop import LoopSpec
+
 DESIGN_PX = 42.0
 FW = 0.5  # borde del wipe (em)
 PROBE_HZ = 10
@@ -29,6 +33,7 @@ ORIGIN_SYL, ORIGIN_CH = 0.81, 0.75  # transform-origin vertical (em desde el bor
 BLOOM = ((0.28, 0.16), (0.06, 0.22))  # (radius em, alpha) of the two independent halos (outer soft, inner tight); x TUNING.bloom_gain
 BLOOM_STEPS = 16  # the bloom fades with L.act in this many cached levels (1/16 of its alpha is invisible)
 WHITE = skia.ColorSetARGB(255, 255, 255, 255)
+LOOP_SNAP_TICKS = 120  # loop engine snapshot spacing: a backward seek (wrap, scrub) re-simulates at most this many frames
 
 
 @lru_cache(maxsize=2048)
@@ -76,10 +81,16 @@ class Scene:
     def __init__(self, lyrics, cover: skia.Image, size=(1080, 1920), params: Params | None = None,
                  style: Style | None = None, gpu: bool = False, cinematic: CinematicConfig | None = None,
                  async_video: bool = False, on_video_frame=None, wordfx=None, wordfx_debug: bool = False,
-                 background: BackgroundConfig | None = None):
+                 background: BackgroundConfig | None = None, loop: "LoopSpec | None" = None):
         """gpu=True si el canvas es de una superficie GPU (`marea.render.gpu`); la portada debe estar en ese contexto.
         wordfx: `marea.wordfx.plan.FxPlan` (experimental) o None; wordfx_debug dibuja la superposición de depuración (solo preview)."""
         self.w, self.h = size
+        self.loop = loop
+        self.loop_watermark = True
+        self._loop_phase_ms = 0.0
+        # tick -> exact LoopEngine copy from one uninterrupted run; None once a restyle or new effects made the live engine
+        # differ from a fresh run (the next backward seek rebuilds from scratch and snapshots again)
+        self._loop_snaps: dict[int, object] | None = {}
         self.wordfx, self.wordfx_debug = wordfx, wordfx_debug
         self._probe = None  # miniatura del fondo para adaptar el color de las palabras con efecto (se crea al primer uso)
         self.style = style or Style()
@@ -135,15 +146,54 @@ class Scene:
         self._blur_filter_cache: dict[int, object] = {}
         self._wfx_lyrics_ref = weakref.ref(lyrics)
         self._wfx_mods: tuple | None = None
-        credit = lyrics.credit_lines() if self.style.credit else []
+        credit = lyrics.credit_lines() if self.style.credit and loop is None else []
         self._credit_rows, self._credit_size, credit_h = layout_credit(
             credit, self.fonts, self.size, stage_w - PAD_L * self.size - PAD_R * stage_w)
-        self.engine = Engine(lyrics, self._measure, self.stage.height(), self.size, params, credit_h=credit_h)
+        if loop is None:
+            self.engine = Engine(lyrics, self._measure, self.stage.height(), self.size, params, credit_h=credit_h)
+        else:
+            from marea.engine.loop import LoopEngine
+            self.engine = LoopEngine(lyrics, loop, self._measure, self.stage.height(), self.size, params)
         self._by_line = {id(L.src): L for L in self.engine.items if not (L.is_gap or L.is_credit)}
         if wordfx is not None:
             self.attach_wordfx(lyrics, wordfx)
+        self._loop_snaps = {}  # fresh engine with its effects attached: snapshots of this run are exact
         self._layouts = {}
         self.clip_start_ms: float | None = None  # inicio del clip: la marca de agua entra con fundido desde ahí
+        if loop is not None:
+            self.seek_loop(0)
+
+    def seek_loop(self, tick: int):
+        """Seek an absolute 60 Hz loop tick, including the genuine continuation at L."""
+        if self.loop is None:
+            raise ValueError("This scene has no loop specification")
+        if not isinstance(tick, int) or not 0 <= tick <= self.loop.ticks:
+            raise ValueError("Loop tick must be an integer in [0, ticks]")
+        base = max((k for k in self._loop_snaps or () if k <= tick), default=None)
+        if base is not None and (tick < self.engine.tick or base >= self.engine.tick + LOOP_SNAP_TICKS):
+            self.engine = self._loop_snaps[base].clone()  # also skips ahead on a long forward jump (not on normal play)
+            self._by_line = {id(item.src): item for item in self.engine.items if not item.is_gap}
+            self._layouts.clear()
+        elif tick < self.engine.tick:
+            from marea.engine.loop import LoopEngine
+            lyrics = self.engine.lyrics
+            self.engine = LoopEngine(lyrics, self.loop, self._measure, self.stage.height(), self.size, self.engine.p)
+            self._by_line = {id(item.src): item for item in self.engine.items if not item.is_gap}
+            self._layouts.clear()
+            if self.wordfx is not None:
+                self.attach_wordfx(lyrics, self.wordfx)
+            self._loop_snaps = {}
+        e = self.engine
+        while e.tick < tick:
+            e.seek_tick(min(tick, (e.tick // LOOP_SNAP_TICKS + 1) * LOOP_SNAP_TICKS))
+            if self._loop_snaps is not None and e.tick >= 0 and e.tick % LOOP_SNAP_TICKS == 0 and e.tick not in self._loop_snaps:
+                self._loop_snaps[e.tick] = e.clone()
+        self._loop_phase_ms = tick * 1000 / 60
+
+    def reconfigure(self):
+        """Engine params changed: re-layout on the next frame; loop snapshots no longer match a fresh run."""
+        self._loop_snaps = None
+        self.engine.reconfigure()
 
     def set_cinematic(self, cinematic: CinematicConfig | None):
         self.invalidate_probe()
@@ -182,10 +232,12 @@ class Scene:
     def attach_wordfx(self, lyrics, plan):
         """Marca cada palabra del motor con su efecto: la clave (verso, palabra) coincide con el orden de `Item.words`."""
         self.wordfx = plan
+        self._loop_snaps = None
         self._wfx_lyrics_ref = weakref.ref(lyrics)
         by_src = {id(l): i for i, l in enumerate(lyrics.lines)}
         has_word_fx = plan is not None and hasattr(plan, "word_fx")
-        for L in self._by_line.values():
+        items = self._by_line.values() if self.loop is None else (item for item in self.engine.items if not item.is_gap)
+        for L in items:
             li = by_src.get(id(L.src))
             if li is None:
                 for w in L.words:
@@ -291,6 +343,13 @@ class Scene:
         if self.bgvideo is not None:
             self.bgvideo.clip_start_ms = self.clip_start_ms or 0.0
             base = self.bgvideo
+        if self.loop is not None:
+            if self.cinematic_bg is not None:
+                self.cinematic_bg.draw_loop(canvas, base, t_s * 1000, self.loop,
+                    lambda: max((item.act for item in self.engine.items if not item.is_gap), default=0.0))
+            else:
+                base.draw_loop(canvas, t_s * 1000, self.loop)
+            return
         if self.cinematic_bg is not None:
             self.cinematic_bg.draw(
                 canvas,
@@ -302,19 +361,21 @@ class Scene:
             base.draw(canvas, t_s)
 
     def _draw_bg(self, canvas: skia.Canvas, base):
-        self._draw_bg_at(canvas, base, self.engine.t)
+        self._draw_bg_at(canvas, base, self.engine.t if self.loop is None else self._loop_phase_ms / 1000)
 
     def _backdrop(self, x: float, top: float, w: float, h: float) -> tuple[int, int, int]:
         """Color medio del fondo real (portada o cinemático) bajo una caja en px del lienzo: se dibuja el fondo en una miniatura
         (una vez por fotograma) y se promedia. Función pura de (portada, cinemático, t): preview y export ven lo mismo."""
         t = round(self.engine.t * PROBE_HZ) / PROBE_HZ  # el fondo cambia despacio: se muestrea a 10 Hz (sigue siendo función pura de t)
+        if self.loop is not None:
+            t = self._loop_phase_ms / 1000
         if self._probe is None:
             self._probe = (skia.Surface(PROBE_W, PROBE_H), Background(self.cover, PROBE_W, PROBE_H, lowres=1, **self._bg_args), [None, None, None])
         surf, small, cache = self._probe
         if cache[0] != t:
             c = surf.getCanvas()
             c.save()
-            if self.bgvideo is not None or (self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0)):
+            if self.loop is not None or self.bgvideo is not None or (self.cinematic_bg is not None and self.cinematic_bg.active_at(t * 1000.0)):
                 c.scale(PROBE_W / self.w, PROBE_H / self.h)  # el cinemático dibuja en px del lienzo real
                 self._draw_bg_at(c, self.bg, t)
             else:
@@ -356,7 +417,11 @@ class Scene:
         canvas.save()
         canvas.translate(st.left(), st.top())
         for L in e.items:
-            self._item(canvas, L)
+            if self.loop is None:
+                self._item(canvas, L)
+            else:
+                with e.source_clock(L):
+                    self._item(canvas, L)
         canvas.restore()
         canvas.drawRect(st, self._stage_fade_paint)
         canvas.restore()
@@ -403,12 +468,16 @@ class Scene:
         return worst
 
     def _watermark(self, canvas):
+        if self.loop is not None and not self.loop_watermark:
+            return
         sz = WM_SIZE * self.h
         box = self._watermark_box(sz)
         if box is None:
             return
         fade = 1.0 if self.clip_start_ms is None else (self.engine.t * 1000 - self.clip_start_ms) / WM_FADE_MS
         alpha = self.style.wm_alpha * min(1.0, max(0.0, fade)) * (1 - WM_DODGE * self._wm_dodge(box, sz))
+        if self.loop is not None:
+            alpha = self.style.wm_alpha
         if alpha < 0.003:
             return
         blob, tw = self.fonts.text(self.style.wm_text, sz)
@@ -529,8 +598,18 @@ class Scene:
         gw = 3 * d + 2 * gap
         left = w - 0.15 * w - gw if L.duet else size  # con dueto siguiente, a la derecha
         cy = L.h / 2
-        dot_rgb = (self.wordfx.interlude_color(self.engine.t)
+        color_time = (self.engine.t if self.loop is None else
+                      (self.loop.start_ms + self._loop_phase_ms % self.loop.duration_ms) / 1000)
+        dot_rgb = (self.wordfx.interlude_color(color_time)
                    if (self.wordfx is not None and self.wordfx.intensity > 0.0) else (255, 255, 255))
+        if self.loop is not None and self.wordfx is not None and self.wordfx.intensity > 0.0:
+            phase = self._loop_phase_ms % self.loop.duration_ms
+            fade = min(500.0, self.loop.duration_ms / 4)
+            if phase > self.loop.duration_ms - fade:
+                u = (phase - self.loop.duration_ms + fade) / fade
+                blend = u * u * (3 - 2 * u)
+                incoming = self.wordfx.interlude_color(color_time - self.loop.duration_ms / 1000)
+                dot_rgb = tuple(round(a + (b - a) * blend) for a, b in zip(dot_rgb, incoming))
         canvas.save()
         canvas.translate(left + gw / 2, cy)
         canvas.scale(L.grp_sc, L.grp_sc)

@@ -13,6 +13,7 @@ class WaveformWidget(QWidget):
     deben coincidir con las líneas de los versos (marcadores)."""
 
     seek_requested = Signal(float)  # song_ms clamped to active clip range
+    drag_finished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,6 +26,10 @@ class WaveformWidget(QWidget):
         self._playhead_ms: float | None = None
         self._dragging = False
         self._cache = None
+
+    @property
+    def dragging(self) -> bool:
+        return self._dragging
 
     def set_data(self, samples, view_ms: tuple[float, float], offset_ms: float, markers_ms: list[float],
                  range_ms: tuple[float, float]):
@@ -80,6 +85,7 @@ class WaveformWidget(QWidget):
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton and self._dragging:
             self._dragging = False
+            self.drag_finished.emit()
             e.accept()
             return
         super().mouseReleaseEvent(e)

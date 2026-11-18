@@ -7,6 +7,8 @@ import math
 
 import skia
 
+from marea.model.loop import LoopSpec
+
 # (periodo s, sentido, alpha, fase, zoom sobre la portada) — ciclos de 24 a 40 s
 LAYERS = [(36, 1, 1.0, 0.0, 1.0), (28, -1, 0.55, 2.1, 1.7), (40, 1, 0.5, 4.2, 1.3), (24, -1, 0.4, 5.3, 2.2)]
 RES = 192  # lado de cada capa precalculada
@@ -67,6 +69,30 @@ class Background:
             return self._compose(canvas, t)
         self._compose(self.surface.getCanvas(), t)
         canvas.drawImageRect(self.surface.makeImageSnapshot(), self._full_rect, self._sampling)
+
+    def draw_loop(self, canvas: skia.Canvas, phase_ms: float, spec: LoopSpec):
+        """Keep every motion amplitude and initial phase, with whole cycles per clip."""
+        target = self.surface.getCanvas() if self.surface is not None else canvas
+        duration_s = spec.duration_ms / 1000.0
+        phase = (phase_ms % spec.duration_ms) / spec.duration_ms
+        start_s = spec.start_ms / 1000.0 * self.speed
+
+        def angle(period, factor, offset=0.0):
+            cycles = max(1, int(math.floor(abs(self.speed) * duration_s * factor / period + 0.5)))
+            winding = math.copysign(cycles, self.speed) if self.speed else 0.0
+            return math.tau * (factor * start_s / period + winding * phase) + offset
+
+        for img, paint, (period, direction, _, initial, _) in zip(self.layers, self._layer_paints, LAYERS):
+            target.save()
+            target.translate(self.w / 2 + self.drift * math.sin(angle(period, 1.0, initial)),
+                             self.h / 2 + self.drift * math.cos(angle(period, 0.8, initial * 0.8)))
+            target.rotate(direction * math.degrees(angle(period, 1.0 / 3.0)))
+            target.scale(*(1 + SCALE_SWING * math.sin(angle(period, 1.3, initial * 2.3)),) * 2)
+            target.drawImageRect(img, self._layer_rect, self._sampling, paint)
+            target.restore()
+        target.drawColor(skia.ColorSetARGB(round(self.veil * 255), 0, 0, 0))
+        if self.surface is not None:
+            canvas.drawImageRect(self.surface.makeImageSnapshot(), self._full_rect, self._sampling)
 
     def _compose(self, canvas: skia.Canvas, t: float):
         t = t * self.speed

@@ -20,12 +20,22 @@ import skia
 
 from marea.engine.curves import clamp01
 from marea.i18n import t
-from marea.model.background import BackgroundConfig, source_ms
+from marea.model.background import BackgroundConfig, loop_source_samples, source_ms
 from marea.model.cinematic import ActiveInterval, CinematicConfig, CinematicTreatment, VideoResource, evaluate_at
+from marea.model.loop import LoopSpec
 from marea.sysutil import NO_WINDOW, find_ffmpeg
 
 CHUNK_FRAMES = 24       # ~0.8–1.0 s por bloque: menos spawns de ffmpeg manteniendo arrastre ágil
-MAX_CACHE_FRAMES = 40   # techo de memoria (~330 MB máx en 1080×1920, ~83 MB en 540×960)
+# Raw cache budget in whole chunks, evicted by chunk recency: a frame-level LRU evicted the untouched upcoming frames of
+# the current chunk when the next one was prefetched, so every chunk was decoded twice. Preview needs current + next +
+# loop lookahead (a stretched loop runs the source up to ~2× faster) and the seam head; export (sync, sequential) needs two
+# (~400 MB at 1080×1920; the preview's four are ~190 MB at 540×960). Prefetch requests count as use, so a chunk that was
+# decoded ahead but not shown yet is never the one evicted.
+CACHE_CHUNKS_ASYNC = 4
+CACHE_CHUNKS_SYNC = 2
+IMG_CACHE_FRAMES = 8    # skia copies of raw frames: only re-draws of the same frame and the loop seam pair reuse them
+PREVIEW_FFMPEG_THREADS = "2"  # preview decodes must not starve the desktop (an uncapped ffmpeg froze even the taskbar)
+EXACT_WAIT_S = 10.0     # loop preview: wait for the worker's exact frame instead of decoding on the UI thread
 LOOKAHEAD_MS = 900.0    # pre-carga antes de entrar a un intervalo durante la reproducción en vivo
 GRAIN_TILE = 128        # mosaico determinista de grano de película (se repite con shader en 24 Hz)
 
@@ -293,7 +303,9 @@ class VideoDecoder:
 
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
-        self._raw_cache: OrderedDict[int, bytes] = OrderedDict()  # frame_idx -> RGBA bytes (seguro entre hilos)
+        self._raw_cache: dict[int, bytes] = {}  # frame_idx -> RGBA bytes (seguro entre hilos)
+        self._chunk_lru: OrderedDict[int, None] = OrderedDict()  # chunk ids in the raw cache, least recently used first
+        self._max_chunks = CACHE_CHUNKS_ASYNC if async_decode else CACHE_CHUNKS_SYNC
         self._img_cache: OrderedDict[int, skia.Image] = OrderedDict()  # solo hilo de render
         self._inflight: set[int] = set()
         self._queue: list[int] = []  # pila LIFO/prioritaria de chunk_ids pendientes
@@ -328,37 +340,51 @@ class VideoDecoder:
             if self._broken:
                 return None
         idx = self.frame_index(src_ms)
-        if idx in self._img_cache:
-            self._img_cache.move_to_end(idx)
-            if self.async_decode and (idx % CHUNK_FRAMES) >= (CHUNK_FRAMES // 2):
-                next_idx = idx + CHUNK_FRAMES
-                if next_idx < self.max_frames:
-                    self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False, req_idx=next_idx)
-            return self._img_cache[idx]
+        img = self._cached_image(idx)
+        if img is None:
+            raw, actual_idx = self._get_raw(idx)
+            if raw is None:
+                return None
+            img = self._cached_image(actual_idx)
+            if img is None:
+                img = self._to_image(actual_idx, raw)
+            if actual_idx != idx:
+                return img
+        self._prefetch_next(idx)
+        return img
 
-        raw, actual_idx = self._get_raw(idx)
-        if raw is None:
-            return None
-        if actual_idx in self._img_cache:
-            self._img_cache.move_to_end(actual_idx)
-            return self._img_cache[actual_idx]
+    def _cached_image(self, idx: int) -> skia.Image | None:
+        img = self._img_cache.get(idx)
+        if img is not None:
+            self._img_cache.move_to_end(idx)
+            with self._lock:
+                self._touch_locked(idx // CHUNK_FRAMES)
+        return img
+
+    def _to_image(self, idx: int, raw: bytes) -> skia.Image:
         arr = np.frombuffer(raw, dtype=np.uint8).reshape((self.h, self.w, 4))
         img = skia.Image.fromarray(arr, colorType=skia.kRGBA_8888_ColorType, copy=True)
-        self._img_cache[actual_idx] = img
-        while len(self._img_cache) > MAX_CACHE_FRAMES:
+        self._img_cache[idx] = img
+        while len(self._img_cache) > IMG_CACHE_FRAMES:
             self._img_cache.popitem(last=False)
-        if self.async_decode and actual_idx == idx and (idx % CHUNK_FRAMES) >= (CHUNK_FRAMES // 2):
+        return img
+
+    def _prefetch_next(self, idx: int):
+        if self.async_decode and (idx % CHUNK_FRAMES) >= (CHUNK_FRAMES // 2):
             next_idx = idx + CHUNK_FRAMES
             if next_idx < self.max_frames:
                 self._enqueue_chunk(next_idx // CHUNK_FRAMES, urgent=False, req_idx=next_idx)
-        return img
+
+    def _touch_locked(self, chunk_id: int):
+        if chunk_id in self._chunk_lru:
+            self._chunk_lru.move_to_end(chunk_id)
 
     def _get_raw(self, idx: int) -> tuple[bytes | None, int]:
         chunk_id = idx // CHUNK_FRAMES
         with self._lock:
             raw = self._raw_cache.get(idx)
             if raw is not None:
-                self._raw_cache.move_to_end(idx)
+                self._touch_locked(chunk_id)
                 return raw, idx
             if self._broken or chunk_id in self._failed_chunks:
                 return None, idx
@@ -367,8 +393,6 @@ class VideoDecoder:
             self._decode_and_store(chunk_id)
             with self._lock:
                 raw = self._raw_cache.get(idx)
-                if raw is not None:
-                    self._raw_cache.move_to_end(idx)
                 return raw, idx
 
         # Modo asíncrono (UI): nunca bloquea el hilo principal; pide el bloque con prioridad y devuelve el frame más cercano si existe
@@ -381,12 +405,34 @@ class VideoDecoder:
                 return self._raw_cache[nearest], nearest
             return None, idx
 
+    def get_image_exact(self, src_ms: float) -> skia.Image | None:
+        """Loop inspection must never substitute a nearby frame or flash the cover. The UI thread never runs ffmpeg: on a miss
+        it waits for the prefetch worker to deliver this exact chunk (loop playback prefetches ahead, so only seeks wait)."""
+        if not self.async_decode:
+            return self.get_image(src_ms)
+        idx = self.frame_index(src_ms)
+        img = self._cached_image(idx)
+        if img is None:
+            chunk_id = idx // CHUNK_FRAMES
+            self._enqueue_chunk(chunk_id, urgent=True, req_idx=idx)
+            with self._cond:
+                self._cond.wait_for(lambda: self._closed or self._broken or idx in self._raw_cache
+                                    or chunk_id in self._failed_chunks, timeout=EXACT_WAIT_S)
+                raw = self._raw_cache.get(idx)
+                if raw is None:
+                    return None
+                self._touch_locked(chunk_id)
+            img = self._to_image(idx, raw)
+        self._prefetch_next(idx)
+        return img
+
     def _enqueue_chunk(self, chunk_id: int, urgent: bool = False, req_idx: int | None = None):
         with self._cond:
             if self._closed or self._broken or chunk_id in self._failed_chunks or chunk_id in self._inflight:
                 return
             check_idx = req_idx if req_idx is not None else chunk_id * CHUNK_FRAMES
             if check_idx in self._raw_cache:
+                self._touch_locked(chunk_id)
                 return
             if chunk_id in self._queue:
                 if urgent:
@@ -443,6 +489,7 @@ class VideoDecoder:
 
         cmd = [
             ffmpeg_bin, "-hide_banner", "-loglevel", "error",
+            *(("-threads", PREVIEW_FFMPEG_THREADS) if self.async_decode else ()),
             "-ss", f"{max(0.0, t0_s):.6f}",
             "-i", str(p),
             "-an",
@@ -452,7 +499,8 @@ class VideoDecoder:
         ]
         proc = None
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+            flags = NO_WINDOW | (getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0) if self.async_decode else 0)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
             with self._lock:
                 if self._closed:
                     proc.kill()
@@ -512,13 +560,13 @@ class VideoDecoder:
             while len(frames) < need:
                 frames.append(frames[-1])
             for offset, raw in enumerate(frames):
-                f_idx = k0 + offset
-                if f_idx in self._raw_cache:
-                    self._raw_cache.move_to_end(f_idx)
-                else:
-                    self._raw_cache[f_idx] = raw
-            while len(self._raw_cache) > MAX_CACHE_FRAMES:
-                self._raw_cache.popitem(last=False)
+                self._raw_cache.setdefault(k0 + offset, raw)
+            self._chunk_lru[chunk_id] = None
+            self._chunk_lru.move_to_end(chunk_id)
+            while len(self._chunk_lru) > self._max_chunks:
+                old, _ = self._chunk_lru.popitem(last=False)
+                for f_idx in range(old * CHUNK_FRAMES, (old + 1) * CHUNK_FRAMES):
+                    self._raw_cache.pop(f_idx, None)
             return True
 
     def close(self):
@@ -536,6 +584,7 @@ class VideoDecoder:
             self._worker.join(timeout=2.0)
         with self._lock:
             self._raw_cache.clear()
+            self._chunk_lru.clear()
             self._img_cache.clear()
 
 
@@ -685,6 +734,40 @@ class CinematicBackground:
             self._draw_memory_layer(canvas, rect, sampling, img, act.interval.treatment.clamped(),
                                     act.envelope, eff_alpha, t_s, act_val)
 
+    def draw_loop(self, canvas: skia.Canvas, base_bg, phase_ms: float, spec: LoopSpec,
+                  lyric_act: float | Callable[[], float] = 0.0):
+        """Fade complete cinematic treatments into the periodic base at the main seam."""
+        phase = phase_ms % spec.duration_ms
+        try:
+            self._draw_loop_layers(canvas, base_bg, phase, spec, lyric_act)
+        finally:
+            if self.async_video:  # after the exact frames were requested: loop playback wraps, so decode what the next
+                for act in evaluate_at(self.config, spec.start_ms + (phase + LOOKAHEAD_MS) % spec.duration_ms):
+                    self._decoder_for(act.resource).prefetch_ms(act.src_ms)  # moments (or the head) need in advance
+
+    def _draw_loop_layers(self, canvas, base_bg, phase, spec, lyric_act):
+        base_bg.draw_loop(canvas, phase, spec)
+        fade = min(max(250.0, float(spec.video_fade_ms)), spec.duration_ms / 4.0)
+        edge = min(phase, spec.duration_ms - phase)
+        u = clamp01(edge / fade)
+        seam = u * u * (3.0 - 2.0 * u)
+        if seam <= 1e-6:
+            return
+        active = evaluate_at(self.config, spec.start_ms + phase)
+        act_val = clamp01(lyric_act() if callable(lyric_act) else lyric_act)
+        angle = math.tau * phase / spec.duration_ms
+        grain_offset = (GRAIN_TILE * 0.5 * math.sin(angle), GRAIN_TILE * 0.5 * math.cos(angle))
+        for act in active:
+            img = self._decoder_for(act.resource).get_image_exact(act.src_ms)
+            if img is None:
+                continue
+            tr = act.interval.treatment.clamped()
+            envelope = act.envelope * seam
+            eff_alpha = clamp01(envelope * tr.opacity)
+            if eff_alpha > 1e-6:
+                self._draw_memory_layer(canvas, self._rect, self._sampling, img, tr,
+                                        envelope, eff_alpha, phase / 1000.0, act_val, grain_offset)
+
     def _draw_memory_layer(
         self,
         canvas: skia.Canvas,
@@ -696,6 +779,7 @@ class CinematicBackground:
         eff_alpha: float,
         t_s: float,
         lyric_act: float,
+        grain_offset: tuple[float, float] | None = None,
     ):
         # 1. Desenfoque suave + dinámico: se condensa al entrar/salir y se suaviza levemente cuando hay verso activo
         ref = min(self.w, self.h)
@@ -743,6 +827,8 @@ class CinematicBackground:
             tick = int(math.floor(max(0.0, t_s) * 24.0))
             ox = float((tick * 73) % GRAIN_TILE)
             oy = float((tick * 137) % GRAIN_TILE)
+            if grain_offset is not None:
+                ox, oy = grain_offset
             g_shader = _grain_image().makeShader(
                 skia.TileMode.kRepeat,
                 skia.TileMode.kRepeat,
@@ -819,6 +905,39 @@ class VideoBackground:
         if cfg.cover_tint > 0.003:
             canvas.saveLayerAlpha(self._rect, round(clamp01(cfg.cover_tint) * 255))
             self.cover_bg.draw(canvas, t_s)
+            canvas.restore()
+        if cfg.dim > 0.003:
+            canvas.drawColor(skia.ColorSetARGB(round(clamp01(cfg.dim) * 255), 0, 0, 0))
+
+    def draw_loop(self, canvas: skia.Canvas, phase_ms: float, spec: LoopSpec):
+        """Use the same exact source frames and seam blend in preview and export."""
+        phase = phase_ms % spec.duration_ms
+        samples = loop_source_samples(self.cfg, phase, spec)
+        images = [(self._dec.get_image_exact(source), weight) for source, weight in samples] if self._dec else []
+        if self._dec is not None and self._async:  # loop playback wraps: decode the next moments (or the head) in advance
+            for source, _ in loop_source_samples(self.cfg, (phase + LOOKAHEAD_MS) % spec.duration_ms, spec):
+                self._dec.prefetch_ms(source)
+        if not images or any(image is None for image, _ in images):
+            self.cover_bg.draw_loop(canvas, phase, spec)
+            return
+        cfg = self.cfg
+        if cfg.fit == "contain":
+            self.cover_bg.draw_loop(canvas, phase, spec)
+        p = self._paint
+        p.reset()
+        p.setAntiAlias(True)
+        if abs(cfg.saturation - 1.0) > 1e-3:
+            p.setColorFilter(_color_matrix(cfg.saturation, 1.0))
+        sigma = cfg.blur * 0.05 * min(self.w, self.h)
+        if sigma > 0.35:
+            p.setImageFilter(_blur_filter_clamp(round(sigma * 200.0) / 200.0))
+        for i, (image, weight) in enumerate(images):
+            # The first opaque image supplies (1-w); source-over adds the head with w.
+            p.setAlphaf(1.0 if i == 0 else weight)
+            canvas.drawImageRect(image, self._rect, self._sampling, p)
+        if cfg.cover_tint > 0.003:
+            canvas.saveLayerAlpha(self._rect, round(clamp01(cfg.cover_tint) * 255))
+            self.cover_bg.draw_loop(canvas, phase, spec)
             canvas.restore()
         if cfg.dim > 0.003:
             canvas.drawColor(skia.ColorSetARGB(round(clamp01(cfg.dim) * 255), 0, 0, 0))

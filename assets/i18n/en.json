@@ -137,6 +137,27 @@
     "pickMetaBody": "Several close matches were found. Choose the right track:",
     "select": "Select"
   },
+  "loop": {
+    "title": "Seamless loop",
+    "explanation": "Make the end of the clip flow back into the beginning.",
+    "fullUnavailable": "Seamless loop is available for verse ranges only.",
+    "pngUnavailable": "A PNG sequence cannot include audio. Choose Lyrics only or a video format.",
+    "tiktok": "Trim the official TikTok sound to the exact clip duration to keep replays in sync.",
+    "copy": "Copy ms",
+    "copied": "Duration copied in milliseconds.",
+    "inspect": "Preview seam",
+    "inspectTip": "Play the last two seconds followed by the first two seconds of the clip.",
+    "inspectSpotify": "Preview the video seam. Spotify audio is captured and blended during export.",
+    "adjust": "Snap to bar",
+    "accept": "Use new end",
+    "dismiss": "Dismiss",
+    "analyzing": "Finding the beat in the local audio…",
+    "proposed": "Estimated 4/4 duration: {time}.",
+    "noProposal": "No nearby 4/4 boundary preserves the final syllable.",
+    "analysisError": "Couldn't analyze the local audio: {error}",
+    "audioFade": "Loop audio crossfade",
+    "videoFade": "Loop background crossfade"
+  },
   "editor": {
     "chooseCover": "Choose cover art",
     "defaultProjectName": "project",
@@ -898,7 +919,8 @@
       "align": "Automatic lyrics sync with the audio",
       "alignNote": "Aligns lyrics with the audio (word, syllable and approximate vowel) and lets you review them before exporting a NEW TTML: your original file is never modified. It uses the GPU and, when installed, downloads several GB. It shows up as “Sync with audio” in the Editor menu.",
       "wordfx": "Semantic per-word effects",
-      "wordfxNote": "Individual words in the lyrics react to their meaning and emotion (time, loss, love…), only within the word. You see it in the preview and in the export. The category library is editable: docs/wordfx.md."
+      "wordfxNote": "Individual words in the lyrics react to their meaning and emotion (time, loss, love…), only within the word. You see it in the preview and in the export. The category library is editable: docs/wordfx.md.",
+      "loopNote": "Adds a seamless loop switch to the Editor for exports of selected verses."
     },
     "export": {
       "change": "Change…",

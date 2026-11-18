@@ -153,6 +153,15 @@ bloom ni la marca de agua (que puedes incluir o no con **Marca de agua en export
 
 > 📸 *Captura pendiente:* `docs/screenshots/fondo-video.png` (pestaña Fondo con video propio) y `docs/screenshots/alfa.png` (export sobre un editor de video).
 
+## Loop perfecto
+
+Activa **Loop perfecto** en **Ajustes → Funciones experimentales** y enciende el interruptor para el rango de versos en el Editor. El último verso da paso al primero, el fondo completa ciclos enteros dentro del clip y las exportaciones con canción funden el audio en la unión. El interruptor se guarda con el proyecto.
+
+- Usa **Ver unión** para reproducir los últimos dos segundos seguidos de los primeros dos. Si usas audio local, escucharás el mismo fundido que se exporta. Con Spotify, la vista previa muestra la unión del video y el audio capturado se mezcla al exportar.
+- En **Solo letra**, usa **Copiar ms** para obtener la duración exacta. Recorta el sonido oficial de TikTok a esa duración para mantener la letra sincronizada en cada repetición.
+- Con audio local, **Ajustar al compás** puede sugerir un fin cercano usando un compás estimado de 4/4. Revisa la duración propuesta y elige **Usar nuevo fin** para aplicarla.
+- Puedes ajustar la duración de los fundidos de audio y de fondo de video en **Ajustes → Funciones experimentales**. El loop está disponible para rangos de versos en MP4, WebM y ProRes, y para secuencias PNG sin audio.
+
 ## 🌊 Corrientes
 
 Una **Corriente** es un look guardado: se aplica con un clic, se comparte como un `.json` y no incluye formato de exportación ni la ruta

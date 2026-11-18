@@ -20,7 +20,8 @@ def load(path: Path | None = None) -> list[dict]:
         items = json.loads((path or _file()).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [e for e in items if isinstance(e, dict) and Path(e.get("path", "")).exists()]
+    return [{**e, "loop": bool(e.get("loop", False))}
+            for e in items if isinstance(e, dict) and Path(e.get("path", "")).exists()]
 
 
 def add(entry: dict, path: Path | None = None) -> list[dict]:

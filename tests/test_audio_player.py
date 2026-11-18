@@ -98,15 +98,28 @@ def test_player_shared_clock_seek_live_offset_and_loop(monkeypatch):
     assert pa.terminated and pa.streams[0].closed
 
 
-def test_editor_transport_controls_waveform_seek_and_millis_readout(make_window, qapp):
+def test_periodic_preview_spans_the_export_seam_and_restarts_the_inspection_window():
+    pa = _FakePA()
+    player = PreviewAudioPlayer(pa_factory=lambda: pa)
+    pcm = np.repeat(np.arange(80, dtype=np.float32)[:, None], 2, axis=1)
+    start = 100.0
+    step = 1000 / RATE
+    player.set_samples(pcm, period_start_ms=start)
+    assert player.play(start + 78 * step, (start + 50 * step, start + 110 * step), offset_ms=0.0)
+    raw, _ = pa.streams[0].cb(None, 33, None, 0)
+    np.testing.assert_array_equal(np.frombuffer(raw, np.float32)[::2], [78, 79, *range(30), 50])
+    player.close()
+
+
+def test_editor_transport_controls_waveform_seek_and_whole_second_readout(make_window, qapp):
     w = make_window()
     w.show()
     w.load_demo()
     qapp.processEvents()
     e = w.editor
 
-    # Millisecond precision format M:SS.mmm
-    assert "." in e.time.text() and len(e.time.text().split("/")[0].strip().split(".")[1]) == 3
+    e._on_position(1353, 22353)
+    assert e.time.text() == "0:01 / 0:22"
 
     # Attach fake local audio samples and verify live offset + mute + volume + waveform seek + stop
     samples = np.ones((RATE * 30, 2), np.float32) * 0.1

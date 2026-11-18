@@ -154,6 +154,15 @@ ship with their own codec and do not use the GPU.
 
 > 📸 *Screenshot pending:* `docs/screenshots/fondo-video.png` (Background tab with own video) and `docs/screenshots/alfa.png` (export over a video editor).
 
+## Seamless loop
+
+Enable **Seamless loop** under **Settings → Experimental features**, then turn it on for the selected verses in the Editor. The last verse scrolls back into the opening, the background repeats over the clip's exact duration, and exports with a song blend the audio at the join. The switch is saved with the project.
+
+- Use **Preview seam** to play the last two seconds followed by the first two. Local song audio plays with the same crossfade as the export. Spotify previews show the video seam, and the captured song is blended during export.
+- In **Lyrics only**, use **Copy ms** to get the exact duration. Trim the official TikTok sound to that duration so the words stay in sync on replays.
+- With local audio, **Snap to bar** can suggest a nearby end based on an estimated 4/4 beat grid. Review the proposed duration and choose **Use new end** to apply it.
+- Audio and video-background crossfade lengths can be adjusted in **Settings → Experimental features**. The loop is available for verse ranges in MP4, WebM and ProRes, and for silent PNG sequences.
+
 ## 🌊 Corrientes
 
 A **Corriente** (a "current", in Spanish) is a saved look: you apply it in one click, share it as a `.json`, and it includes neither the export

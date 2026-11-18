@@ -79,6 +79,7 @@ def render_audio_block(
 @dataclass
 class _State:
     samples: np.ndarray | None = None
+    period_start_ms: float | None = None
     playing: bool = False
     cursor_song_ms: float = 0.0
     range_ms: tuple[float, float] = (0.0, 1.0)
@@ -128,9 +129,10 @@ class PreviewAudioPlayer:
         with self._lock:
             return self._state.muted
 
-    def set_samples(self, samples: np.ndarray | None, offset_ms: float | None = None):
+    def set_samples(self, samples: np.ndarray | None, offset_ms: float | None = None, *, period_start_ms: float | None = None):
         with self._lock:
             self._state.samples = samples
+            self._state.period_start_ms = period_start_ms
             if offset_ms is not None:
                 self._state.offset_ms = float(offset_ms)
         if samples is None and self._stream is not None:
@@ -208,6 +210,9 @@ class PreviewAudioPlayer:
     def _unlocked_song_ms(self) -> float:
         s = self._state
         lo, hi = s.range_ms
+        if s.period_start_ms is not None:
+            elapsed = max(0.0, self._clock() - s.anchor_perf) * 1000.0
+            return lo + (s.anchor_song_ms - lo + elapsed) % (hi - lo)
         est = s.anchor_song_ms + (self._clock() - s.anchor_perf) * 1000.0
         est = max(s.last_good_ms, est)
         est = max(lo, min(hi, est))
@@ -229,15 +234,28 @@ class PreviewAudioPlayer:
                 else:
                     s.playing = False
                     return np.zeros((frames, 2), np.float32).tobytes(), False
-            block, next_ms = render_audio_block(
-                s.samples,
-                cur,
-                s.offset_ms,
-                frames,
-                self._rate,
-                volume=s.volume,
-                muted=s.muted,
-            )
+            if s.period_start_ms is not None:
+                step = RATE / self._rate
+                window = max(1, round((hi - lo) * RATE / 1000))
+                beginning = round((lo - s.period_start_ms) * RATE / 1000)
+                cursor = (cur - lo) * RATE / 1000
+                if abs(cursor - round(cursor)) < 1e-6:
+                    cursor = round(cursor)
+                positions = beginning + (np.arange(frames) * step + cursor) % window
+                if self._rate == RATE:
+                    block = s.samples[np.rint(positions).astype(np.int64) % len(s.samples)]
+                else:
+                    floor = np.floor(positions)
+                    indices = floor.astype(np.int64)
+                    fraction = (positions - floor).astype(np.float32)[:, None]
+                    block = ((1 - fraction) * s.samples[indices % len(s.samples)]
+                             + fraction * s.samples[(indices + 1) % len(s.samples)])
+                block *= 0 if s.muted else s.volume
+                next_ms = lo + (cursor + frames * step) % window * 1000 / RATE
+            else:
+                block, next_ms = render_audio_block(
+                    s.samples, cur, s.offset_ms, frames, self._rate, volume=s.volume, muted=s.muted,
+                )
             dac_lat = 0.0
             if time_info:
                 try:

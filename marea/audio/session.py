@@ -4,6 +4,7 @@ import time
 import numpy as np
 
 from marea.audio import align
+from marea.audio.loop import loop_pcm
 from marea.audio.loopback import AudioError, LoopbackRecorder
 from marea.i18n import t
 from marea.providers.spotify import SpotifyError
@@ -22,13 +23,17 @@ class RecordingCancelled(Exception):
 def record_song_range(client, track, start_ms: float, end_ms: float, *, device: str = "", offset_ms: float = 0.0,
                       preroll_ms: float = PREROLL_MS, fade_ms: float = 150.0, cancel=lambda: False,
                       progress=lambda fraction, text: None, recorder_factory=LoopbackRecorder,
-                      clock=time.perf_counter, sleep=time.sleep) -> tuple[np.ndarray, int]:
+                      clock=time.perf_counter, sleep=time.sleep,
+                      loop_fade_ms: float | None = None) -> tuple[np.ndarray, int]:
     """(audio (n, canales) float32, frecuencia) exacto de [start_ms, end_ms] de `track`, con fundidos. Dura lo que dura el tramo.
 
     Levanta SpotifyError/AudioError con mensajes para el usuario, o RecordingCancelled si `cancel()` da True.
+
+    `loop_fade_ms` captures extra handles and replaces legacy fades with a fixed-duration seam mix.
     """
-    begin = max(0.0, start_ms - preroll_ms)
-    total_s = (end_ms - begin) / 1000 + TAIL_S
+    handle_ms = min(max(0.0, loop_fade_ms or 0.0), (end_ms - start_ms) / 2) / 2
+    begin = max(0.0, start_ms - preroll_ms - handle_ms + (min(offset_ms, 0.0) if loop_fade_ms is not None else 0.0))
+    total_s = (end_ms - begin + handle_ms + (max(offset_ms, 0.0) if loop_fade_ms is not None else 0.0)) / 1000 + TAIL_S
     rec = recorder_factory(device)
     rec.start()  # primero la captura: así no se pierde nada de lo que suene tras el play
     samples, bad, aborted = [], 0, True
@@ -81,7 +86,12 @@ def record_song_range(client, track, start_ms: float, end_ms: float, *, device: 
         c, _ = align.estimate_c(samples)
     except ValueError as e:
         raise AudioError(str(e)) from e
-    segment = align.cut(recording, start_ms, end_ms, c, offset_ms, fade_ms)
+    if loop_fade_ms is None:
+        segment = align.cut(recording, start_ms, end_ms, c, offset_ms, fade_ms)
+    else:
+        start = align.song_time_to_index(recording, start_ms / 1000, c, offset_ms)
+        length = round((end_ms - start_ms) * recording.rate / 1000)
+        segment = loop_pcm(recording.samples, recording.rate, start, length, loop_fade_ms)
     if not len(segment) or float(np.abs(segment).max()) < SILENCE_PEAK:
         raise AudioError(t("errors.audio.nothingCaptured"))
     progress(1.0, t("errors.audio.recorded"))

@@ -93,6 +93,50 @@ def test_settings_persist_between_sessions(qapp, make_window, tmp_path):
     # (el tamaño no se compara: la plataforma offscreen simula una pantalla de 800x600 y Qt recorta la geometría)
 
 
+def test_expanding_settings_reserves_height_for_lab_controls(qapp, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from marea.lab import env
+    from marea.ui import lang, settings as settings_ui
+    from marea.ui.services import Services
+    from marea.ui.widgets import scrollable
+
+    monkeypatch.setattr(settings_ui, "_loopback_fn", lambda _: lambda: [])
+    monkeypatch.setattr(settings_ui, "detect_encoders", lambda: {})
+    monkeypatch.setattr(env, "is_installed", lambda _: True)
+    lang.apply_preference("en")
+    prefs = QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat)
+    prefs.setValue("experimental/lab_dir", str(tmp_path))
+    services = Services(prefs, secrets=SimpleNamespace(get=lambda _: ""))
+    body = settings_ui.SettingsBody(prefs, lambda _: None, services, lambda *_: None)
+    area = scrollable(body)
+    try:
+        area.resize(1598, 540)
+        area.show()
+        qapp.processEvents()
+        assert body._cols == 2
+        for width, columns in ((1598, 2), (818, 1), (1598, 2)):
+            area.resize(width, 540)
+            QTest.qWait(30)
+            assert body._cols == columns
+            collapsed = area.verticalScrollBar().maximum()
+            body.cb_loop.click()
+            body.cb_align.click()
+            qapp.processEvents()
+            panel = body._lab_panel
+            buttons = [panel.btn_install, panel.btn_uninstall, *(button for _, button in panel.rows.values())]
+            assert all(button.height() >= button.minimumSizeHint().height() for button in buttons)
+            assert panel.height() >= panel.heightForWidth(panel.width())
+            assert area.verticalScrollBar().maximum() > collapsed
+            body.cb_align.click()
+            body.cb_loop.click()
+            QTest.qWait(30)
+            assert area.verticalScrollBar().maximum() == collapsed
+    finally:
+        area.close()
+        services.close()
+
+
 def test_minimum_size_and_song_title(qapp, make_window):
     win = make_window()
     win.resize(500, 300)

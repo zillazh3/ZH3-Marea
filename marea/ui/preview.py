@@ -1,12 +1,16 @@
 """Preview 9:16 en vivo: mismo Scene y mismo motor que el export, a paso fijo de 1/60 s y resolución reducida."""
+from dataclasses import replace
 from time import perf_counter
 
 from PySide6.QtCore import QElapsedTimer, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontDatabase, QImage, QKeySequence, QPainter, QPainterPath, QPixmap, QShortcut
 from PySide6.QtWidgets import QWidget
 
+from marea.audio.loop import loop_local
 from marea.audio.player import PreviewAudioPlayer
 from marea.engine.engine import Params
+from marea.export.ffmpeg import ALPHA_TARGETS
+from marea.model.loop import HZ, LoopSpec
 from marea.render.gpu import make_context
 from marea.render.scene import Scene, Style
 from marea.ui import theme
@@ -14,6 +18,7 @@ from marea.ui import theme
 DT = 1 / 60
 MAX_STEPS = 4  # si la ventana se congela, no intentar «recuperar» segundos de simulación de golpe
 SETTLE_MS = 1500  # tras un cambio estando en pausa se sigue dibujando hasta que los springs se asientan
+SCRUB_PREROLL_MS = 500  # while dragging a seek bar: short warmup (the full 3 s one cost ~60 ms per step); release does the full one
 TICK_MS = 8  # el paso real lo marca el reloj; con 16 ms y DT=16.67 ms el temporizador se salta pasos y el scroll avanza a tirones
 
 
@@ -44,6 +49,13 @@ class PreviewWidget(QWidget):
         self._prefer_gpu, self._async_video = prefer_gpu, async_video
         self._audio = audio_player or PreviewAudioPlayer()
         self._audio_offset_ms = 0.0
+        self._source_samples = None
+        self._loop: LoopSpec | None = None
+        self._loop_audio = False
+        self._loop_target = "mp4"
+        self._loop_watermark = True
+        self._seam_only = False
+        self._loop_cursor = 0
         self.ctx, self.scene, self._surface = None, None, None
         self._project, self._style, self._params = None, Style(), Params()
         self._range = (0.0, 1.0)
@@ -62,15 +74,22 @@ class PreviewWidget(QWidget):
     def set_project(self, project, style: Style, params: Params, range_ms: tuple[float, float]):
         self._project, self._style, self._params = project, style, params
         self._range = range_ms
+        self._loop = None
+        self._seam_only = False
         self._audio_offset_ms = float(getattr(project, "audio_offset_ms", 0.0)) if project else 0.0
+        self._source_samples = getattr(project, "audio_samples", None)
         self._audio.set_range(range_ms)
-        self._audio.set_samples(getattr(project, "audio_samples", None) if project else None, self._audio_offset_ms)
+        self._audio.set_samples(self._source_samples, self._audio_offset_ms)
         if self.playing:
             self.set_playing(False)
         self.rebuild()
 
     def set_audio_samples(self, samples, offset_ms: float = 0.0):
+        self._source_samples = samples
         self._audio_offset_ms = float(offset_ms)
+        if self._loop is not None:
+            self._prepare_loop_audio()
+            return
         self._audio.set_samples(samples, self._audio_offset_ms)
         if self.playing and self.scene:
             if samples is not None:
@@ -81,7 +100,81 @@ class PreviewWidget(QWidget):
     def set_audio_offset(self, offset_ms: float):
         """Shift audio offset live without restarting playback."""
         self._audio_offset_ms = float(offset_ms)
+        if self._loop is not None:
+            self._prepare_loop_audio()
+            return
         self._audio.set_offset(self._audio_offset_ms)
+
+    def _loop_window(self):
+        ticks = self._loop.ticks
+        if not self._seam_only or ticks <= 2:
+            return 0, ticks
+        side = min(2 * HZ, ticks // 2)
+        return ticks - side, ticks + side
+
+    def _loop_song_ms(self, tick):
+        return self._loop.start_ms + tick * 1000 / HZ
+
+    def _playback_range(self):
+        if self._loop is None:
+            return self._range
+        lo, hi = self._loop_window()
+        return self._loop_song_ms(lo), self._loop_song_ms(hi)
+
+    def _prepare_loop_audio(self):
+        spec = self._loop
+        if spec is None:
+            self._audio.set_samples(self._source_samples, self._audio_offset_ms)
+        elif self._loop_audio and self._source_samples is not None:
+            samples = loop_local(self._source_samples, spec.start_ms, spec.duration_ms,
+                                 self._audio_offset_ms, spec.audio_fade_ms)
+            self._audio.set_samples(samples, 0.0, period_start_ms=spec.start_ms)
+            if self.playing:
+                self._audio.play(self._loop_song_ms(self._loop_cursor), self._playback_range(), 0.0)
+        else:
+            self._audio.set_samples(None)
+
+    def _scene_background(self):
+        cfg = getattr(self._project, "background", None)
+        if self._loop is not None and cfg is not None:
+            if self._loop_target in ALPHA_TARGETS:
+                return replace(cfg, source="transparent")
+            if cfg.transparent:
+                return replace(cfg, source="cover")
+        return cfg
+
+    def configure_range(self, range_ms, loop, audio, target, watermark, *, seek=False):
+        if self._loop is None and loop is None:
+            if seek or range_ms != self._range:
+                self.set_range(range_ms)
+            return
+        rebuild = (loop, target, watermark) != (self._loop, self._loop_target, self._loop_watermark)
+        audio_changed = rebuild or audio != self._loop_audio
+        if rebuild:
+            self._loop, self._loop_target, self._loop_watermark = loop, target, watermark
+            self._seam_only = self._seam_only and loop is not None
+            self._range = range_ms
+        self._loop_audio = audio
+        if audio_changed:
+            self._prepare_loop_audio()
+        if rebuild:
+            self._audio.set_range(self._playback_range())
+            offset = self._loop_window()[0] * 1000 / HZ if loop is not None else 0
+            self.rebuild(offset_ms=offset)
+            if self.playing and loop is None:
+                self._audio.play(self._range[0], self._range, self._audio_offset_ms)
+        elif seek:
+            self.seek(0)
+
+    def inspect_seam(self, on: bool):
+        if self._loop is None or on == self._seam_only:
+            return
+        self._seam_only = on
+        start_tick, _ = self._loop_window()
+        self._audio.set_range(self._playback_range())
+        self.seek((start_tick % self._loop.ticks) * 1000 / HZ)
+        if on:
+            self.set_playing(True)
 
     def set_volume(self, volume: float):
         self._audio.set_volume(volume)
@@ -110,11 +203,11 @@ class PreviewWidget(QWidget):
             return
         self.rebuild()
 
-    def rebuild(self):
+    def rebuild(self, offset_ms=None):
         """Escena nueva (cambió la portada, la fuente o la letra); conserva la posición."""
         if not self._project:
             return
-        offset = self.scene.engine.t * 1000 - self._range[0] if self.scene else 0.0
+        offset = offset_ms if offset_ms is not None else (self.scene.engine.t * 1000 - self._range[0] if self.scene else 0.0)
         if self.scene is not None:
             self.scene.close()
         if self.ctx is None:
@@ -132,7 +225,8 @@ class PreviewWidget(QWidget):
             on_video_frame=self._video_frame_ready.emit,
             wordfx=self._wordfx,
             wordfx_debug=self._wordfx_debug,
-            background=getattr(self._project, "background", None),
+            background=self._scene_background(),
+            loop=self._loop,
         )
         self._surface = self.ctx.make_surface(*size)
         self.seek(offset)
@@ -160,7 +254,7 @@ class PreviewWidget(QWidget):
     def update_background(self):
         """Cambió el fondo (portada, video propio o transparente): actualiza sin reiniciar springs."""
         if self.scene and self._project is not None:
-            self.scene.set_background(getattr(self._project, "background", None))
+            self.scene.set_background(self._scene_background())
             if not self.playing:
                 self._render()
             self._wake()
@@ -179,7 +273,7 @@ class PreviewWidget(QWidget):
     def restyle(self):
         """Cambiaron parámetros del motor o del estilo: re-layout sin cortar la animación."""
         if self.scene:
-            self.scene.engine.reconfigure()
+            self.scene.reconfigure()
             self._wake()
 
     # ---- reproducción ----
@@ -187,15 +281,30 @@ class PreviewWidget(QWidget):
     def duration(self) -> float:
         return max(1.0, self._range[1] - self._range[0])
 
-    def seek(self, offset_ms: float):
-        """Salta a `offset_ms` desde el inicio del rango, con el motor asentado (pre-roll de 3 s)."""
+    def seek(self, offset_ms: float, fast: bool = False):
+        """Salta a `offset_ms` desde el inicio del rango, con el motor asentado (pre-roll de 3 s; `fast` = arrastre en curso)."""
         if not self.scene:
             return
         offset_ms = min(max(0.0, offset_ms), self.duration)
+        if self._loop is not None:
+            tick = round(offset_ms * HZ / 1000)
+            lo, hi = self._loop_window()
+            if self._seam_only and tick < lo:
+                tick += self._loop.ticks
+            self._loop_cursor = tick if lo <= tick < hi else lo
+            self._lag0 = None
+            self._acc = 0.0
+            self._clock.restart()
+            self._audio.seek(self._loop_song_ms(self._loop_cursor))
+            self._render_loop_cursor()
+            return
         song_ms = self._range[0] + offset_ms
         self._lag0 = None
         self._audio.seek(song_ms)
-        self.scene.engine.warmup(song_ms)
+        if fast:
+            self.scene.engine.warmup(song_ms, preroll_ms=SCRUB_PREROLL_MS)
+        else:
+            self.scene.engine.warmup(song_ms)
         self._render()
         self.position.emit(offset_ms, self.duration)
         self._wake()
@@ -207,8 +316,9 @@ class PreviewWidget(QWidget):
         self._lag0 = None
         self._clock.restart()
         if on:
-            song_ms = min(max(self._range[0], self.scene.engine.t * 1000), self._range[1])
-            self._audio.play(song_ms, self._range, self._audio_offset_ms)
+            song_ms = (self._loop_song_ms(self._loop_cursor) if self._loop is not None
+                       else min(max(self._range[0], self.scene.engine.t * 1000), self._range[1]))
+            self._audio.play(song_ms, self._playback_range(), self._audio_offset_ms)
         else:
             self._audio.pause()
         self._wake()
@@ -230,6 +340,9 @@ class PreviewWidget(QWidget):
             self._timer.start()
 
     def _tick(self):
+        if self._loop is not None:
+            self._tick_loop()
+            return
         e = self.scene.engine
         audio_ms = self._audio.current_song_ms() if self.playing else None
         if audio_ms is not None:
@@ -277,6 +390,33 @@ class PreviewWidget(QWidget):
         if not self.playing and (self._settle <= 0 or e.is_settled()):
             self._timer.stop()
 
+    def _tick_loop(self):
+        if not self.playing:
+            self._timer.stop()
+            return
+        lo, hi = self._loop_window()
+        audio_ms = self._audio.current_song_ms()
+        if audio_ms is not None:
+            tick = int((audio_ms - self._loop.start_ms) * HZ / 1000)
+            tick = min(max(lo, tick), hi - 1)
+            self._clock.restart()
+        else:
+            self._acc += self._clock.restart() / 1000
+            steps = min(int(self._acc * HZ), MAX_STEPS)
+            self._acc -= steps / HZ
+            self._acc = min(self._acc, DT)
+            tick = lo + (self._loop_cursor - lo + steps) % (hi - lo)
+        if tick != self._loop_cursor:
+            self._loop_cursor = tick
+            self._render_loop_cursor()
+
+    def _render_loop_cursor(self):
+        phase = self._loop_cursor % self._loop.ticks
+        self.scene.seek_loop(self._loop.ticks if self._loop_cursor == self._loop.ticks else phase)
+        self._render()
+        self.position.emit(phase * 1000 / HZ, self.duration)
+        self._wake()
+
     def toggle_debug(self):
         self._debug = not self._debug
         self.update()
@@ -285,6 +425,8 @@ class PreviewWidget(QWidget):
         t0 = perf_counter()
         canvas = self._surface.getCanvas()
         self.scene.clip_start_ms = self._range[0]
+        if self._loop is not None:
+            self.scene.loop_watermark = self._loop_target not in ALPHA_TARGETS or self._loop_watermark
         self.scene.render(canvas)
         self._frame = self.ctx.read_rgba(self._surface)
         self._frame_ms = (perf_counter() - t0) * 1000
