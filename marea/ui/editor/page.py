@@ -58,7 +58,7 @@ from marea.ui.editor.style_tab import build_style_tab
 from marea.ui.editor.wordfx_controller import WordFXController
 from marea.ui.preview import PreviewWidget
 from marea.ui.services import decode_cover
-from marea.ui.source_tag import SourceTagButton, source_label
+from marea.ui.source_tag import SourceTagButton, plain_tooltip, source_label
 from marea.ui.widgets import ClickSeekSlider, CoalescedAction, EmptyState, blocked_signals, fmt_ms
 
 PANEL_W = 448  # las 6 pestañas (con Anzuelo) caben sin botones de desplazamiento
@@ -155,6 +155,7 @@ class EditorPage(QWidget):
         title.setObjectName("H1")
         self.subtitle = QLabel()
         self.subtitle.setObjectName("Body")
+        self.subtitle.setTextFormat(Qt.PlainText)  # title/artist come from opened projects and catalogs: never HTML
         head.addWidget(title)
         head.addSpacing(theme.SPACE[3])
         head.addWidget(self.subtitle, 1, Qt.AlignBottom)
@@ -795,7 +796,7 @@ class EditorPage(QWidget):
         if not self.project:
             return
         self.source_tag.set_tag(self.project.lyrics.resolved_source_tag)
-        lang.bind_fn(self.source_tag, "tooltip", lambda: self.source_tag.setToolTip(self._source_tooltip()))
+        lang.bind_fn(self.source_tag, "tooltip", lambda: self.source_tag.setToolTip(plain_tooltip(self._source_tooltip())))
 
     def _confirm_manual_overwrite(self) -> bool:
         if not (self.project and self.project.lyrics.manual_override):

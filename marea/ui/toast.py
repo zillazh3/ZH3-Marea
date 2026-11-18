@@ -18,6 +18,7 @@ class Toast(QFrame):
         lay.setContentsMargins(theme.SPACE[4], theme.SPACE[3], theme.SPACE[3], theme.SPACE[3])
         lay.setSpacing(theme.SPACE[3])
         label = QLabel(text)
+        label.setTextFormat(Qt.PlainText)  # messages carry file names, catalog titles and errors: never render them as HTML
         label.setWordWrap(True)
         lay.addWidget(label, 1)
         if action:

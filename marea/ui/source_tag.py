@@ -1,6 +1,8 @@
 """Native ZH3 Marea lyrics source tags: shared theme-derived palette, painter helper, and interactive pill button."""
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import QPushButton
@@ -19,6 +21,12 @@ SOURCE_KEYS = {
 def source_label(tag: str) -> str:
     norm = tag if tag in VALID_SOURCE_TAGS else SOURCE_UNKNOWN
     return lang.t(SOURCE_KEYS[norm])
+
+
+def plain_tooltip(text: str) -> str:
+    """Tooltips have no PlainText switch and render anything that looks like HTML: lyric credits come from opened projects
+    and providers, and an `<img src=//host/...>` there would make Windows authenticate to that host over SMB."""
+    return f"<p style='white-space:pre'>{html.escape(text)}</p>" if text else ""
 
 
 def _with_alpha(color: QColor, alpha: float) -> QColor:
@@ -124,7 +132,7 @@ class SourceTagButton(QPushButton):
         self._tag = tag if tag in VALID_SOURCE_TAGS else SOURCE_UNKNOWN
         self._sync_text()
         if tooltip:
-            self.setToolTip(tooltip)
+            self.setToolTip(plain_tooltip(tooltip))
 
     def _sync_text(self):
         label = source_label(self._tag)
