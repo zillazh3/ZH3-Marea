@@ -5,10 +5,14 @@ All notable changes to ZH3 Marea are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 Version 0.1.3 was an internal milestone that was never released; its work ships as part of 0.2.0.
 
-## [0.2.2] - 2026-11-17
+## [0.2.2] - 2026-11-18
 
 ### Added
 
+- **Seamless loop (experimental):** enable it in **Settings → Experimental features**, then turn it on for a verse range in the Editor. The
+  last verse scrolls back into the opening, cover and video backgrounds repeat over the exact clip duration, and exports with the song blend
+  the audio at the join. Includes **Preview seam**, **Copy ms** for trimming the TikTok sound, **Snap to bar** from the local audio's beat
+  grid, and adjustable audio and background crossfades.
 - **Real-time audio preview:** streaming WASAPI player (`marea/audio/player.py`) synchronized with the Editor preview clock, Stop/rewind, volume and mute controls, `ClickSeekSlider`, millisecond readout (`M:SS.mmm`), live audio-offset shifting, and interactive `WaveformWidget` click/drag scrubbing.
 - **Deezer catalog fallback & music link analyzer:** search and track lookup via Deezer without requiring Spotify login (`marea/providers/deezer.py`), URL/URI resolver (`marea/providers/links.py`) for Spotify, Apple Music, Deezer, YouTube, Tidal and SoundCloud links, fuzzy relevance ranking with version penalties (`marea/providers/matching.py`), and `CandidateDialog` disambiguation.
 - **Native lyrics source tags:** canonical `Spicy Lyrics`, `LRCLIB`, `Manual` and `Unknown` pills (`marea/ui/source_tag.py`) across Search, Home, Library and Editor, with a retry/pick-match menu and manual-edit overwrite protection.
@@ -19,6 +23,19 @@ Version 0.1.3 was an internal milestone that was never released; its work ships 
 - `SearchPage` is available without a Spotify connection using Deezer search, and accepts pasted music links directly in the search box.
 - `ChainProvider` validates finite, ordered synchronization timing (`validate_lyrics`) before accepting primary lyrics and falling back to LRCLIB, while `LrclibProvider` scores candidate matches by normalized title, artist and duration.
 - Navigating away from the Editor pauses active preview playback automatically.
+
+### Fixed
+
+- **Editor freezes with a video background or loop** that could stall the whole desktop, taskbar included. Preview video decoding no
+  longer decodes every chunk twice, runs ffmpeg with two threads at below-normal priority, and never decodes on the interface thread; loop
+  wraps and backward scrubs restore saved engine states instead of re-simulating from the start (from up to 0.9 s to under 0.07 s).
+  Dragging the time bar or the waveform stays fluid and settles precisely on release.
+- **The taskbar showed Windows' generic icon** instead of the ZH3 Marea logo for the whole session.
+
+### Security
+
+- Lyric credits shown in the source-tag tooltip, the editor subtitle and notifications are rendered as plain text. A crafted project or
+  provider credit could otherwise embed an image from a network path and make Windows send the user's NTLM credentials to that host.
 
 ## [0.2.1] - 2026-11-17
 
