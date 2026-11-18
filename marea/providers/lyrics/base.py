@@ -10,7 +10,8 @@ class TrackQuery:
     artist: str = ""
     album: str = ""
     duration_ms: int | None = None
-    spotify_id: str = ""  # Spicy Lyrics identifica por id de pista de Spotify
+    spotify_id: str = ""  # Spicy Lyrics identifies by Spotify track ID
+    deezer_id: str = ""
 
 
 class LyricsProvider(Protocol):

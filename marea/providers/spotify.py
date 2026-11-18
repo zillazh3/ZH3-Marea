@@ -19,6 +19,7 @@ import httpx
 
 from marea.i18n import t
 from marea.providers.errors import PositionSample, ProviderError
+from marea.providers.track import Track  # re-exported for backward compatibility
 from marea.secrets import KeyringSecrets
 
 REDIRECT_PORT = 8765
@@ -39,28 +40,6 @@ _PAGE = """<!doctype html><meta charset="utf-8"><title>ZH3 Marea</title>
 
 class SpotifyError(ProviderError):
     pass
-
-
-@dataclass
-class Track:
-    id: str
-    title: str
-    artists: list[str]
-    album: str
-    duration_ms: int
-    cover_url: str | None  # la imagen más grande que da Spotify (640 px)
-    uri: str = ""
-
-    @property
-    def artist(self) -> str:
-        return ", ".join(self.artists)
-
-    @classmethod
-    def from_api(cls, item: dict) -> "Track":
-        images = sorted(item.get("album", {}).get("images") or [], key=lambda i: i.get("width") or 0, reverse=True)
-        return cls(item["id"], item["name"], [a["name"] for a in item.get("artists", [])],
-                   item.get("album", {}).get("name", ""), item.get("duration_ms", 0),
-                   images[0]["url"] if images else None, item.get("uri", ""))
 
 
 @dataclass
@@ -268,6 +247,16 @@ class SpotifyClient:
             return []
         r = self._request("GET", f"{API}/search", params={"q": query, "type": "track", "limit": limit})
         return [Track.from_api(i) for i in self._json(r).get("tracks", {}).get("items", []) if i]
+
+    def track(self, track_id: str) -> Track | None:
+        tid = str(track_id or "").strip()
+        if not tid:
+            return None
+        r = self._request("GET", f"{API}/tracks/{tid}")
+        if r.status_code == 404:
+            return None
+        d = self._json(r)
+        return Track.from_api(d) if d.get("id") else None
 
     def now_playing(self) -> Playback | None:
         """Lo que suena ahora, o None si no hay nada (o es un podcast)."""

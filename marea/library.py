@@ -56,4 +56,5 @@ def register(project, project_path: str | Path, path: Path | None = None, thumbs
     except (OSError, TypeError):
         pass  # sin miniatura la tarjeta usa el relleno
     return add({"path": str(p), "title": project.title, "artist": project.artist,
-                "kind": project.lyrics.kind, "verses": len(project.lyrics.lines), "thumb": thumb}, path)
+                "kind": project.lyrics.kind, "verses": len(project.lyrics.lines),
+                "lyrics_source": project.lyrics.resolved_source_tag, "thumb": thumb}, path)

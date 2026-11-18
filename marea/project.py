@@ -15,14 +15,42 @@ from marea.model import background as bg_model
 from marea.model import cinematic as cine_model
 from marea.model.background import BackgroundConfig, BackgroundError
 from marea.model.cinematic import CinematicConfig, CinematicError
-from marea.model.lyrics import BgVocal, Line, Lyrics, Syllable
+from marea.model.lyrics import VALID_SOURCE_TAGS, BgVocal, Line, Lyrics, Syllable, resolve_source_tag
 from marea.providers.lyrics.ttml_file import TtmlFileProvider
-from marea.providers.spotify import Track
+from marea.providers.track import Track
 from marea.sysutil import is_local_path
 
+
+def _migrate_v1_to_v2(d: dict) -> dict:
+    """Upgrade a v1 project dict to v2 with independent provider IDs and canonical lyrics source tags."""
+    out = dict(d)
+    td = out.get("track")
+    if isinstance(td, dict) and td.get("id"):
+        td = dict(td)
+        prov = str(td.get("provider") or "spotify").strip().lower()
+        td["provider"] = prov
+        pids = td.get("provider_ids")
+        if not isinstance(pids, dict) or not pids:
+            td["provider_ids"] = {prov: str(td["id"])}
+        out["track"] = td
+    ld = out.get("lyrics")
+    if isinstance(ld, dict):
+        ld = dict(ld)
+        has_local = bool(str(out.get("source") or "").strip())
+        manual = bool(ld.get("manual_override", False))
+        tag = resolve_source_tag(str(ld.get("source") or ""), str(ld.get("provider_tag") or ""),
+                                 manual_override=manual, has_local_file=has_local)
+        ld["provider_tag"] = tag
+        ld["manual_override"] = manual or tag == "manual"
+        out["lyrics"] = ld
+    out.setdefault("album", td.get("album", "") if isinstance(td, dict) else "")
+    out["version"] = 2
+    return out
+
+
 PROJECT_SCHEMA = "marea.project"
-PROJECT_VERSION = 1
-PROJECT_MIGRATIONS: dict[int, Callable[[dict], dict]] = {}  # v -> transformador a v+1 cuando suba PROJECT_VERSION
+PROJECT_VERSION = 2
+PROJECT_MIGRATIONS: dict[int, Callable[[dict], dict]] = {1: _migrate_v1_to_v2}
 
 
 class ProjectError(ValueError):
@@ -36,7 +64,7 @@ class ClipProject:
     artist: str
     cover: skia.Image
     source: Path | None = None
-    track: Track | None = None  # canción de Spotify de la que viene (permite grabar su audio por loopback)
+    track: Track | None = None  # canción de origen (Spotify/Deezer)
     audio_file: Path | None = None  # audio propio elegido por el usuario
     audio_offset_ms: float = 0.0  # >0 = el audio del archivo va retrasado respecto a la letra
     audio_samples: object = None  # (n, 2) float32 ya decodificado; solo en memoria
@@ -44,6 +72,7 @@ class ClipProject:
     background: BackgroundConfig = field(default_factory=BackgroundConfig)  # portada | video propio | transparente
     background_warning: str = ""  # aviso (no bloqueante) al abrir: el video de fondo falta o cambió
     project_path: Path | None = None  # archivo .marea.json del que se abrió o donde se guardó
+    album: str = ""
 
     def cover_png(self) -> bytes:
         return bytes(self.cover.encodeToData())  # PNG; viaja al proceso de export y al .marea.json
@@ -142,6 +171,8 @@ def lyrics_to_dict(lyrics: Lyrics) -> dict:
         "source": lyrics.source,
         "credit": lyrics.credit,
         "writers": list(lyrics.writers),
+        "provider_tag": lyrics.resolved_source_tag,
+        "manual_override": bool(lyrics.manual_override),
         "lines": [_line_to_dict(l) for l in lyrics.lines],
     }
 
@@ -173,7 +204,12 @@ def lyrics_from_dict(d: dict) -> Lyrics:
                           role=str(ld.get("role", "")), raw_agent=str(ld.get("raw_agent", ""))))
     if not lines:
         raise ProjectError(t("errors.project.noTimedLines"))
-    return Lyrics(lines, str(d.get("source", "")), str(d.get("credit", "")), [str(w) for w in (d.get("writers") or [])])
+    src = str(d.get("source", ""))
+    raw_tag = str(d.get("provider_tag") or "").strip().lower()
+    manual = bool(d.get("manual_override", False))
+    tag = raw_tag if raw_tag in VALID_SOURCE_TAGS else resolve_source_tag(src, manual_override=manual)
+    return Lyrics(lines, src, str(d.get("credit", "")), [str(w) for w in (d.get("writers") or [])],
+                  provider_tag=tag, manual_override=manual)
 
 
 def project_to_dict(project: ClipProject, editor_state: dict | None = None) -> dict:
@@ -182,6 +218,7 @@ def project_to_dict(project: ClipProject, editor_state: dict | None = None) -> d
         "version": PROJECT_VERSION,
         "title": project.title,
         "artist": project.artist,
+        "album": project.album,
         "cover_png_b64": base64.b64encode(project.cover_png()).decode("ascii"),
         "source": str(project.source) if project.source else "",
         "track": asdict(project.track) if project.track else None,
@@ -230,6 +267,9 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         raw_artists = td.get("artists")
         if raw_artists is not None and not isinstance(raw_artists, list):
             raise ProjectError(t("errors.project.artistsNotList"))
+        raw_pids = td.get("provider_ids")
+        if raw_pids is not None and not isinstance(raw_pids, dict):
+            raw_pids = None
         track = Track(
             id=str(td["id"]),
             title=str(td.get("title", "")),
@@ -238,6 +278,8 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
             duration_ms=int(_num(td.get("duration_ms", 0), "track.duration_ms")),
             cover_url=td.get("cover_url"),
             uri=str(td.get("uri", "")),
+            provider=str(td.get("provider") or "spotify"),
+            provider_ids={str(k): str(v) for k, v in (raw_pids or {}).items() if k and v},
         )
 
     audio = _obj(d.get("audio") or {}, "audio")
@@ -256,6 +298,7 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         raise ProjectError(str(e)) from e
 
     src_str = str(d.get("source") or "").strip()
+    album = str(d.get("album") or (track.album if track else "") or "")
     project = ClipProject(
         lyrics=lyrics,
         title=str(d.get("title", "")),
@@ -268,6 +311,7 @@ def project_from_dict(raw: dict) -> tuple[ClipProject, dict]:
         cinematic=cinematic,
         background=background,
         background_warning=bg_warning or "",
+        album=album,
     )
     editor_state = d.get("editor") if isinstance(d.get("editor"), dict) else {}
     return project, editor_state

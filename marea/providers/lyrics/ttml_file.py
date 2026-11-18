@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from marea.model.lyrics import Lyrics, parse_ttml
+from marea.model.lyrics import SOURCE_MANUAL, Lyrics, parse_ttml
 from marea.providers.lyrics.base import TrackQuery
 
 
@@ -13,4 +13,7 @@ class TtmlFileProvider:
         self.path = Path(path)
 
     def fetch(self, query: TrackQuery | None = None) -> Lyrics:
-        return parse_ttml(self.path.read_bytes())
+        ly = parse_ttml(self.path.read_bytes())
+        ly.provider_tag = SOURCE_MANUAL
+        ly.manual_override = True
+        return ly

@@ -229,15 +229,21 @@ class Stub:
         return self.result
 
 
-def test_chain_prefers_syllables_and_skips_later_providers_once_it_has_them():
+def test_chain_accepts_valid_primary_without_calling_fallback():
     a, b = Stub(lyrics_of("syllable")), Stub(lyrics_of("line"))
-    assert ChainProvider(a, b).fetch(Q).source == "syllable" and b.calls == 0
+    res = ChainProvider(a, b).fetch(Q)
+    assert res.source == "syllable" and b.calls == 0
+
+    c, d = Stub(lyrics_of("line")), Stub(lyrics_of("syllable"))
+    res2 = ChainProvider(c, d).fetch(Q)
+    assert res2.kind == "line" and d.calls == 0
 
 
-def test_chain_keeps_looking_when_the_first_is_only_line_synced():
-    a, b = Stub(lyrics_of("line")), Stub(lyrics_of("syllable"))
-    assert ChainProvider(a, b).fetch(Q).kind == "syllable"
-    assert ChainProvider(Stub(lyrics_of("line")), Stub(None)).fetch(Q).kind == "line"  # nadie mejor: se queda con la de línea
+def test_chain_falls_back_when_primary_missing_or_invalid():
+    invalid = Lyrics([Line(500, 100, "v1", [Syllable("bad", 500, 100)])], source="spicy_lyrics")
+    fallback = lyrics_of("line")
+    assert ChainProvider(Stub(invalid), Stub(fallback)).fetch(Q) is fallback
+    assert ChainProvider(Stub(None), Stub(fallback)).fetch(Q) is fallback
     assert ChainProvider(Stub(None), Stub(None)).fetch(Q) is None
 
 

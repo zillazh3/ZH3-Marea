@@ -57,12 +57,49 @@ class Interlude:
     end: int
 
 
+SOURCE_SPICY = "spicy_lyrics"
+SOURCE_LRCLIB = "lrclib"
+SOURCE_MANUAL = "manual"
+SOURCE_UNKNOWN = "unknown"
+VALID_SOURCE_TAGS = (SOURCE_SPICY, SOURCE_LRCLIB, SOURCE_MANUAL, SOURCE_UNKNOWN)
+_SPICY_ALIASES = frozenset({"spicy_lyrics", "apple_music", "spotify"})
+
+
+def resolve_source_tag(
+    source: str = "",
+    provider_tag: str = "",
+    *,
+    manual_override: bool = False,
+    has_local_file: bool = False,
+) -> str:
+    """Resolve the canonical lyrics source tag from stored fields and fallback hints."""
+    if manual_override:
+        return SOURCE_MANUAL
+    tag = (provider_tag or "").strip().lower()
+    if tag in VALID_SOURCE_TAGS:
+        return tag
+    src = (source or "").strip().lower()
+    if src in _SPICY_ALIASES:
+        return SOURCE_SPICY
+    if src == SOURCE_LRCLIB:
+        return SOURCE_LRCLIB
+    if src == SOURCE_MANUAL or (not src and has_local_file):
+        return SOURCE_MANUAL
+    return SOURCE_UNKNOWN
+
+
 @dataclass
 class Lyrics:
     lines: list[Line]
     source: str = ""  # de dónde salió: "apple_music", "spicy_lyrics", "lrclib"… (vacío = archivo propio)
     credit: str = ""  # quién la proporciona, para «Provided by …» («Apple Music»)
     writers: list[str] = field(default_factory=list)  # autores, para «Written by …»
+    provider_tag: str = ""  # canonical tag: "spicy_lyrics" | "lrclib" | "manual" | "unknown"
+    manual_override: bool = False
+
+    @property
+    def resolved_source_tag(self) -> str:
+        return resolve_source_tag(self.source, self.provider_tag, manual_override=self.manual_override)
 
     def credit_lines(self) -> list[tuple[str, str]]:
         """[(prefijo, texto)] que se muestra bajo la letra, como en Spicetify: «Written by A, B» y «Provided by Apple Music»."""

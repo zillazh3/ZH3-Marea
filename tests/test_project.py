@@ -59,3 +59,17 @@ def test_valid_round_trip_keeps_overlapping_lines_duets_and_backing_vocals():
     back, _ = project_from_dict(d)
     assert back.lyrics.lines == p.lyrics.lines and (back.title, back.artist) == (p.title, p.artist)
     assert project_to_dict(back)["lyrics"] == d["lyrics"]
+
+
+def test_v1_project_migrates_track_provider_and_lyrics_source_tag(raw):
+    v1 = copy.deepcopy(raw)
+    v1["version"] = 1
+    v1.pop("album", None)
+    v1["track"] = {"id": "sp123", "title": "Song", "artists": ["Art"], "album": "Alb", "duration_ms": 180000, "cover_url": None, "uri": "spotify:track:sp123"}
+    v1["lyrics"].pop("provider_tag", None)
+    v1["lyrics"].pop("manual_override", None)
+    v1["lyrics"]["source"] = "apple_music"
+    back, _ = project_from_dict(v1)
+    assert back.track.provider == "spotify" and back.track.id_for("spotify") == "sp123"
+    assert back.lyrics.resolved_source_tag == "spicy_lyrics" and not back.lyrics.manual_override
+    assert back.album == "Alb"
